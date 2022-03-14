@@ -1,0 +1,11 @@
+apiVersion: projectcalico.org/v3
+kind: Node
+metadata:
+  labels:
+    route-reflector: true
+  name: master01.magedu.com
+spec:
+  bgp:
+    ipv4Address: 172.29.1.1/16
+    ipv4IPIPTunnelAddr: 192.168.152.0
+    routeReflectorClusterID: 1.1.1.1

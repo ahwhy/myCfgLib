@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deployment-demo-with-strategy
+spec:
+  replicas: 4
+  selector:
+    matchLabels:
+      app: demoapp
+      release: stable
+      env: dev
+  template:
+    metadata:
+      labels:
+        app: demoapp
+        release: stable
+        env: dev
+    spec:
+      containers:
+      - name: demoapp
+        image: ikubernetes/demoapp:${VERSION}
+        ports:
+        - containerPort: 80
+          name: http
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
