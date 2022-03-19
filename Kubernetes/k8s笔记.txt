@@ -1,0 +1,1750 @@
+1、POD的安全上下文
+资源定义格式
+apiVersion: v1
+kind: Pod
+metadata: {…}
+spec:
+  securityContext:                    # Pod级别的安全上下文，对内部所有容器均有效
+    runAsUser <integer>         # 以指定的用户身份运行容器进程，默认由镜像中的USER指定
+    runAsGroup <integer>      # 以指定的用户组运行容器进程，默认使用的组随容器运行时
+    supplementalGroups  <[]integer>  # 为容器中1号进程的用户添加的附加组；
+    fsGroup <integer>                # 为容器中的1号进程附加的一个专用组，其功能类似于sgid
+    runAsNonRoot <boolean>   # 是否以非root身份运行
+    seLinuxOptions <Object>      # SELinux的相关配置
+    sysctls  <[]Object>                 # 应用到当前Pod上的名称空间级别的sysctl参数设置列表
+    windowsOptions <Object>   # Windows容器专用的设置
+  containers:
+  - name: …
+    image: …
+    securityContext:       # 容器级别的安全上下文，仅生效于当前容器
+      runAsUser <integer>   # 以指定的用户身份运行容器进程
+      runAsGroup <integer>   # 以指定的用户组运行容器进程
+      runAsNonRoot <boolean>  # 是否以非root身份运行
+      allowPrivilegeEscalation <boolean> # 是否允许特权升级
+      capabilities <Object>  # 于当前容器上添加（add）或删除（drop）的内核能力
+        add  <[]string>  # 添加由列表定义的各内核能力
+        drop  <[]string>  # 移除由列表定义的各内核能力
+      privileged <boolean>  # 是否运行为特权容器    kube-proxy 具有true，因为其需要直接对内核中网络名称空间进行操作
+      procMount <string>   # 设置容器的procMount类型，默认为DefaultProcMount；
+      readOnlyRootFilesystem <boolean> # 是否将根文件系统设置为只读模式
+      seLinuxOptions <Object>  # SELinux的相关配置。
+	  
+      windowsOptions <Object>  # windows容器专用的设置
+	  
+        capabilities参数  #https://blog.csdn.net/zhongbeida_xue/article/details/107616659?utm_medium=distribute.pc_relevant.none-task-blog-baidujs_baidulandingword-2&spm=1001.2101.3001.4242
+        CAP_CHOWN：改变UID和GID； 
+        CAP_MKNOD：mknod()，创建设备文件； 
+        CAP_NET_ADMIN：网络管理权限； 
+        CAP_NET_BIND_SERVER：允许绑定特权端口
+        CAP_SYS_ADMIN：大部分的管理权限； 
+        CAP_SYS_TIME：
+        CAP_SYS_MODULE：装载卸载内核模块
+
+        linux的内核权限管理工具  getcap, setcap
+
+Pod内可安全内核参数只有三个：kernel.shm_rmid_forced, net.ipv4.ip_local_port_range, net.ipv4.tcp_syncookies
+
+ownerReference字段  #每个资源组件所属的上一级资源
+
+
+
+2、探针
+资源定义格式
+spec:
+  containers:
+  - name: …
+    image: …
+    livenessProbe:
+      exec <Object>     # 命令式探针
+      httpGet <Object>  # http GET类型的探针
+      tcpSocket <Object>  # tcp Socket类型的探针
+      initialDelaySeconds <integer>  # 发起初次探测请求的延后时长
+      periodSeconds <integer>         # 请求周期
+      timeoutSeconds <integer>        # 超时时长
+      successThreshold <integer>      # 成功阈值
+      failureThreshold <integer>       # 失败阈值
+
+LivenessProbe：周期性检测，检测未通过时，kubelet会根据restartPolicy的定义来决定是否会重启该容器；未定义时，Kubelet认为只容器未终止，即为健康； 
+ReadinessProbe：周期性检测，检测未通过时，与该Pod关联的Service，会将该Pod从Service的后端可用端点列表中删除；直接再次就绪，重新添加回来。未定义时，只要容器未终止，即为就绪； 
+StartupProbe：便于用户使用同livenessProbe不同参数或阈值； 
+
+三种探针：
+  ExecAction：直接执行命令，命令成功返回表示探测成功； 
+  TCPSocketAction：端口能正常打开，即成功； 
+  HTTPGetAction：向指定的path发HTTP请求，2xx, 3xx的响应码表示成功； 
+
+
+
+3、POD资源限制
+资源定义格式          #显式定义
+CPU，Memory
+resource:
+  request:    #下阈值
+    cpu:
+    memory:
+  limit:      #上阈值
+    cpu:
+    memroy
+
+QoS Class：服务质量类别，代表了Pod的资源被优先满足的类别
+  Guaranteed：Pod内的每个容器都分别设定了CPU和Memroy资源需求和资源限制，CPU的需求与限制相等，而且Memory的需求与限制也相等； 
+  Bustable：设置了limit或request，但未达到Guaranteed的条件；
+  BestEffort：未为任何一个容器设定任何需求或限制； 
+
+
+4、Service资源
+Service代理模式：
+  kube-proxy如何确保service能正常工作； 
+    Userspace
+    iptables
+    ipvs
+
+Service的类型
+  ClusterIP：通过集群内部IP地址暴露服务，但该地址仅在集群内部可见、可达，它无法被集群外部的客户端访问；默认类型；                          #Cluster：  Client -> ClusterIP:ServicePort -> PodIP:targetPort
+  NodePort：NodePort是ClusterIP的增强类型，它会于ClusterIP的功能之外，在每个节点上使用一个相同的端口号将外部流量引入到该Service上来。      #Out Cluster: Client -> NodeIP:NodePort -> PodIP:targetPort
+  LoadBalancer：LB是NodePort的增强类型，要借助于底层IaaS云服务上的LBaaS产品来按需管理LoadBalancer。
+  ExternalName：借助集群上KubeDNS来实现，服务的名称会被解析为一个CNAME记录，而CNAME名称会被DNS解析为集群外部的服务的IP地址； 这种Service既不会有ClusterIP，也不会有NodePort；
+
+    ClusterIP：建议由K8S动态指定一个； 也支持用户手动明确指定； 
+    ServicePort：被映射进Pod上的应用程序监听的端口； 而且如果后端Pod有多个端口，并且每个端口都想通过SErvice暴露的话，每个都要单独定义。
+      最终接收请求的是PodIP和containerPort；
+
+Service资源的定义格式，名称空间级别的资源：
+apiVersion: v1
+kind: Service
+metadata:
+  name: …
+  namespace: …
+  labels:
+    key1: value1
+    key2: value2
+spec:
+  type <string>   # Service类型，默认为ClusterIP
+  selector <map[string]string>  # 等值类型的标签选择器，内含“与”逻辑
+  ports：  # Service的端口对象列表
+  - name <string>  # 端口名称
+    protocol <string>  # 协议，目前仅支持TCP、UDP和SCTP，默认为TCP
+    port <integer>  # Service的端口号
+    targetPort  <string>  # 后端目标进程的端口号或名称，名称需由Pod规范定义
+    nodePort <integer>  # 节点端口号，仅适用于NodePort和LoadBalancer类型
+  clusterIP  <string>  # Service的集群IP，建议由系统自动分配
+  externalTrafficPolicy  <string> # 外部流量策略处理方式，Local表示由当前节点处理，Cluster表示向集群范围调度
+  loadBalancerIP  <string>  # 外部负载均衡器使用的IP地址，仅适用于LoadBlancer
+  externalName <string>  # 外部服务名称，该名称将作为Service的DNS CNAME值
+   
+   标签范例
+ 版本标签："release" : "stable"，"release" : "canary"，"release" : "beta"。
+ 环境标签："environment" : "dev"，"environment" : "qa"，"environment" : "prod"。
+ 应用标签："app" : "ui"，"app" : "as"，"app" : "pc"，"app" : "sc"。
+ 架构层级标签："tier" : "frontend"，"tier" : "backend", "tier" : "cache"。
+ 分区标签："partition" : "customerA"，"partition" : "customerB"。
+ 品控级别标签："track" : "daily"，"track" : "weekly"。
+
+标签特性简述
+a、标签中的键名称通常由“键前缀”和“键名”组成，其格式形如“KEY_PREFIX/KEY_NAME”，键前缀为可选部分。键名至多能使用63个字符，支持字母、数字、连接号（-）、下划线（_）、点号（.）等字符，且只能以字母或数字开头。而键前缀必须为DNS子域名格式，且不能超过253个字符。省略键前缀时，键将被视为用户的私有数据。那些由Kubernetes系统组件或第三方组件自动为用户资源添加的键必须使用键前缀，kubernetes.io/和k8s.io/前缀预留给了kubernetes的核心组件使用，例如Node对象上常用的kubernetes.io/os、kubernetes.io/arch和kubernetes.io/hostname等。
+b、标签的键值必须不能多于63个字符，它要么为空，要么是以字母或数字开头及结尾，且中间仅使用了字母、数字、连接号（-）、下划线（_）或点号（.）等字符的数据。
+c、标签选择器用于表达标签的查询条件或选择标准，Kubernetes API目前支持两个选择器：基于等值关系（equality-based）的标签选项器以及基于集合关系（set-based）的标签选择器。同时指定多个选择器时需要以逗号将其分隔，各选择器之间遵循“与”逻辑，即必须要满足所有条件，而且空值的选择器将不选择任何对象。
+d、基于等值关系的标签选择器的可用操作符有=、==和!=三种，其中前两个意义相同，都表示“等值”关系，最后一个表示“不等”。例如env=dev和env!=prod都是基于等值关系的选择器，而tier in (frontend,backend)则是基于集合关系的选择器。
+
+   创建标签时：release=alpha, 
+   标签选择器使用：release==alpha 
+
+ KEY in (VALUE1,VALUE2,…) ：指定的键名的值存在于给定的列表中即满足条件；
+ KEY notin (VALUE1,VALUE2,…) ：指定的键名的值不存在于给定列表中即满足条件；
+ KEY：所有存在此键名标签的资源；
+ !KEY：所有不存在此键名标签的资源。
+
+Endpoint资源的定义格式
+apiVersion: v1
+kind: Endpoint
+metadata:  # 对象元数据
+  name:
+  namespace:
+subsets:      # 端点对象的列表
+- addresses:  # 处于“就绪”状态的端点地址对象列表
+  - hostname  <string>  # 端点主机名
+    ip <string>          # 端点的IP地址，必选字段
+    nodeName <string>   # 节点主机名
+    targetRef：              # 提供了该端点的对象引用
+      apiVersion <string>  # 被引用对象所属的API群组及版本
+      kind <string>  # 被引用对象的资源类型，多为Pod
+      name <string>  # 对象名称
+      namespace <string>  # 对象所属的名称究竟
+      fieldPath <string>  # 被引用的对象的字段，在未引用整个对象时使用，常用于仅引用
+# 指定Pod对象中的单容器，例如spec.containers[1]
+      uid <string>     # 对象的标识符；
+  notReadyAddresses:  # 处于“未就绪”状态的端点地址对象列表，格式与address相同
+  ports:                # 端口对象列表
+  - name <string>  # 端口名称；
+    port <integer>  # 端口号，必选字段；
+    protocol <string>     # 协议类型，仅支持UDP、TCP和SCTP，默认为TCP；
+    appProtocol <string>  # 应用层协议；
+
+
+
+5、iptables类型service
+iptables类型：
+   其代理模式下的ClusterIP，每个Service在每个节点上（由kube-proxy负责生成）都会生成相应的iptables规则   #iptables -t nat -S
+ KUBE-SERVICES：包含所有ClusterIP类型（NodePort类型类似，见KUBE-NODEPORTS链）的Service的流量匹配规则，由PREROUTING和OUTPUT两个内置链直接调用；每个Service对象包含两条规则定义，对于所有发往该Service（目标IP为Service_IP且目标端口为Service_Port）的请求报文，前一条用于为那些非源自Pod网络（! -s 10.244.0.0/16）中请求报文借助于KUBE-MARQ-MASK自定义链中的规则打上特有的防火墙标记，后一条负责将所有报文转至专用的以KUBE-SVC为名称前缀的自定义链，后缀是Service信息hash值。
+ KUBE-MARK-MASQ：专用目的自定义链，所有转至该自定义链的报文都将被置入特有的防火墙标记（0x4000）以便于将特定的类型的报文定义为单独的分类，目的在将该类报文转发到目标端点之前由POSTROUTING规则链进行源地址转换。
+ KUBE-SVC-<HASH>：定义一个服务的流量调度规则，它通过随机调度算法（RANDOM）将请求分发给该Service的所有后端端点，每个后端端点定义在以KUBE-SEP为前缀名称的自定链上，后缀是端点信息的hash值。
+ KUBE-SEP-<HASH>：定义一个端点相关的流量处理规则，它通常包含两条规则，前一条用于为那些源自该端点自身（-s ep_ip）的请求流量调用自定义链KUBE-MARQ-MASK打上特有的防火墙标记，后一条负责将发往该端点的所有流量进行目标IP地址和端口转换，新目标为该端点的IP和端口（-j DNAT --to-destination ep_ip:ep_port）。
+ KUBE-POSTROUTING：专用的自定义链，由内置链POSTROUTING无条件调用，负责将拥有特有防火墙标记0x4000的请求报文进行源地址转换（Target为实现地址伪装的MASQUERADE），新的源地址为报文离开协议栈时流经接口的主IP（primary ip）地址。 
+
+ipvs类型：nat； 仅需要借助于极少量的iptables规则完成源地址转换（包括端口）等功能。
+
+PS：会在每个节点上创建一个名为kube-ipvs0的虚拟接口，并将集群所有Service对象的ClusterIP和ExternalIP都配置在该接口； kube-proxy为每个service生成一个虚拟服务器（Virtual Server）的定义。
+
+
+
+6、kubernetes的服务发现
+  Service：IP    # 1000 Service Name，
+
+  将传统的DNS服务直接提供一个云原生解决方案，他支持从apiserver动态加载相关的service及端点信息，并自动生成资源记录。
+
+  服务注册和发现的总线：KubeDNS，实现方案上，有三代：SkyDNS、KubeDNS、CoreDNS
+
+  传统服务发现方案：zookeeper, Euraka，Consul...
+
+
+基于环境变量：
+（1）Kubernetes Service环境变量
+Kubernetes为每个Service资源生成包括以下形式的环境变量在内一系列环境变量，在同一名称空间中 新创建 的Pod对象都会自动拥有这些变量：
+ {SVCNAME}_SERVICE_HOST
+ {SVCNAME}_SERVICE_PORT
+
+default名称空间：创建的demoapp Service，意味着default名称空间下的每个Pod内部会被自动注入DEMOAPP_SERVICE_HOST:ClusterIP， DEMOAPP_SERVICE_PORT=80           
+
+（2） Docker Link形式的环境变量
+Docker使用--link选项实现容器连接时所设置的环境变量形式，具体使用方式请参考Docker的相关文档。在创建Pod对象时，kubernetes也会把与此形式兼容的一系列环境变量注入到Pod对象中。
+
+DNS记录类型
+A记录      解析主机名（或域名）到对应的IP地址的DNS记录。
+AAAA记录   解析主机名（或域名）到对应的IPv6地址的DNS记录。
+SRV记录 - 服务发现记录  DNS服务器的数据库中支持的一种资源记录的类型，它记录了哪台计算机提供了哪个服务这么一个简单的信息  #nslookup -query=srv www.baidu.com
+PTR记录    解析IP地址到对应的解析主机名（或域名）的DNS记录。
+
+A记录 或 AAAA记录：service name -> service ip
+Srv记录(服务发现记录）：端口解析
+PTR记录：service ip -> service name
+
+基于DNS的服务发现，对于每个Service对象，都会具有以下3个类型的DNS资源记录。
+1）根据ClusterIP的地址类型，为IPv4生成A记录，为IPv6生成AAAA记录；
+ <service>.<ns>.svc.<zone>. <ttl>  IN  A  <cluster-ip>
+ <service>.<ns>.svc.<zone>. <ttl> IN AAAA <cluster-ip>
+
+   demoapp
+   demoapp.default.svc.cluster.local.
+
+2）为每个定义了名称的端口生成一个SRV记录，未命名的端口号则不具有该记录；
+ _<port>._<proto>.<service>.<ns>.svc.<zone>. <ttl>  IN  SRV  <weight> <priority>  <port-number>  <service>.<ns>.svc.<zone>.
+
+3）对于每个给定的A记录（例如a.b.c.d）或AAAA记录（例如a1a2a3a4:b1b2b3b4:c1c2c3c4:d1d2d3d4:e1e2e3e4:f1f2f3f4:g1g2g3g4:h1h2h3h4）都要生成PTR记录，它们各自的格式如下所示：
+ <d>.<c>.<b>.<a>.in-addr.arpa.  <ttl>  IN  PTR <service>.<ns>.svc.<zone>.
+ h4.h3.h2.h1.g4.g3.g2.g1.f4.f3.f2.f1.e4.e3.e2.e1.d4.d3.d2.d1.c4.c3.c2.c1.b4.b3.b2.b1.a4.a3.a2.a1.ip6.arpa <ttl> IN PTR <service>.<ns>.svc.<zone>.
+
+例如，前面在default名称空间中创建Service对象demoapp-svc的地址为10.97.72.1，且为TCP协议的80端口取名http，对于默认的cluster.local域名来说，此它会拥有如下3个DNS资源记录。
+ A记录：demoapp-svc.default.svc.cluster.local. 30 IN A  10.97.72.1；
+ SRV记录：_http._tcp.demoapp-svc.default.svc.cluster.local. 30 IN SRV 0 100 80 demoapp-svc.default.svc.cluster.local.
+ PTR记录：1.72.97.10.in-addr.arpa. 30     IN      PTR     demoapp-svc.default.svc.cluster.local.
+
+Kubelet会为创建的每一个容器于/etc/resolv.conf配置文件中生成DNS查询客户端依赖到的必要配置，相关的配置信息源自于kubelet的配置参数，各容器的DNS服务器由clusterDNS参数的值设定，它的取值为kube-system名称空间中的Service对象kube-dns的ClusterIP，默认为10.96.0.10，而DNS搜索域的值由clusterDomain参数的值设定，若部署Kubernetes集群时未特别指定，其值将为cluster.local、svc.cluster.local和NAMESPACENAME.svc.cluster.local，下面的示例取自集群上的一个随机选择的Pod中的容器。
+
+nameserver 10.96.0.10
+search default.svc.cluster.local svc.cluster.local cluster.local
+options ndots:5
+
+上述search参数中指定的DNS各搜索域，是以次序指定的几个域名后缀，它们各自的如下所示。 
+ <ns>.svc.<zone>：附带有特定名称空间的域名，例如default.svc.cluster.local；
+ svc. <zone>：附带了Kubernetes标识Service专用子域svc的域名，例如svc.cluster.local；
+ <zone>：集群本地域名，例如cluster.local。
+
+Headless Service
+  stateful, stateless
+  每个个体都具有一定程度的独特性，由其存储的状态决定；
+
+    DNS解析记录
+    <a>-<b>-<c>-<d>.<service>.<ns>.svc.<zone>  A  PodIP
+
+    PodIP   PTR   
+    <d>.<c>.<b>.<a>.in-addr.arpa IN PTR  <hostname>.<service>.<ns>.svc.<zone>
+
+    关键点：
+      svc_name的解析结果从常规Service的ClusterIP，转为各个Pod的IP地址；
+
+      反解，则从常规的clusterip解析为service name，转为从podip到hostname, <a>-<b>-<c>-<d>.<service>.<ns>.svc.<zone>
+
+      <hostname>指的是a-b-c-d格式，而非Pod自己的主机名； 
+
+Service类型中的第四种：ExternalName
+
+
+
+7、Volumes-PV&&PVC
+共享式存储设备：
+  多路并行读写  RWM
+  多路只读      ROM
+  单路读写      RWO
+
+Pod使用Volume步骤：
+  1、在Pod上定义存储卷，并关联至目标存储服务上； 
+  2、在需要用到存储卷的容器上，挂载其所属的Pod的存储卷； 
+
+存储卷类型：
+In-Tree #内建存储
+  Host级别：hostPath, Local
+  网络级别：NFS、GlusterFS、rbd（块设备）、CephFS（文件系统）、...
+  临时存储：emptyDir
+
+Out-of-Tree #外建存储
+FlexVolume:
+CSI：Container Storage Interface
+      Longhorn 
+
+挂载存储卷的资源格式
+kind: Pod&&Deployments
+spec:
+  volumes:
+  - name <string>  # 存储卷名称标识，仅可使用DNS标签格式的字符，在当前Pod中必须唯一
+    VOL_TYPE <Object>  # 存储卷插件及具体的目标存储供给方的相关配置
+  containers:
+  - name: …
+    image: …
+    volumeMounts:
+    - name <string>  # 要挂载的存储卷的名称，必须匹配存储卷列表中某项的定义
+      mountPath <string> # 容器文件系统上的挂载点路径
+      readOnly <boolean>  # 是否挂载为只读模式，默认为“否”
+      subPath <string>     # 挂载存储卷上的一个子目录至指定的挂载点
+      subPathExpr <string>  # 挂载由指定的模式匹配到的存储卷的文件或目录至挂载点
+
+hostPath的文件类型
+ File：事先必须存在的文件路径；
+ Directory：事先必须存在的目录路径；
+ DirectoryOrCreate：指定的路径不存时自动将其创建为0755权限的空目录，属主属组均为kubelet；
+ FileOrCreate：指定的路径不存时自动将其创建为0644权限的空文件，属主和属组同为kubelet；
+ Socket：事先必须存在的Socket文件路径；
+ CharDevice：事先必须存在的字符设备文件路径；
+ BlockDevice：事先必须存在的块设备文件路径；
+ ""：空字符串，默认配置，在关联hostPath存储卷之前不进行任何检查。
+
+PVC和PV
+  PVC: Persistent Volume Claim，持久卷申请，简称PVC；k8s上标准的资源类型之一； 由用户使用；名称空间级别； 
+  PV： Persistent Volume，持久卷，可被PVC绑定；而PV一定要与某个真正的存储空间（一般是网络存储服务上的存储空间）对应起来，才能真正存储数据。由集群管理员负责管理。集群级别。
+
+  PVC创建完成后，需要找到最为匹配的PV，并与之绑定。
+    在哪儿找：
+      二者要么都不属于任何StorageClass资源，要么属于同一个StorageClass资源；
+    怎么找：
+	  标签、
+
+Pod使用这类存储的步骤：
+  Admin：创建好PV；
+  User: 按需创建PVC，而后创建Pod，在Pod调用persistentVolumeClaim类型的存储卷插件调用同一个名称空间中的PVC资源；
+
+存储卷：隶属于Pod，而非容器； pause容器支撑
+	kubelet为了支持存储卷，内建了很多存储服务的客户端； 
+	In-Tree： 存储插件
+		临时存储：emptyDir
+		主机级别的存储：hostPath
+		网络级别的存储：具有持久能力的存储； 
+			云存储：awsEBS、...
+			NAS(network attached storage)：NFS、...         #网络附加存储
+			SAN(Storage Area Network)：FC，iSCSI, ...       #存储区域网络
+			SDS(Software Defined Storage): Ceph（rbd, cephfs）、...     #软件定义存储
+		pvc： 
+			Pod(pvc plugin) -> PVC(同一名称空间) -> PV
+
+	PV、PVC：将存储消费，存储创建的职能分离开来，
+		PV：由管理员定义的，将真正的存储设备上的一段存储空间抽象成的k8s的对象；集群级别；
+			NFS exported 目录；
+		PVC：由用户定义出存储消费需求，而后根据需求条件与现有各PV进行匹配检测，找出一个最佳的使用。名称空间级别，Pod只能调用与自己在同一名称空间中的PVC；
+
+	StorageClass：模板, 简称SC；PV和PVC都可属于某个特定的SC；
+		模拟为名称空间：一个PVC只能够在自己所处的SC内找PV；或者，一个不属于任何SC的PVC只能够在不属于任何SC的PV中进行筛选；
+		创建PV的模板：可以将某个存储服务与SC关联起来，并且将该存储服务的管理接口提供给SC，从而让SC能够在存储服务上CRUD（Create、Read、Update和Delete）存储单元；
+	        因而，在同一个SC上声明PVC时，若无现存可匹配的PV，则SC能够调用管理接口直接创建出一个符合PVC声明的需求的PV来。这种PV的提供机制，就称为Dynamic Provision。
+
+		ceph中的rbd支持动态预配，但kubeadm部署的k8s集群，却不支持该功能，原因在于kube-controller-manager镜像内部未内置ceph客户端工具。
+		Controller Manager，静态Pod，PV Controller和PVC Controller
+
+    Out-of-Tree：存储卷，由管理员通过flexVolume或CSI接入的第三方存储卷类型； 
+    	Rancher，（SUSE），Longhorn
+
+            #在kube-controller-manager镜像中添加ceph客户端的dockerfile
+            ARG KUBE_VERSION="v1.19.4"
+            
+            FROM registry.aliyuncs.com/google_containers/kube-controller-manager:${KUBE_VERSION}
+            
+            RUN apt update && apt install -y wget gnupg lsb-release
+            
+            ARG CEPH_VERSION="octopus"
+            RUN wget -q -O - https://mirrors.aliyun.com/ceph/keys/release.asc | apt-key add - && \
+                  echo deb https://mirrors.aliyun.com/ceph/debian-${CEPH_VERSION}/ $(lsb_release -sc) main > /etc/apt/sources.list.d/ceph.list && \
+                  apt update && \
+                  apt install -y ceph-common ceph-fuse 
+            
+            RUN rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
+			 
+            部署Longhorn，需要提前解决的依赖关系：
+                在每个节点上部署iscsi的适配器：CentOS 7上的程序包名为iscsi-initiator-utils
+				
+PS：FlexVolume是Kubernetes自v1.8版本进入GA（高可用）阶段一种存储插件扩展方式，它要求将外部插件的二进制文件部署在预先配置的路径中（例如/usr/libexec/kubernetes/kubelet-plugins/volume/exec/）并设定系统环境满足其正常运行所需要的全部依赖关系。事实上，一个FlexVolume类型的插件就是一款可被kubelet驱动的可执行文件，它实现了特定存储的挂载和卸载等存储插件接口，而对其调用也就相当于请求运行该程序文件（它要求返回JSON格式的响应内容）。
+    而自Kubernetes的v1.13版进入GA阶段的CSI是款更加开放的存储卷插件接口标准，它独立于Kubernetes，由CSI社区制定，可被Mesos和CloudFoundry等编排系统共同支持，而且能够以容器化形式部署，更加符合云原生的要义。除了允许第三方供应商外置实现存储插件之外，CSI支持使用存储类、PV和PVC等组件，因而它们与内置的存储卷插件具有一脉相承的功能和特性。
+    第三方需要提供的CSI组件主要是两个CSI存储卷驱动程序，一个是节点插件（Identity+Node），用于同kubelet交互实现存储卷的挂载和卸载等功能，另一个是自定义控制器（Identity+Controller），负责处理来自API Server的存储卷管理请求，例如创建和删除等，它的功能类似于Controller Manager中的PV控制器，如图5-11中实线的圆角方框所示。				
+			
+除了存储卷插件之外，PersistentVolume资源规范Spec字段主要支持嵌套以下几个通用字段，它们用于定义PV的容量、访问模式和回收策略等属性。
+ capacity <map[string]string>：指定PV的容量；目前，Capacity仅支持存储容量设定，将来还应该可以指定IOPS和吞吐量（throughput）。
+ accessModes  <[]string>：指定当前PV支持访问模式；存储系统支持存取能力大体可分为ReadWriteOnce（单路读写）、ReadOnlyMany（多路只读）和ReadWriteMany（多路读写）三种类型，某个特定的存储系统可能会支持其中的部分或全部的能力。
+ persistentVolumeReclaimPolicy <string>：PV空间被释放时的处理机制；可用类型仅为Retain（默认）、Recycle或Delete。目前，仅nfs和hostPath支持Recycle策略，也仅有部分存储系统支持Delete策略。
+ volumeMode <string>：该PV的卷模型，用于指定此存储卷被格式化为文件系统使用还是直接使用裸格式的块设备；默认值为Filesystem，仅块设备接口的存储系统支持该功能。
+ storageClassName <string>：当前PV所属的StorageClass资源的名称，指定的存储类需要事先存在；默认为空值，即不属于任何存储类。
+ mountOptions <string>：挂载选项组成的列表，例如ro、soft和hard等。
+ nodeAffinity <Object>：节点亲和性，用于限制能够访问该PV的节点，进而会影响到使用与该PV关联的PVC的Pod的调度结果。
+
+定义PVC时，用户可通过访问模式（accessModes）、数据源（dataSource）、存储资源空间需求和限制（resources）、存储类、标签选择器、卷模型和卷名称等匹配标准来筛选集群上的PV资源，其中，resources和accessModes是最重的筛选标准。PVC的Spec字段的可嵌套字段有如下几个。
+ accessModes <[]string>：PVC的访问模式；它同样支持RWO、RWX和ROX三种模式；
+ dataSources <Object>：用于从指定的数据源恢复该PVC卷，它目前支持的数据源包括一个现在卷快照对象（snapshot.storage.k8s.io/VolumeSnapshot）、一个既有PVC对象（PersistentVolumeClaim）或一个既有的用于数据转存的自定义资源对象（resource/object）；
+ resources <Object>：声明使用的存储空间的最小值和最大值；目前，PVC的资源限定仅支持空间大小一个维度；
+ selector <Object>：筛选PV时额外使用的标签选择器（matchLabels）或匹配条件表达式（matchExpressions）； 
+ storageClassName <string>：该PVC资源隶属的存储类资源名称；指定了存储类资源的PVC仅能在同一个存储类下筛选PV资源，否则，就只能从所有不具有存储类的PV中进行筛选；
+ volumeMode <string>：卷模型，用于指定此卷可被用作文件系统还是裸格式的块设备；默认值为Filesystem；
+ volumeName <string>：直接指定要绑定的PV资源的名称。
+
+StorageClass资源的期望状态直接与apiVersion、kind和metadata定义于同一级别而无须嵌套于spec字段中，它支持使用的字段包括如下几个：
+ allowVolumeExpansion <boolean>：是否支持存储卷空间扩展功能；
+ allowedTopologies <[]Object>：定义可以动态配置存储卷的节点拓扑，仅启用了卷调度功能的服务器才会用到该字段；每个卷插件都有自己支持的拓扑规范，空的拓扑选择器表示无拓扑限制；
+ provisioner  <string>：必选字段，用于指定存储服务方（provisioner，或称为预备器），存储类要依赖该字段值来判定要使用的存储插件以便适配到目标存储系统；Kubernetes内建支持许多的Provisioner，它们的名字都以kubernetes.io/为前缀，例如kubernetes.io/glusterfs等；
+ parameters  <map[string]string>：定义连接至指定的Provisioner类别下的某特定存储时需要使用的各相关参数；不同Provisioner的可用的参数各不相同；
+ reclaimPolicy <string>：由当前存储类动态创建的PV资源的默认回收策略，可用值为Delete（默认）和Retain两个；但那些静态PV的回收策略则取决于它们自身的定义；
+ volumeBindingMode <string>：定义如何为PVC完成预配和绑定，默认值为VolumeBindingImmediate；该字段仅在启用了存储卷调度功能时才能生效；
+ mountOptions <[]string>：由当前类动态创建的PV资源的默认挂载选项列表。
+
+存储卷总结：
+	介绍的存储卷：emptyDir，hostPath， NFS， Longhorn
+	CSI: 外置存储服务，带来了扩展功能，快照、恢复；也会引入CRD类型的CR
+
+
+
+7、Volumes-Configmap&&Secret
+核心资源类型存储卷，PV、PVC、SC、CSI（Longhorn）
+	kubelet In-Tree
+		特殊类型的插件：ConfigMap、Secret、downwardAPI
+
+	如何为容器化应用提供配置信息：
+		 启动容器时，直接向应用程序传递参数，args: []
+		 将定义好的配置文件配进镜像之中；
+		 通过环境变量向容器传递配置数据：有个前提要求，应用得支持从环境变量加载配置信息； 
+			制作镜像时，使用entrypoint脚本来预处理变量，常见的做法就是使用非交互式编辑工具，将环境变量的值替换到应用的配置文件中； 
+		 基于存储卷向容器传递配置文件； 
+			运行中的改变，需要由应用程序重载； 
+
+	ConfigMap，以k/v格式保存配置项的名称和配置数据；
+	第一种方式，由Pod中的容器以环境变量的方式从ConfigMap中加载特定的键的值；
+	第二种方式，由Pod直接将ConfigMap以存储卷的形式进行附加，而由容器挂载至指定目录下，从而获取到完整的配置文件。
+
+通过环境变量的配置容器化应用时，需要在容器配置段中嵌套使用env字段，它的值是一个由环境变量构建的列表。每个环境变量通常由name和value（或valueFrom）字段构成。
+	name <string>：环境变量的名称，必选字段；
+	value <string>：环境变量的值，通过$(VAR_NAME)引用，逃逸格式为“$$(VAR_NAME)”默认值为空；
+	valueFrom <Object>：环境变量值的引用源，例如当前Pod资源的名称、名称空间、标签等，不能与非空值的value字段同时使用，即环境变量的值要么源于value字段，要么源于valueFrom字段，二者不可同时提供数据。
+
+valueFrom字段可引用的值有多种来源，包括当前Pod资源的属性值，容器相关的系统资源配置、ConfigMap对象中的Key以及Secret对象中的Key，它们分别要使用不同的嵌套字段进行定义。
+	fieldRef	<Object>：当前Pod资源的指定字段，目前支持使用的字段包括metadata.name、metadata.namespace、metadata.labels、metadata.annotations、spec.nodeName、spec.serviceAccountName、status.hostIP和status.podIP等；
+	configMapKeyRef	<Object>：ConfigMap对象中的特定Key；
+	secretKeyRef	<Object>：Secret对象中的特定Key；
+	resourceFieldRef  <Object>：当前容器的特定系统资源的最小值（配额）或最大值（限额），目前支持的引用包括limits.cpu、limits.memory、limits.ephemeral-storage、requests.cpu、requests.memory 和requests.ephemeral-storage。
+
+ConfigMap的配置信息基本没有类别之分，但Secret有所不同，根据其用户存在类型的概念；
+	docker-registry：专用于让kubelet启动Pod时从私有镜像仓库pull镜像时，首先认证到Registry时使用； 
+	tls：专门用于保存tls/ssl用到证书和配对儿的私钥；
+	generic：余下的通用类型； 可以存在子类型
+
+		--type="kubernetes.io/basic-auth"
+		--type="kubernetes.io/rbd"                #ceph
+		--type="kubernetes.io/ssh-auth"           #SSH
+
+	    另外，保存有专用于ServiceAccount的相关的token信息的Secret资源会使用资源注解来保存其使用场景。
+
+	    kind: Secret
+		metadata:
+	     	annotations:
+	    		kubernetes.io/service-account.name: node-controller
+	    		kubernetes.io/service-account.uid: b9f7e593-3e49-411c-87e2-dbd7ed9749c0
+
+			资源的元数据：除了name, namespace之外，常用的还有labels, annotations；
+			     annotations：
+				（1）annotation的名称遵循类似于labels的名称命名格式，但其数据长度不受限制；
+				（2）它不能用于被标签选择器作为筛选条件；但常用于为那些仍处于Beta阶段的应用程序提供临时的配置接口；
+				（3）管理命令：kubectl annotate TYPE/NAME KEY=VALUE, kubectl annotate TYPE/NAME KEY-
+
+		还有一种由kubeadm的bootstrap所使用的token专用的类型，它通常保存于kube-system名称空间，以bootstrap-token-为前缀。
+
+			--type="bootstrap.kubernetes.io/token"
+
+	TLS类型是一种独特的类型，在创建secret的命令行中，除了类型标识的不同之外，它还需要使用专用的选项--cert和--key。
+		无论证书和私钥文件名是什么，它们会统一为：
+			tls.crt
+			tls.key
+
+	Docker Registry类型，也是独特类型：
+		kubectl create secret docker-registry my-secret --docker-server=DOCKER_REGISTRY_SERVER \
+			--docker-username=DOCKER_USER --docker-password=DOCKER_PASSWORD --docker-email=DOCKER_EMAIL
+
+		也能够从docker的认证文件中加载信息，这时使用--from-file选项； 
+			$HOME/.dockercfg, ~/.docker/config.json
+
+		引用时的资源配置格式
+		pod.spec.imagePullSecrets
+
+Secret资源，使用环境变量 
+containers:
+- name: …
+  image: …
+  env:
+  - name: <string>       # 变量名，其值来自于某Secret对象上的指定键的值；
+    valueFrom:            # 键值引用； 
+      secretKeyRef:       
+        name: <string>    # 引用的Secret对象的名称，需要与该Pod位于同一名称空间；
+        key: <string>     # 引用的Secret对象上的键，其值将传递给环境变量；
+        optional: <boolean> # 是否为可选引用；
+  envFrom:                 # 整体引用指定的Secret对象的全部键名和键值；
+  - prefix: <string>     # 将所有键名引用为环境变量时统一添加的前缀；
+secretRef:        
+  name: <string>     # 引用的Secret对象名称；
+  optional: <boolean> # 是否为可选引用；
+
+downwardAPI存储卷类型，从严格意义上来说，downwardAPI不是存储卷，它自身就存在，原因在于，它引用的是Pod自身的运行环境信息，这些信息在Pod启动后就存在。
+
+类似于ConfigMap或Secret资源，容器能够在环境变量中在valueFrom字段中嵌套fieldRef或resourceFieldRef字段来引用其所属Pod对象的元数据信息。不过，通常只有常量类型的属性才能够通过环境变量注入到容器中，毕竟，在进程启动完成后无法再向其告知变量值的变动，于是，环境变量也就不支持中途的更新操作。容器规范中可在环境变量配置中的valueFrom通过内嵌字段fieldRef引用的信息包括如下这些：
+	metadata.name：Pod对象的名称； 
+	metadata.namespace：Pod对象隶属的名称空间； 
+	metadata.uid：Pod对象的UID； 
+	metadata.labels['<KEY>']：Pod对象标签中的指定键的值，例如metadata.labels['mylabel']，仅Kubernetes 1.9及之后的版本才支持；
+	metadata.annotations['<KEY>']：Pod对象注解信息中的指定键的值，仅Kubernetes 1.9及之后的版本才支持。
+
+容器上的计算资源需求和资源限制相关的信息，以及临时存储资源需求和资源限制相关的信息可通过容器规范中的resourceFieldRef字段引用，相关字段包括requests.cpu、limits.cpu、requests.memory和limits.memory等。另外，可通过环境变量引用的信息有如下几个：
+	status.podIP：Pod对象的IP地址
+	spec.serviceAccountName：Pod对象使用的ServiceAccount资源名称
+	spec.nodeName：节点名称
+	status.hostIP：节点IP地址
+
+另外，还可以通过resourceFieldRef字段引用当前容器的资源请求及资源限额的定义，因此它们包括requests.cpu、requests.memory、requests.ephemeral-storage、limits.cpu、limits.memory和limits.ephemeral-storage这6项。
+
+作业：
+	在kubernetes部署wordpress，要满足以下要求：
+	(1) 部署一个独立的nginx Pod实例，为wordpress提供反向代理；同时提供https和http虚拟主机，其中发往http的请求都重定向给https；以ConfigMap和Secret提供必要的配置；
+	(2) 独立部署两个wordpress Pod实例，它们使用Longhorn存储卷存储用户上传的图片或文件等数据；以ConfigMap和Secret提供必要的配置；
+	(3) 部署一个mariadb或mysql数据库；以ConfigMap和Secret提供必要的配置；
+
+
+
+8、控制器
+控制平面、数据平面
+	控制平面：
+		API Server
+		Controller Manager：Control Loop
+		Scheduler
+	数据平面
+
+负责应用编排的控制器有如下几种：
+
+	ReplicationController：最早期的Pod控制器； 
+
+	RelicaSet：副本集，负责管理一个应用（Pod）的多个副本；
+	Deployment：部署，它不直接管理Pod，而是借助于ReplicaSet来管理Pod；最常用的无状态应用控制器；
+
+	DaemonSet：守护进程集，用于确保在每个节点仅运行某个应用的一个Pod副本；
+
+	StatefulSet：功能类似于Deployment，但StatefulSet专用于编排有状态应用；
+
+	Job：有终止期限的一次性作业式任务，而非一直处于运行状态的服务进程；
+	CronJob：有终止期限的周期性作业式任务； 
+
+	定义要素：
+		标签选择器；
+		期望的副本数；
+		Pod模板；
+
+Controller Manager --> ReplicaSet Control Loop --> ReplicaSet Object  --> 向API Server请求管理Pod对象（标签选择器选定的）--> 作用之一：以Pod模板向API Server请求创建Pod对象 --> 由Scheduler调度并绑定至某节点  --> 由相应节点kubelet负责运行。
+
+ReplicaSet的更新机制：
+	删除式更新：删除老版本的（或现有的）Pod，
+		单批次删除所有Pod，一次完成所有更新；服务会中断一段时间；
+		分批次删除，待一批次就绪之后，才删除下一批；滚动更新；
+
+	set image：更新应用版本，但对于replicaset来说，仅能更新API Server中的定义；
+
+部署类型：
+	蓝绿发布：
+	滚动发布：
+		使用高级策略：
+			Strategy
+
+控制器：资源类型，Pod控制器，工作负载型
+
+早期的大多数控制器都位于extensions/v1beta1, v1beta2, ...
+
+ReplicaSet的配置规范
+apiVersion: apps/v1
+kind: ReplicaSet
+metadata:
+  name: …
+  namespace: …
+spec:
+  minReadySeconds <integer>  # Pod就绪后多少秒内，Pod任一容器无crash方可视为“就绪”
+  replicas <integer> # 期望的Pod副本数，默认为1
+  selector: # 标签选择器，必须匹配template字段中Pod模板中的标签；
+    matchExpressions <[]Object> # 标签选择器表达式列表，多个列表项之间为“与”关系
+    matchLabels <map[string]string> # map格式的标签选择器
+  template:  # Pod模板对象
+    metadata:  # Pod对象元数据
+      labels:  # 由模板创建出的Pod对象所拥有的标签，必须要能够匹配前面定义的标签选择器
+    spec:  # Pod规范，格式同自主式Pod
+      ……
+
+Service
+	spec:
+		selector:
+			label1: value1
+			label2: value2
+
+Deployment的配置规范
+apiVersion: apps/v1  # API群组及版本
+kind: Deployment  # 资源类型特有标识
+metadata:
+  name <string>  # 资源名称，在作用域中要唯一
+  namespace <string>  # 名称空间；Deployment隶属名称空间级别
+spec:
+  minReadySeconds <integer>  # Pod就绪后多少秒内任一容器无crash方可视为“就绪”
+  replicas <integer> # 期望的Pod副本数，默认为1
+  selector <object> # 标签选择器，必须匹配template字段中Pod模板中的标签
+  template <object>  # Pod模板对象
+  revisionHistoryLimit <integer> # 滚动更新历史记录数量，默认为10
+  strategy <Object> # 滚动更新策略
+    type <string>  # 滚动更新类型，可用值有Recreate和RollingUpdate；
+    rollingUpdate <Object>  # 滚动更新参数，专用于RollingUpdate类型
+      maxSurge <string>  # 更新期间可比期望的Pod数量多出的数量或比例；
+      maxUnavailable <string>  # 更新期间可比期望的Pod数量缺少的数量或比例，10， 
+  progressDeadlineSeconds <integer> # 滚动更新故障超时时长，默认为600秒
+  paused <boolean>  # 是否暂停部署过程
+
+DaemonSet的配置规范
+apiVersion: apps/v1  # API群组及版本
+kind: DaemonSet  # 资源类型特有标识
+metadata:
+  name <string>  # 资源名称，在作用域中要唯一
+  namespace <string>  # 名称空间；DaemonSet资源隶属名称空间级别
+spec:
+  minReadySeconds <integer>  # Pod就绪后多少秒内任一容器无crash方可视为“就绪”
+  selector <object> # 标签选择器，必须匹配template字段中Pod模板中的标签
+  template <object>  # Pod模板对象；
+  revisionHistoryLimit <integer> # 滚动更新历史记录数量，默认为10；
+  updateStrategy <Object> # 滚动更新策略
+    type <string>  # 滚动更新类型，可用值有OnDelete和RollingUpdate；
+    rollingUpdate <Object>  # 滚动更新参数，专用于RollingUpdate类型
+      maxUnavailable <string>  # 更新期间可比期望的Pod数量缺少的数量或比例
+
+Job的配置规范
+apiVersion: batch/v1  # API群组及版本
+kind: Job  # 资源类型特有标识
+metadata:
+  name <string>  # 资源名称，在作用域中要唯一
+  namespace <string>  # 名称空间；Job资源隶属名称空间级别
+spec:
+  selector <object> # 标签选择器，必须匹配template字段中Pod模板中的标签
+  template <object>  # Pod模板对象
+  completions <integer> # 期望的成功完成的作业次数，成功运行结束的Pod数量
+  ttlSecondsAfterFinished  <integer> # 终止状态作业的生存时长，超期将被删除
+  parallelism  <integer>  # 作业的最大并行度，默认为1
+  backoffLimit <integer>  # 将作业标记为Failed之前的重试次数，默认为6
+  activeDeadlineSeconds  <integer> # 作业启动后可处于活动状态的时长
+
+CronJob的配置规范
+apiVersion: batch/v1beta1  # API群组及版本
+kind: CronJob  # 资源类型特有标识
+metadata:
+  name <string>  # 资源名称，在作用域中要唯一
+  namespace <string>  # 名称空间；CronJob资源隶属名称空间级别
+spec:
+  jobTemplate  <Object>  # job作业模板，必选字段
+    metadata <object>  # 模板元数据
+    spec <object>  # 作业的期望状态
+  schedule <string>  # 调度时间设定，必选字段
+  concurrencyPolicy  <string> # 并发策略，可用值有Allow、Forbid和Replace
+  failedJobsHistoryLimit <integer> # 失败作业的历史记录数，默认为1
+  successfulJobsHistoryLimit  <integer> # 成功作业的历史记录数，默认为3
+  startingDeadlineSeconds  <integer> # 因错过时间点而未执行的作业的可超期时长
+  suspend  <boolean> # 是否挂起后续的作业，不影响当前作业，默认为false
+
+Stateless， Stateful, 
+	多个实例彼此间能否互相取代：
+
+应该使用Operator来管理有状态应用：
+	https://github.com/operator-framework/awesome-operators
+
+StatefulSet配置规范：
+apiVersion: apps/v1  # API群组及版本；
+kind: StatefulSet  # 资源类型的特有标识
+metadata:
+  name <string>  # 资源名称，在作用域中要唯一
+  namespace <string>  # 名称空间；StatefulSet隶属名称空间级别
+spec:
+  replicas <integer> # 期望的Pod副本数，默认为1
+  selector <object> # 标签选择器，须匹配Pod模板中的标签，必选字段
+  template <object>  # Pod模板对象，必选字段
+  revisionHistoryLimit <integer> # 滚动更新历史记录数量，默认为10
+  updateStrategy <Object> # 滚动更新策略
+    type <string>  # 滚动更新类型，可用值有OnDelete和Rollingupdate
+    rollingUpdate <Object>  # 滚动更新参数，专用于RollingUpdate类型
+      partition <integer>  # 分区指示索引值，默认为0
+  serviceName  <string>  # 相关的Headless Service的名称，必选字段
+  volumeClaimTemplates <[]Object>  # 存储卷申请模板
+    apiVersion <string>  # PVC资源所属的API群组及版本，可省略
+    kind <string>  # PVC资源类型标识，可省略
+    metadata <Object>  # 卷申请模板元数据
+    spec <Object>  # 期望的状态，可用字段同PVC
+  podManagementPolicy  <string> # Pod管理策略，默认的“OrderedReady”表示顺序创
+                                # 建并逆序删除，另一可用值“Parallel”表示并行模式
+								
+   保持有状态应用（session_sticky:保持session 保存链接中的用户信息）的三种方式：
+   1、使用前端nginx代理，将用户的每一条请求代理到后端同一个节点上；
+   2、在后端的应用集群上，做 session 复制集群，相互之间同步状态信息；
+   3、在后端的应用集群上，做共享的存储服务，存储状态信息。（不能使用块存储，因为不允许两个进程同时写一个文件）
+
+作业：
+1、statefulset跑一个mysql实例，使用secret保存账号、密码、数据库名称等信息，使用volumeClaimTemplate请求创建PVC，并持久存储数据；
+2、Deployment跑两个wordpress实例，从secret中加载数据库名称、用户名和密码等信息，基于支持RWX访问模式的PVC保存页面资源。
+
+
+
+9、认证 授权 准入控制
+系统访问控制：
+	插件化实现了三个功能：
+		认证
+		授权
+		准入控制（只发生写操作）
+		
+	认证：
+		用户：
+			User Account：人类用户，k8s不负责存储和管理这类用户；需要借助外部的组件实现； 
+			Service Account：由k8s之上运行的Pod中的应用程序在访问API Server时认证使用；是标准的k8s资源类型之一，隶属于名称空间级别； 
+		用户组：
+			system:unauthenticated：未能通过任何一个授权插件检验的账号的所有未通过认证测试的用户统一隶属的用户组；
+			system:authenticated：认证成功后的用户自动加入的一个专用组，用于快捷引用所有正常通过认证的用户账号；
+			system:serviceaccounts：所有名称空间中的所有ServiceAccount对象；
+			system:serviceaccounts:<namespace>：特定名称空间内所有的ServiceAccount对象。
+
+	认证方式：
+		X509数字证书认证；
+			证书中的Subject中的
+				CommonName, CN: 用户名； 
+				Orgnization, O: 组名；
+
+		引导令牌（Token）：
+		静态令牌：存储于API Server进程可直接加载到的文件中保存的令牌，该文件内容会由API Server缓存于内存中；
+		静态密码：存储于API Server进程可直接加载到的文件中保存的账户和密码令牌，该文件内容会由API Server缓存于内存中；
+		ServiceAccount令牌
+		OpenID Connect令牌：OIDC令牌， OAuth 2
+		Webhook令牌
+		代理认证
+
+	授权方式：
+		Node: Bootstrap Token
+		ABAC: Attribution，属性            # OPA
+		RBAC: Role-Based AC, 基于角色的访问控制
+		Webhook
+
+	准入控制器：
+		LimitRanger
+		ResourceQuota
+		PSP: PodSecurityPolicy
+
+认证：
+	ServiceAccount令牌认证：
+		K8S自动为每个Pod注入一个ServiceAccount，令牌
+		在每个名称空间中，会自动存在（由ServiceAccount准入控制器负责）一个ServiceAccount，将被该空间下的每个Pod共享使用。
+		认证令牌保存于该空间下的一个Secret对象中，该对象中共有三个信息：
+			namespace 
+			ca.crt     #用以验证Api-server的身份
+			token      #提供给Api-server，用以验证自身身份
+
+    ServiceAccount资源规范
+    apiVersion: v1  # ServiceAccount所属的API群组及版本
+    kind: ServiceAccount  # 资源类型标识
+    metadata:
+      name <string>  # 资源名称
+      namespace <string>  # ServiceAccount是名称空间级别的资源
+    automountServiceAccountToken <boolean>  # 是否让Pod自动挂载API令牌
+    secrets <[]Object>   # 以该SA运行的Pod所要使用的Secret对象组成的列表
+      apiVersion <string>  # 引用的Secret对象所属的API群组及版本，可省略
+      kind <string>  # 引用的资源的类型，这里是指Secret，可省略
+      name <string>  # 引用的Secret对象的名称，通常仅给出该字段即可
+      namespace <string>  # 引用的Secret对象所属的名称空间
+      uid  <string>  # 引用的Secret对象的标识符；
+    imagePullSecrets <[]Object> # 引用的用于下载Pod中容器镜像的Secret对象列表
+      name <string>  # docker-registry类型的Secret资源的名称
+    
+    kubeconfig配置文件：
+    	将用户名、认证信息等组织一起，便于认证到API Server上的认证信息文件； 
+    	支持一个文件中保存m个集群的n个认证信息； 
+    
+    静态密码文件(.csv)：
+    	password,user,uid,"group1,group2,group3"
+    
+    为了核验用户的操作许可，成功通过身份认证后的操作请求还需要转交给授权插件进行许可权限检查，以确保其拥有执行相应的操作的许可。API Server主要支持使用四类内建的授权插件来定义用户的操作权限：
+    	Node：基于Pod资源的目标调度节点来实现对kubelet的访问控制；
+    	ABAC：Attribute-based access control，基于属性的访问控制；
+    	RBAC：Role-based access control，基于角色的访问控制；
+    	Webhook：基于http回调机制通过外部REST服务检查确认用户授权的访问控制。
+    
+    containers:
+    - command:
+      - kube-apiserver
+      - --secure-port=6443  # API Server监听的安全端口（HTTPS协议）
+      - --insecure-port=0  # API Server监听的非安全端口（HTTP协议），0表示禁用
+    - ……
+      - --client-ca-file=/etc/kubernetes/pki/ca.crt  # 启用X509证书认证
+      - --authorization-mode=Node,RBAC  # 启用Node和RBAC授权插件
+      - --enable-admission-plugins=NodeRestriction  # 额外启用的准入控制器列表
+      - --enable-bootstrap-token-auth=true  # 启用bootstrap token认证
+      - ……
+      - --requestheader-extra-headers-prefix=X-Remote-Extra- #代理认证相关的配置
+      - --requestheader-group-headers=X-Remote-Group
+      - --requestheader-username-headers=X-Remote-User 
+      - --service-account-key-file=/etc/kubernetes/pki/sa.pub 
+    
+    Openssl 制作kubeconfig
+    第一步，以客户端的身份，生成目标用户账号mason的私钥及证书签署请求，保存于用户家目录下的.certs目录中。
+    1)	生成私钥文件，注意其权限应该为600以阻止其他用户读取；
+    ~$ mkdir $HOME/.certs
+    ~$ (umask 077; openssl genrsa -out $HOME/.certs/mason.key 2048)
+    2)	创建证书签署请求，-subj选项中CN的值将被API Server识别为用户名，O的值将被识别为用户组；
+    ~$ openssl req -new -key $HOME/.certs/mason.key \
+    -out $HOME/.certs/mason.csr \
+    -subj "/CN=mason/O=developers"
+    
+    第二步，以kubernetes-ca的身份签署ikubernetes的证书请求，这里直接读取相关的CSR文件，并将签署后的证书仍然保存于当前系统用户家目录下的.certs中。
+    1)	基于kubernetes-ca签署证书，并为其设置合理的生效时长，例如365天；
+    ~$ sudo openssl x509 -req -days 365 -CA /etc/kubernetes/pki/ca.crt \
+    -CAkey /etc/kubernetes/pki/ca.key -CAcreateserial \
+    -in $HOME/.certs/mason.csr -out $HOME/.certs/mason.crt
+    Signature ok
+    subject=CN = mason, O = developers
+    Getting CA Private Key
+    2)	必要时，还可以验证生成的数字证书的相关信息（可选）。
+    ~$ openssl x509 -in $HOME/.certs/mason.crt -text -noout
+    
+    第三步，将ikubernetes的身份凭据生成kubeconfig配置，这次选择将其保存于kubectl默认搜索路径指向的$HOME/.kube/config文件中。另外，因指向当前集群的配置项已经存在，它是位于clusters配置段中kubernetes，这里直接复用该集群定义。
+    1)	根据X509证书及私钥创建身份凭据，列表项名称同目标用户名；
+    ~$ kubectl config set-credentials mason --embed-certs=true \
+    --client-certificate=$HOME/.certs/mason.crt \
+    --client-key=$HOME/.certs/mason.key          
+    User "mason" set.
+    2)	配置context，以mason的身份凭据访问已定义的kubernetes集群，该context的名称为mason@kubernetes；
+    ~$ kubectl config set-context mason@kubernetes --cluster=kubernetes --user=mason
+    Context "mason@kubernetes" created.
+    3)	将当前上下文切换为mason@kubernetes，或直接在kubectl命令上使用“--context= 'mason@kubernetes'”临时以完成该用户的认证测试，下面的命令选择了以第二种方式进行，错误信息是提示权限错误，但mason用户已然可被API Server正确识别；
+    ~$ kubectl get namespaces/default --context='mason@kubernetes'
+    Error from server (Forbidden): namespaces "default" is forbidden: User "mason" cannot get resource "namespaces" in API group "" in the namespace "default"
+    以上，我们通过创建自定义的数字证书，实现了将mason用户认证到API Server，并将该用户的身份凭据保存于至kubeconfig文件中。
+    
+    
+授权：
+	DAC（自主访问控制：系统）、MAC（强制访问控制：SELinux）、RBAC、ABAC
+
+	RBAC：Role-Based Access Control
+
+		Role --> Verbs  --> Objects
+		ClusterRole --> Verbs  --> Objects
+
+		Subject --> RoleBinding --> Roles
+		Subject --> ClusterRoleBinding --> ClusterRoles
+		Subject --> RoleBinding --> ClusterRoles
+
+	API Server： RESTful风格的http/https服务
+
+		HTTP METHOD：
+			GET, POST, PUT, DELETE, PATCH, ...
+
+		Action：动作行为
+
+		Object：资源对象
+			什么Action能施加到哪些对象上； 
+			GET Pods
+			DELETE Namespaces
+
+	四个资源类型：
+		Role: 角色，名称空间级别；
+		ClusterRole：集群角色，全局级别； 
+
+		RoleBinding:"角色绑定"，指是将用户与角色关联起来，意味着，用户仅得到了特定名称空间下的Role的权限，作用范围也限于该名称空间； 
+		ClusterRoleBinding：集群角色绑定，让用户扮演指定的集群角色；意味着，用户得到了是集群级别的权限，作用范围也是集群级别；
+
+		User --> Rolebindig --> ClusterRole：权限降级，权限与绑定相关，ClusterRole，用户得到的权限仅是ClusterRole的权限在Rolebinding所属的名称空间上的一个子集； 
+
+	Objects(能接受施加Verb的目标有三类)：
+		resources：资源类型，该类型下的所有对象都是目标， pods； 
+		resourceNames：特定的对象个体，pods/mypod；
+		nonResourceURLs：非资源型的URL，/status, 
+
+	Verbs：
+		create、get、list、delete、patch、update
+
+	User 与 default/myrole
+	    admin：名称空间级别资源的管理员权限
+	    cluster-admin：集群管理员
+
+dashboard
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.0.0/aio/deploy/recommended.yaml
+
+准入控制
+
+      准入控制器：
+    	limitranger: 为Pod添加默认的计算资源需求和计算资源限制；以及存储资源需求和存储资源限制； 支持分别在容器和Pod级别进行限制；
+    	resourcequota：限制资源数量，限制计算资源总量，存储资源总量；资源类型名称ResourceQuota
+    	podsecuritpolicy：在集群级别限制用户能够在Pod上可配置使用的securityContext。
+
+ResourceQuota资源可限制名称空间中处于非终止状态的所有Pod对象的计算资源需求及计算资源限制总量。
+	cpu或requests.cpu：CPU资源相关请求的总量限额；
+	memory或requests.memory：内存资源相关请求的总量限额；
+	limits.cpu：CPU资源相关限制的总量限额；
+	limits.memory：内存资源相关限制的总量限额；
+
+ResourceQuota资源还支持为本地名称空间中的PVC存储资源的需求总量和限制总量提供限额，它能够分别从名称空间中的全部PVC、隶属于特定存储类的PVC以及基于本地临时存储的PVC三个类别分别进行定义。
+	requests.storage：所有PVC存储需求的总量限额；空间限制； 
+	persistentvolumeclaims：可以创建的PVC总数限额；数量限制；
+	<storage-class-name>.storageclass.storage.k8s.io/requests.storage：特定的存储类上可使用的所有PVC存储需求的总量限额；
+	<storage-class-name>.storageclass.storage.k8s.io/persistentvolumeclaims：特定的存储类上可使用的PVC总数限额；
+	requests.ephemeral-storage：所有Pod可以使用的本地临时存储资源的requets总量；
+	limits.ephemeral-storage：所有Pod可用的本地临时存储资源的limits总量。
+
+PS: 在v1.9版本之前的Kubernetes系统上，ResourceQuota仅支持在有限的几种资源集上设定对象计数配额，例如pods、services和configmaps等，而自v1.9版本起开始支持以count/<resource>.<group>的格式支持对所有资源类型对象的计数配额，例如count/deployments.apps、count/deployments.extensions和 count/services等。
+
+
+PodSecurityPolicy 资源规范
+apiVersion: policy/v1beta1  # PSP资源所属的API群组及版本
+kind: PodSecurityPolicy  # 资源类型标识
+metadata:
+  name <string>  # 资源名称
+spec:  
+  allowPrivilegeEscalation  <boolean>  # 是否允许权限升级
+  allowedCSIDrivers <[]Object>  #内联CSI驱动程序列表，必须在Pod规范中显式定义
+  allowedCapabilities <[]string>  # 允许使用的内核能力列表，“*”表示all
+  allowedFlexVolumes <[]Object>  # 允许使用的Flexvolume列表，空值表示“all
+  allowedHostPaths <[]Object>  # 允许使用的主机路径列表，空值表示all
+  allowedProcMountTypes <[]string> # 允许使用的ProcMountType列表，空值表示默认
+  allowedUnsafeSysctls <[]string> # 允许使用的非安全sysctl参数，空值表示不允许
+  defaultAddCapabilities  <[]string>  # 默认即添加到Pod对象的内核能力，可被drop
+  defaultAllowPrivilegeEscalation <boolean> # 是否默认允许内核权限升级
+  forbiddenSysctls  <[]string> # 禁止使用的sysctl参数，空表示不禁用
+  fsGroup <Object>  # 允许在SecurityContext中使用的fsgroup，必选字段
+    rule <string>  # 允许使用的FSGroup的规则，支持RunAsAny和MustRunAs
+    ranges <[]Object> # 允许使用的组ID范围，需要与MustRunAs规则一同使用
+      max  <integer>  # 最大组ID号
+      min  <integer>  # 最小组ID号
+  hostIPC <boolean> # 是否允许Pod使用hostIPC
+  hostNetwork <boolean> # 是否允许Pod使用hostNetwork
+  hostPID <boolean> # 是否允许Pod使用hostPID
+  hostPorts <[]Object>  # 允许Pod使用的主机端口暴露其服务的范围
+    max  <integer>  # 最大端口号，必选字段
+    min  <integer>  # 最小端口号，必选字段
+  privileged  <boolean>  # 是否允许运行特权Pod
+  readOnlyRootFilesystem  <boolean>  # 是否设定容器的根文件系统为“只读”
+  requiredDropCapabilities <[]string> # 必须要禁用的内核能力列表  
+  runAsGroup  <Object>  # 允许Pod在runAsGroup中使用的值列表，未定义表示不限制
+  runAsUser <Object> # 允许Pod在runAsUser中使用的值列表，必选字段
+    rule <string>  # 支持RunAsAny、MustRunAs和MustRunAsNonRoot
+    ranges <[]Object> # 允许使用的组ID范围，需要跟“MustRunAs”规则一同使用
+      max  <integer>  # 最大组ID号
+      min  <integer>  # 最小组ID号
+  runtimeClass <Object> # 允许Pod使用的运行类，未定义表示不限制
+    allowedRuntimeClassNames <[]string> # 可使用的runtimeClass列表，“*”表示all
+    defaultRuntimeClassName <string> # 默认使用的runtimeClass
+  seLinux <Object> # 允许Pod使用的selinux标签，必选字段
+    rule <string>  # MustRunAs表示使用seLinuxOptions定义的值；RunAsAny表示可使用任意值
+    seLinuxOptions  <Object>  # 自定义seLinux选项对象，与MustRunAs协作生效
+  supplementalGroups  <Object> # 允许Pod在SecurityContext中使用附加组，必选字段  volumes <[]string>  # 允许Pod使用的存储卷插件列表，空表示禁用，“*”表示全部
+
+
+PodSecurityPolicy-ClusterRoleBinding 资源规范
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: privileged-psp-user
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: psp-privileged
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: Group
+  name: system:masters
+- apiGroup: rbac.authorization.k8s.io
+  kind: Group
+  name: system:node
+- apiGroup: rbac.authorization.k8s.io
+  kind: Group
+  name: system:serviceaccounts:kube-system
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: restricted-psp-user
+roleRef:
+  kind: ClusterRole
+  name: psp-restricted
+  apiGroup: rbac.authorization.k8s.io
+subjects:
+- kind: Group
+  apiGroup: rbac.authorization.k8s.io
+  name: system:authenticated
+
+
+
+10、集群网络
+Kubernetes主要存在4种类型的通信：
+	C-to-C：发生在Pod内部，借助于lo实现；
+	Pod-to-Pod：Pod间的通信，k8s自身并未解决该该类通信，而是借助于CNI接口，交给第三方解决方案；CNI之前的接口叫kubenet；
+	Service-to-Pod：借助于kube-proxy生成的iptables或ipvs规则完成； 
+	ExternalClients-to-Service：引入集群外部流量，hostPort、hostNetwork、nodeport/service、loadbalancer/service、externalIP/service、Ingress；
+
+Flannel, Calico
+	构建出虚拟网络：
+		Overlay Network：叠加网络，覆盖网络
+		Underlay Network：承载网络
+
+	将容器接入虚拟网络，
+		虚拟网桥
+		多路复用      
+		单根网络（硬件交换）
+
+
+	通常，在一个节点上，基于该节点的子网向该节点上的Pod分配IP地址，通常需要专门的插件完成；
+	插件统称：IPAM  ip分发模块
+
+10.244.0.0/16
+	子网掩码长度：24
+		256个子网
+	master01: 172.29.1.1  10.244.0.0/24
+	node01: 172.29.1.1  10.244.1.0/24
+
+Flannel支持三种Pod网络模型，每个模型在flannel中称为一种“backend”:
+	vxlan：Pod与Pod经由隧道封装后通信，各节点彼此间能通信就行，不要求在同一个二层网络；
+	vxlan directrouting: 位于同一个二层网络上的、但不同节点上的Pod间通信，无须隧道封装；但非同一个二层网络上的节点上的Pod间通信，仍须隧道封装；
+	host-gw：Pod与Pod不经隧道封装而直接通信，要求各节点位于同一个二层网络； 
+
+配置CNI
+cniVersion <string>  # CNI配置文件的语义版本
+name <string>  # 网络的名称，在当前主机上必须唯一
+type <string>： # CNI插件的可执行文件名
+args <map[string]string>  # 由容器管理系统提供的附加参数，可选配置
+ipMasq  <Boolean>  # 是否启用IP伪装，可选参数
+ipam <map[string]string>  # ip地址分配插件，主要有host-local和dhcp
+  type <string>  # 能够完成IP地址分配的插件的名称
+  subnet <string>  # 分配IP地址时使用的子网地址
+  routes <string>  # 路由信息
+    dst <string>  # 目标主机或网络    gw <string>  # 网关地址
+dns <map[string]string>  # 配置容器的DNS属性
+  nameservers <[]string>  # DNS名称服务器列表，其值为ipv4或ipv5格式的地址
+  domain <[]string>  # 用于短格式主机查找的本地域 
+  search <[]string>  # 用于短格式主机查找的优先级排序的搜索域列表
+  options <[]string>  # 传递给解析程序的选项列表
+
+Pod-to-Pod：
+	CNI：第三方插件； Flannel, ProjectCalico,
+	SDN：Software Defined Network
+	k8s： overlay, underlay	
+
+	Flannel：
+		overlay: VXLAN
+		underlay: host-gw
+			flanneld --> api server (etcd)
+
+	Calico:
+		三层虚拟网络解决方案：BGP
+			节点：vRouter
+			各节点上的vRouter通过BGP协议学习生成路由表； 
+				小规模网络：BGP peer
+				大规模网络：BGP Reflector
+		Overlay Network：
+			IPIP: 
+			VXLAN：
+				也支持类似于Flannel VXLAN with DirectRouting
+				Vxlan With BGP
+
+
+    Calico的组件
+    	Felix：接口管理、路由管理、ACL、状态报告； 需要运行于每个节点；
+    	BIRD：
+    		BGP客户端：需要运行于每个节点，负责将Felix生成的路由信息载入内核并通告到整个网络中； 		
+    		BGP Reflector：专用反射各BGP客户端发来路由信息；
+    				将  N --> N-1  转为  N --> 1
+    	etcd：通信总线；状态存储系统；
+    
+    部署的程序组件：
+    	calico-node
+    	calico-kube-controller
+    
+    Calico有两种部署方式，一是让calico/node独立运行于Kubernetes集群之外，但calico/kube-controllers依然需要以Pod资源运行中集群之上；另一种是以CNI插件方式配置Calico完全托管运行于Kubernetes集群之上，类似于我们前面曾经部署托管Flannel网络插件的方式。对于后一种方式，Calico提供了在线的部署清单，它分别为50节点及以下规模和50节点以上规模的Kubernetes集群使用Kubernetes API作为Dabastore提供了不同的配置清单，也为使用独立的etcd集群提供了专用配置清单。但这3种类型的配置清单中，Calico默认启用的是基于IPIP隧道的叠加网络，因而它会在所有流量上使用IPIP隧道而不是BGP路由。以下配置定义在部署清单中DaemonSet/calico-node资源的Pod模板中的calico-node容器之上。
+            # 在IPv4类型的地址池上启用的IPIP及其类型，支持3种可用值
+    		# Always（全局流量）、Cross-SubNet（跨子网流量）和Never3种可用值
+            - name: CALICO_IPV4POOL_IPIP
+              value: "Always"
+            # 是否在IPV4地址池上启用VXLAN隧道协议，取值及意义与Flannel的VXLAN后端相同； 
+            # 但在全局流量启用VXLAN时将完全不再需要BGP网络，建议将相关的组件禁用
+            - name: CALICO_IPV4POOL_VXLAN
+              value: "Never"
+    
+
+    需要注意的是，Calico分配的地址池需要同Kubernetes集群的Pod网络的定义保持一致。Pod网络通常由kubeadm init初始化集群时使用--pod-network-cidr选项指定的网络，而Calico在其默认的配置清单中默认使用192.168.0.0/16作为Pod网络，因而部署Kubernetes集群时应该规划好要使用的网络地址，并设定此二者相匹配。对于曾经使用了flannel的默认的10.244.0.0/16网络的环境而言，我们也可以选择修改资源清单中的定义，从而将其修改为其他网络地址。以下配置片断取自Calico的部署清单，它定义在DaemonSet/calico-node资源的Pod模板中的calico-node容器之上。
+    
+    # IPV4地址池的定义，其值需要与kube-controller-manager的“--cluster-network”
+    # 选项的值保持一致，以下环境变量默认处于注释状态
+    - name: CALICO_IPV4POOL_CIDR
+      value: "192.168.0.0/16"
+    # Calico默认以26位子网掩码切分地址池并将各子网配置给集群中的节点，若需要使用其他
+    # 的掩码长度，则需要定义如下环境变量
+    - name: CALICO_IPV4POOL_BLOCK_SIZE
+      value: "24"
+    # Calico默认并不会从Node.Spec.PodCIDR中分配地址，但可通过将如下变量
+    # 设置为“true”并结合host-local这一IPAM插件以强制从PodCIDR中分配地址
+    - name: USE_POD_CIDR
+      value: "false"
+
+    在地址分配方面，Calico在JSON格式的CNI插件配置文件中使用专有的calico-ipam插件，该插件并不会使用Node.Spec.PodCIDR中定义的子网作为节点本地用于为Pod分配地址的地址池，而是根据Calico插件为各节点的配置的地址池进行地址分配。若期望为节点真正使用地址池吻合PodCIDR的定义，则需要在部署清单中DaemonSet/calico-node资源的Pod模板中的calico-node容器之上将USE_POD_CIDR环境变量的值设置为true，并修改ConfigMap/calico-config资源中cni_network_config键中的plugins.ipam.type的值为host-local，且使用podCIDR为子网，具体配置如下所示。
+      "ipam": {
+          "type": "host-local",
+          "subnet": "usePodCidr"
+      },
+    
+    Calico的配置文件示例：
+    calico.cfg
+    apiVersion: projectcalico.org/v3
+    kind: CalicoAPIConfig
+    metadata:
+    spec:
+      datastoreType: "kubernetes"
+      kubeconfig: "/etc/kubernetes/admin.conf"
+
+    Calico的地址池：
+    apiVersion: projectcalico.org/v3
+    kind: IPPool
+    metadata:
+      name: default-ipv4-ippool
+    spec:
+      blockSize: 24
+      cidr: 192.168.0.0/16
+      ipipMode: Never             #Always
+      natOutgoing: true
+      nodeSelector: all()
+      vxlanMode: CrossSubnet
+
+    网络模型：
+    	Underlay：
+    		BGP
+    			Node-to-Node mesh
+    			BGP Reflector
+    	Overlay：
+    		IPIP：IPIP Protocol
+    		VXLAN: 帧外层，再添加UDP报文
+
+
+网络策略：管控Pod间的通信流量；
+	k8s的名称空间，仅用于为资源名称提供隔离机制；
+		dev: Pod
+		stage：Pod
+
+	标准的资源类型：
+		apiVersion, kind, metadata, spec
+
+NetworkPolicy资源清单
+apiVersion: networking.k8s.io/v1  # 资源隶属的API群组及版本号
+kind: NetworkPolicy  # 资源类型的名称，名称空间级别的资源；
+metadata:  # 资源元数据
+  	name <string>  # 资源名称标识
+  	namespace <string>  # NetworkPolicy是名称空间级别的资源
+spec:  # 期望的状态
+  	podSelector <Object>  # 当前规则生效的同一名称空间中的一组目标Pod对象，必选字段；
+                            # 空值表示当前名称空间中的所有Pod资源
+  	policyTypes <[]string>  # Ingress表示生效ingress字段；Egress表示生效
+							# egress字段，同时提供表示二者均有效
+	ingress <[]Object>  # 入站流量源端点对象列表，白名单，空值表示“所有”
+	- from <[]Object>  # 具体的端点对象列表，空值表示所有合法端点
+	  - ipBlock  <Object> # IP地址块范围内的端点，不能与另外两个字段同时使用
+	  - namespaceSelector <Object> # 匹配的名称空间内的端点
+	    podSelector <Object>  # 由Pod标签选择器匹配到的端点，空值表示<none>
+	  ports <[]Object>  # 具体的端口对象列表，空值表示所有合法端口
+	egress <[]Object>  # 出站流量目标端点对象列表，白名单，空值表示“所有”
+	- to <[]Object>  # 具体的端点对象列表，空值表示所有合法端点，格式同ingres.from；
+	  ports <[]Object>  # 具体的端口对象列表，空值表示所有合法端口
+
+尽管功能上日渐丰富，但k8s自己的NetworkPolicy资源仍然具有相当的局限性，例如它没有明确的拒绝规则、缺乏对选择器高级表达式的支持、不支持应用层规则，以及没有集群范围的网络策略等。为了解决这些限制，Calico等提供了自有的策略CRD，包括NetworkPolicy和GlobalNetworkPolicy等，其中的NetworkPolicy CRD比Kubernetes NetworkPolicy API提供了更大的功能集，包括支持拒绝规则、规则解析级别以及应用层规则等，但相关的规则需要由calicoctl创建。
+
+GlobalNetworkPolicy   # calico - GlobalNetworkPolicy支持使用selector、serviceAccountSelector或namespaceSelector来选定网络策略的生效范围，默认为all()，即集群上的所有端点。下面的配置清单示例（globalnetworkpolicy-demo.yaml）为非系统类名称空间（本示例假设有kube-system、kubernetes-dashboard、logs和monitoring这4个）定义了一个通用的网络策略。
+
+apiVersion: projectcalico.org/v3
+kind: GlobalNetworkPolicy
+metadata:
+  name: namespaces-default
+spec:
+  order: 0.0  # 策略叠加时的应用次序，数字越小越先应用，冲突时，后者会覆盖前者
+  # 策略应用目标为非指定名称空间中的所有端点
+namespaceSelector: name not in {"kube-system","kubernetes-dashboard","logs","monitoring"}
+  types: ["Ingress", "Egress"]
+  ingress:  # 入站流量规则
+  - action: Allow  # 白名单
+    source:
+      # 策略生效目标中的端点可由下面系统名称空间中每个源端点访问任意端口
+      namespaceSelector: name in {"kube-system","kubernetes-dashboard","logs","monitoring"}
+  egress:  # 出站流量规则
+  - action: Allow  # 允许所有
+
+
+
+11、集群调度器
+这些用于节点过滤的预选函数负责根据指定判定标准及各Node对象和当前Pod对象能否适配，它们按照用于实现的主要目标大体可分为如下几类。
+	节点存储卷数量限制检测：MaxEBSVolumeCount、MaxGCEPDVolumeCount、MaxCSIVolumeCount、MaxAzureDiskVolumeCount和MaxCinderVolumeCount。
+	检测节点状态是否适合运行Pod：CheckNodeUnschedulable和CheckNodeLabelPresence。
+	Pod与节点的匹配度检测：Hostname、PodFitsHostPorts、MatchNodeSelector、NoDiskConflict、PodFitsResources、PodToleratesNodeTaints、PodToleratesNodeNoExecuteTaints、CheckVolumeBinding和NoVolumeZoneConflict
+	Pod间的亲和关系判定：MatchInterPodAffinity。
+	将一组Pod打散至集群或特定的拓扑结构中：CheckServiceAffinity和EvenPodsSpread。
+在Kubernetes Scheduler上启用相应的预选函数才能实现相关调度机制的节点过滤需求，下面给出了这些于Kubernetes v1.17版本中支持的各预选函数的简要功能，其中仅ServiceAffinity和CheckNodeLabelPresence支持自定义配置，余下的均为静态函数。
+1）CheckNodeUnschedulable：检查节点是否被标识为Unschedulable，以及是否可将Pod调度于该类节点之上。
+2）HostName：若Pod资源通过spec. nodeName明确指定了要绑定的目标节点，则节点名称与与该字段值相同的节点才会被保留。
+3）PodFitsHostPorts：若Pod容器定义了ports.hostPort属性，该预选函数负责检查其值指定的端口是否已被节点上的其他容器或服务所占用，该端口已被占用的节点将被过滤掉。
+4）MatchNodeSelector：若Pod资源规范上定义了spec.nodeSelector字段，则仅那些拥有匹配该标签选择器的标签的节点才会被保留。
+5）NoDiskConflict：检查Pod对象请求的存储卷在此节点是否可用，不存在冲突则通过检查。
+6）PodFitsResources：检查节点是否有足够资源（例如 CPU、内存和GPU等）满足Pod的运行需求；节点声明其资源可用容量，而Pod定义其资源需求（requests），于是调度器会判断节点是否有足够的可用资源运行Pod对象，无法满足则返回失败原因（例如，CPU或内存资源不足等）；调度器的评判资源消耗的标准是节点已分配资源量（各容器的requests值之和），而非其上的各Pod已用资源量，但那些在注解中标记为关键性（critical）的Pod资源则不受该预选函数控制。
+7）PodToleratesNodeTaints：检查Pod的容忍度（spec.tolerations字段）是否能够容忍该节点上的污点（taints），不过，它仅关注具有NoSchedule和NoExecute两个效用标识的污点。
+8）PodToleratesNodeNoExecuteTaints：检查Pod的容忍度是否能接纳节点上定义的NoExecute类型的污点。
+9）CheckNodeLabelPresence：检查节点上某些标签的存在性，要检查的标签以及其可否存在则取决于用户的定义；在集群中的部署节点以regions/zones/racks类标签的拓扑方式编制，且基于该类标签对相应节点进行了位置标识时，预选函数可以根据位置标识将Pod调度至此类节点之上。
+10）CheckServiceAffinity：根据调度的目标Pod对象所属的Service资源已关联的其他Pod对象的位置（所运行节点）来判断当前Pod可以运行的目标节点，其目的在于将同一Service对象的Pod放置在同一拓扑内（如同一个rack或zone）的节点上以提高效率。
+11）MaxEBSVolumeCount：检查节点上已挂载的EBS存储卷数量是否超过了设置的最大值。
+12）MaxGCEPDVolumeCount：检查节点上已挂载的GCE PD存储卷数量是否超过了设置的最大值，默认值为16。
+13）MaxCSIVolumeCount：检查节点上已挂载的CSI存储卷数量是否超过了设置的最大值。
+14）MaxAzureDiskVolumeCount：检查节点上已挂载的Azure Disk存储卷数量是否超过了设置的最大值，默认值为16。
+15）MaxCinderVolumeCount：检查节点上已挂载的Cinder存储卷数量是否超过了设置的最大值。
+16）CheckVolumeBinding：检查节点上已绑定和未绑定的PVC是否能满足Pod的存储卷需求，对于已绑定的PVC，此预选函数检查给定节点是否能兼容相应PV，而对于未绑定的PVC，预选函数搜索那些可满足PVC申请的可用PV，并确保它可与给定的节点兼容。
+17）NoVolumeZoneConflict：在给定了存储故障域的前提下，检测节点上的存储卷是否可满足Pod定义的需求。
+18）EvenPodsSpread：检查节点是否能满足Pod规范中topologySpreadConstraints字段中定义的约束以支持Pod的拓扑感知调度。
+19）MatchInterPodAffinity：检查给定节点是否能满足Pod对象的亲和性或反亲和性条件，用于实现Pod亲和性调度或反亲和性调度。
+
+	LeastRequestedPriority：优先将Pod打散至集群中的各节点之上，以试图让各节点有着近似的计算资源消耗比例，适用于集群规模较少变动的场景；其分值由节点空闲资源与节点总容量的比值计算而来，即由CPU或内存资源的总容量减去节点上已有Pod对象需求的容量总和，再减去当前要创建的Pod对象的需求容量得到的结果除以总容量；CPU和内存具有相同权重，资源空闲比例越高的节点得分也就越高，其计算公式如为：(cpu((capacity – sum(requested)) * 10 / capacity) + memory((capacity – sum(requested)) * 10 / capacity))/ 2。
+	MostRequestedPriority：与优选函数LeastRequestedPriority的评估节点得分的方法相似，但二者不同的是，当前函数将给予计算资源占用比例更大的节点以更高的得分，计算公式如为：(cpu((sum(requested)) * 10 / capacity) + memory((sum(requested)) * 10 / capacity))/ 2。该函数的目标在于优先让节点以满载的方式承载Pod资源，从而能够使用更少的节点数，因而较适用于节点规模可弹性伸缩的集群中以最大化地节约节点数量。
+	BalancedResourceAllocation：以CPU和内存资源占用率的相近程度作为评估标准，二者越接近的节点权重越高。该优选函数不能单独使用，它需要和LeastRequestedPriority组合使用来平衡优化节点资源的使用状态，选择那些在部署当前Pod资源后系统资源更为均衡的节点。
+	ResourceLimitsPriority：以是否能够满足Pod资源限制为评估标准，那些能够满足Pod对于CPU或（和）内存资源限制的节点将计入1分，节点未声明可分配资源或Pod未定义资源限制时不影响节点计分。
+	RequestedToCapacityRatio：该函数允许用户自定义节点各类资源（例如CPU和内存等）的权重，以便提高大型集群中稀缺资源的利用率；该函数的行为可以通过名为requestedToCapacityRatioArguments的配置选项进行控制，它由shape和resources两个参数组成。
+	NodeAffinityPriority：节点亲和调度机制，它根据Pod资源规范中的spec.nodeSelector来对给定节点进行匹配度检查，成功匹配到的条目越多则节点得分越高。不过，其评估过程使用PreferredDuringSchedulingIgnoredDuringExecution这一表示首选亲和的标签选择器。
+	ImageLocalityPriority：镜像亲和调度机制，它根据给定节点上是否拥有运行当前Pod对象中的容器所依赖到的镜像文件来计算该节点的得分值。那些不具有该Pod对象所依赖到的任何镜像文件的节点得分为0，而那些存在相关镜像文件的各节点中，拥有被Pod所依赖到的镜像文件的体积之和越大的节点得分就会越高。
+	TaintTolerationPriority：基于对Pod资源对节点的污点容忍调度偏好进行其优先级评估，它将Pod对象的tolerations列表与节点的污点进行匹配度检查，成功匹配的条目越多，则节点得分越低。
+	SelectorSpreadPriority：尽可能分散Pod至不同节点上的调度机制，它首先查找标签选择器能够匹配到当前Pod标签的ReplicationController、ReplicaSet和StatefulSet等控制器对象，而后查找可由这类对象的标签选择器匹配到的现存各Pod对象及其所在的节点，而那些运行此类Pod对象越少的节点得分越高。简单来说，如其名称所示，此优选函数尽量把同一标签选择器匹配到的Pod资源打散到不同的节点上运行。
+	ServiceSpreadingPriority：类似于SelectorSpreadPriority，它首先查找标签选择器能够匹配到当前Pod标签的Service对象，而后查找可由这类Service对象的标签选择器匹配到的现存各Pod对象及其所在的节点，而那些运行此类Pod对象越少的节点得分越高。
+	EvenPodsSpreadPriority：用于将一组特定的Pod对象在指定的拓扑结构上进行均衡打散，打散条件定义在Pod对象的spec.topologySpreadConstraints字段上，它内嵌labelSelector指定标签选择器以匹配符合条件的Pod对象，使用topologyKey指定目标拓扑结构，使用maxSkew描述最大允许的不均衡数量，而无法满足指定的调度条件时的评估策略则由whenUnsatisfiable字段定义，它有两个可用取值，默认值DoNotSchedule表示不予调度，而ScheduleAnyway则表示以满足最小不均衡值的标准进行调度。
+	EqualPriority：设定所有节点具有相同的权重1。
+	InterPodAffinityPriority：遍历Pod对象的亲和性条目，并将那些能够匹配到给定节点的条目的权重相加，结果值越大的节点得分越高。
+	NodePreferAvoidPodsPriority：此优选级函数权限默认为10000，它根据节点是否设置了注解信息scheduler.alpha.kubernetes.io/preferAvoidPods来计算其优选级。计算方式是，给定的节点无此注解信息时，其得分为10乘以权重10000，存在此注解信息时，对于那些由ReplicationController或ReplicaSet控制器管控的Pod对象的得分为0，其他Pod对象会被忽略（得最高分）。
+
+配置调度器：
+apiVersion: kubescheduler.config.k8s.io/v1alpha2 # v1alpha2版本
+kind: KubeSchedulerConfiguration
+AlgorithmSource:  # 指定调度算法配置源，v1alpha2版本起该配置进入废弃阶段
+  Policy：  # 基于调度策略的调度算法配置源
+    File: 文件格式的调度策略
+      Path <string>: 调度策略文件policy.cfg的位置
+    ConfigMap:   # configmap格式的调度策略
+      Namespace <string>  # 调度策略configmap资源隶属的名称空间
+      Name <string>  # configmap资源的名称
+  Provider <string>  # 配置使用的调度算法的名称，例如DefaultProvider
+LeaderElection: {}  # 多kube-scheduler实例并在时使用的领导选举算法
+ClientConnection: {}  # 与API Server通信时提供给代理服务器的配置信息
+HealthzBindAddress <string>  # 响应健康状态检测的服务器监听的地址和端口
+MetricsBindAddress <string>  # 响应指标抓取请求的服务器监听地址和端口
+DisablePreemption <bool>  # 是否禁用抢占模式，false表示不禁用
+PercentageOfNodesToScore <int32>  # 需要过滤出的可用节点百分比
+BindTimeoutSeconds  <int64>  # 绑定操作的超时时长，必须使用非负数
+PodInitialBackoffSeconds  <int64>  # 不可调度Pod的初始补偿时长，默认值为1
+PodMaxBackoffSeconds <int64>  # 不可调度Pod的最大补偿时长，默认为10
+Profiles <[]string>  # 加载的KubeSchedulerProfile配置列表，v1alpha2支持多个
+Extenders <[]Extender>  # 加载的Extender列表
+
+调度配置 ：
+SchedulerName <string>    # 当前Profile的名称
+Plugins <Object>           # 插件配置对象
+  <ExtendPoint> <Object>  # 配置指定的扩展点，例如QueueSort，每个扩展点按名指定
+    Enabled <[]Plugin>     # 启用的插件列表
+    - Name <string>       # 插件名称
+      Weight <int32>      # 插件权重，仅Score扩展点支持
+    Disabled <[]Plugin>  # 禁用的插件列表
+    - Name <string>  # 插件名称
+      Weight <int32>  # 插件权重
+PluginConfig <[]Object>  # 插件特有的配置
+- Name <string>            # 插件名称
+Args <Object>            # 配置信息
+
+finalScoreNode = (weight1 * priorityFunc1) + (weight2 * priorityFunc2) + …
+
+apiVersion: kubescheduler.config.k8s.io/v1beta1
+kind: KubeSchedulerConfiguration
+clientConnection:
+  kubeconfig: "/etc/kubernetes/scheduler.conf"
+profiles:
+- schedulerName: default-scheduler
+- schedulerName: demo-scheduler
+  plugins:
+    filter:
+      disabled:
+      - name: NodeUnschedulable
+    score:
+      disabled:
+      - name: NodeResourcesBalancedAllocation
+        weight: 1
+      - name: NodeResourcesLeastAllocated
+        weight: 1
+      enabled:
+      - name: NodeResourcesMostAllocated
+        weight: 5
+
+
+/etc/kubernetes/manifests/kube-scheduler.yaml
+
+spec:
+  containers:
+  - command:
+    - kube-scheduler
+    - --authentication-kubeconfig=/etc/kubernetes/scheduler.conf
+    - --authorization-kubeconfig=/etc/kubernetes/scheduler.conf
+    - --config=/etc/kubernetes/scheduler/kubeschedconf-v1beta1-demo.yaml
+
+    volumeMounts:
+    - mountPath: /etc/kubernetes/scheduler.conf
+      name: kubeconfig
+      readOnly: true
+    - mountPath: /etc/kubernetes/scheduler
+      name: schedconf
+      readOnly: true
+  hostNetwork: true
+  priorityClassName: system-node-critical
+  volumes:
+  - hostPath:
+      path: /etc/kubernetes/scheduler.conf
+      type: FileOrCreate
+    name: kubeconfig
+  - hostPath:
+      path: /etc/kubernetes/scheduler
+      type: DirectoryOrCreate
+    name: schedconf
+
+
+Kubernetes的高级调度功能
+	节点亲和调度； 
+	Pod亲和调度； 
+	节点污点和Pod容忍度
+	拓扑分布式调度
+
+节点亲和：
+	pods.spec:
+		nodeName：
+		nodeSelector：节点选择器
+		affinity.nodeAffinity：节和亲和
+			亲和，反亲和
+			硬亲和，软亲和
+
+	Pod亲和：Pod彼此间运行于同一位置的倾向性； 
+		位置：节点、机架、row、room
+
+	节点污点和Pod容忍度
+	拓扑分布式调度
+
+效用标识主要由以下3种类型。
+	NoSchedule：不能容忍此污点的Pod对象不可调度至当前节点，属于强制型约束关系，但添加污点对节点上现存的Pod对象不产生影响。
+	PreferNoSchedule：NoSchedule的柔性约束版本，即调度器尽量确保不会将那些不能容忍此污点的Pod对象调度至当前节点，除非不存在其他任何能够容忍此污点的节点可用；添加该类效用的污点同样对节点上现存的Pod对象不产生影响。
+	NoExecute：不能容忍此污点的新Pod对象不可调度至当前节点，属于强制型约束关系，而且节点上现存的Pod对象因节点污点变动或Pod容忍度变动而不再满足匹配条件时，Pod对象将会被驱逐。
+
+此外，在Pod对象上定义容忍度时，它支持两种操作符，一种是等值比较，表示容忍度与污点必须在key、value和effect三者之上完全匹配，另一种是存在性判断（Exists），表示二者的key和effect必须完全匹配，而容忍度中的value字段要使用空值。
+一个节点可以配置使用多个污点，而一个Pod对象也可以有多个容忍度，将一个Pod对象的容忍度套用到特定节点的污点之上进行匹配度检测时，时将遵循如下逻辑：
+1）首先处理每个有着与之匹配的容忍度的污点；
+2）对于不能匹配到容忍度的所有污点，若存在一个污点使用了NoSchedule效用标识，则拒绝调度当前Pod至该节点；
+3）对于不能匹配到容忍度的所有污点，若都不具有NoSchedule效用标识，但至少有一个污点使用了PreferNoScheduler效用标准，则调度器会尽量避免将当前Pod对象调度至该节点。
+4）如果至少有一个不能匹配容忍度的污点使用了NoExecute效用标识，节点将立即驱逐当前Pod对象，或者不允许该Pod调度至给定的节点；而且，即便容忍度可以匹配到使用了NoExecute效用标识的污点，若在Pod上定义容忍度时同时使用tolerationSeconds属性定义了容忍时限，则在超出时限后当前脚Pod也将会被节点所驱逐。
+
+Kubernetes自1.6起支持使用污点自动标识问题节点，它通过节点控制器在特定条件下自动为节点添加污点信息实现。它们都使用NoExecute效用标识，因此非能容忍此类污点的现在Pod对象也会遭到驱逐。目前，内建使用的此类污点有如下几个。
+	node.kubernetes.io/not-ready：节点进入NotReady状态时被自动添加的污点。
+	node.alpha.kubernetes.io/unreachable：节点进入NotReachable状态时被自动添加的污点。
+	node.kubernetes.io/out-of-disk：节点进入OutOfDisk状态时被自动添加的污点。
+	node.kubernetes.io/memory-pressure：节点内存资源面临压力。
+	node.kubernetes.io/disk-pressure：节点磁盘资源面临压力。
+	node.kubernetes.io/network-unavailable：节点网络不可用。
+	node.cloudprovider.kubernetes.io/uninitialized：kubelet由外部的云环境程序启动时，它自动为节点添加此污点，待到云控制器管理器中的控制器初始化此节点时再将其删除。
+不过，Kubernetes的核心组件通常都要容忍此类的污点，以确保其相应的DaemonSet控制器能够无视此类污点于节点上部署相应的关键Pod对象，例如kube-proxy或kube-flannel等。
+
+Pod资源规范中的拓扑分布约束嵌套定义在.spec.topologySpreadConstraints字段中，它用来指示调度器如何根据集群中现有的Pod放置待调度的该Pod规范的实例。
+	topologyKey <string>：拓扑键，用来划分拓扑结构的节点标签，在指定的键上具有相同值的节点归属为同一拓扑；必选字段。
+	labelSelector <Object>：Pod标签选择器，用于定义该Pod需要针对哪类Pod对象的位置来确定自身可放置的位置。
+	maxSkew <integer>：允许Pod分布不均匀的最大程度，也就是可接受的当前拓扑中由labelSelector匹配到的Pod数量与所有拓扑中匹配到的最少Pod数量的最大差值，可简单用公式表示为max(count(current_topo(matched_pods))-min(topo(matched_pods)))，其中的topo是表示拓扑关系伪函数名称。
+	whenUnsatisfiable <string>：拓扑无法满足maxSkew时采取的调度策略，默认值DoNotSchedule是一种强制约束，即不予调度至该区域，而另一可用值ScheduleAnyway则是柔性约束，无法满足约束关系时仍可将Pod放入该拓扑中。
+
+PriorityClass
+apiVersion: scheduling.k8s.io/v1  # 资源隶属的API群组及版本
+kind: PriorityClass  # 资源类别标识符
+metadata:
+  name <string>   # 资源名称
+value  <integer>  # 优先级，必选字段
+description  <string>  # 该优先级描述信息
+globalDefault <boolean>  # 是否为全局默认优先级
+preemptionPolicy  <string>  # 抢占策略，Never为禁用，默认为PreemptLowerPriority
+
+
+CRD
+apiVersion: apiextensions.k8s.io/v1  # API群组和版本
+kind: CustomResourceDefinition  # 资源类别
+metadata:
+  name <string>  # 资源名称
+spec:
+	conversion <Object>  # 定义不同版本间的格式转换方式
+	   trategy <string>  # 不同版本间的自定义资源转换策略，有None和Webhook两种取值
+	   webhook <Object>  # 如何调用用于进行格式转换的webhook
+	group <string>  # 资源所属的API群组
+	names <Object>  # 自定义资源的类型，即该CRD创建资源规范时使用的kind
+	  categories  <[]string>  # 资源所属的类别编目，例如”kubectl get all”中的all
+	  kind <string>  # kind名称，必选字段
+	  listKind <string>  # 资源列表名称，默认为"`kind`List"
+	  plural <string>  # 复数，用于API路径`/apis/<group>/<version>/.../<plural>`
+	  shortNames <[]string>  # 该资源的kind的缩写格式
+	  singular <string>  # 资源kind的单数形式，必须使用全小写字母，默认为小写的kind名称
+	preserveUnknownFields <boolean>  # 预留的非知名字段，kind等都是知名的预留字段
+	scope <string>  # 作用域，可用值为Cluster和Namespaced
+	versions <[]Object>  # 版本号定义
+	  additionalPrinterColumns <[]Object>  # 需要返回的额外信息
+	  name <string>  # 形如vM[alphaN|betaN]格式的版本名称，例如v1或v1alpha2等
+	  schema <Object>  # 该资源的数据格式（schema）定义，必选字段
+	    openAPIV3Schema  <Object>  # 用于校验字段的schema对象，格式请参考相关手册
+	  served <boolean>  # 是否允许通过RESTful API调度该版本，必选字段
+	  storage <boolean>  # 将自定义资源存储于etcd中时是不是使用该版本
+	  subresources <Object>  # 子资源定义
+	    scale <Object>  # 启用scale子资源，通过autoscaling/v1.Scale发送负荷
+	    status <map[string]>   # 启用status子资源，为资源生成/status端点
+
+
+目前，扩展Kubernetes API的常用方式有3种：使用CRD（CustomResourceDefinitions）自定义资源类型、开发自定义的API Server并聚合至主API Server，以及定制扩展API Server源码。这其中，CRD最为易用但限制颇多，自定义API Server更富于弹性但代码工作量偏大，而仅在必须添加新的核心类型才能确保专用的Kubernetes集群功能正常，才应该定制系统源码。
+
+Control Loop
+for {
+  desired := getDesiredState()  # 获取资源对象的期望状态
+  current := getCurrentState()  # 获取当前的实际状态 
+  makeChanges(desired, current)  # 执行操作，让当前状态符合期望状态
+}
+
+Operator, SDK
+
+
+
+13、集群ingress
+Service的代理模式：
+	Userspace
+	iptables
+	ipvs
+
+Ingress简介
+	Ingress: 标准的资源类型
+	Ingress Controller：Ingress控制器
+		HTTP/TCP代理服务
+			Ingress-Nginx: Kong
+			HAProxy
+			Envoy: Contour, Gloo
+			Traefik
+			...
+
+v1beta1-Ingress资源规范
+apiVersion: extensions/v1beta1   # 资源所属的API群组和版本
+kind: Ingress   # 资源类型标识符
+metadata:  # 元数据
+  name <string>  # 资源名称
+  annotations:   # 资源注解，v1beta1使用下面的注解来指定要解析该资源的控制器类型
+    kubernetes.io/ingress.class: <string>    # 适配的Ingress控制器类别
+  namespace <string>  # 名称空间
+spec:
+  rules <[]Object>   # Ingress规则列表；
+  - host <string>   # 虚拟主机的FQDN，支持“*”前缀通配，不支持IP，不支持指定端口
+    http <Object>
+      paths <[]Object>   # 虚拟主机PATH定义的列表，由path和backend组成
+      - path <string>   # 流量匹配的HTTP PATH，必须以/开头
+        pathType <string>  # 匹配机制，支持Exact、Prefix和ImplementationSpecific
+        backend <Object>   # 匹配到的流量转发到的目标后端
+          resource <Object>   # 引用的同一名称空间下的资源，与下面两个字段互斥
+          serviceName <string>   # 引用的Service资源的名称
+          servicePort <string>   # Service用于提供服务的端口
+  tls <[]Object>   # TLS配置，用于指定上rules中定义的哪些host需要工作HTTPS模式
+  - hosts <[]string>   # 使用同一组证书的主机名称列表
+    secretName <string>   # 保存于数字证书和私钥信息的secret资源名称
+  backend <Object>   # 默认backend的定义，可嵌套字段及使用格式跟rules字段中的相同
+  ingressClassName  <string>   # ingress类名称，用于指定适配的控制器
+
+
+v1-Ingress资源规范
+apiVersion: networking.k8s.io/v1   # 资源所属的API群组和版本
+kind: Ingress   # 资源类型标识符
+metadata:  # 元数据
+  name <string>  # 资源名称
+  annotations:   # 资源注解，v1beta1使用下面的注解来指定要解析该资源的控制器类型
+    kubernetes.io/ingress.class: <string>    # 适配的Ingress控制器类别
+  namespace <string>  # 名称空间
+spec:
+  rules <[]Object>   # Ingress规则列表
+  - host <string>   # 虚拟主机的FQDN，支持“*”前缀通配，不支持IP，不支持指定端口
+    http <Object>
+      paths <[]Object>   # 虚拟主机PATH定义的列表，由path和backend组成
+      - path <string>   # 流量匹配的HTTP PATH，必须以/开头
+        pathType <string>  # 支持Exact、Prefix和ImplementationSpecific，必选
+        backend <Object>   # 匹配到的流量转发到的目标后端
+          resource <Object>   # 引用的同一名称空间下的资源，与下面两个字段互斥
+          service <object>  # 关联的后端Service对象
+            name <string>  # 后端Service的名称
+            port <object>  # 后端Service上的端口对象
+              name <string>   # 端口名称
+              number <integer>   # 端口号
+  tls <[]Object>   # TLS配置，用于指定上rules中定义的哪些host需要工作HTTPS模式
+  - hosts <[]string>   # 使用同一组证书的主机名称列表
+    secretName <string>   # 保存于数字证书和私钥信息的secret资源名称
+  backend <Object>   # 默认backend的定义，可嵌套字段及使用格式跟rules字段中的相同
+  ingressClassName  <string>   # ingress类名称，用于指定适配的控制器
+
+IngressClass资源规范
+apiVersion: networking.k8s.io/v1beta1  # API资源群组及版本
+kind: IngressClass   # 资源类型标识
+metadata:
+  name <string>
+  namespace <string>
+  annotations:
+    ingressclass.kubernetes.io/is-default-class <boolean>  # 是否为默认
+spec:
+  controller <string>   # 该类别关联的Ingress控制器
+  parameters <Object>   #控制器相关的参数，这些参数由引用的资源定义，可选字段
+    apiGroup <string>   # 引用的目标资源所属的API群组
+    kind <string>   # 引用的资源类型
+    name <string>   # 引用的资源名称
+
+配置 Ingress Nginx
+	nginx.ingress.kubernetes.io/auth-type: [basic|digest]，用于指定认证类型，仅有两个可用值；
+	nginx.ingress.kubernetes.io/auth-secret: secretName，保存有认证信息的Secret资源名称；
+	nginx.ingress.kubernetes.io/auth-secret-type: [auth-file|auth-map]，Secret中的数据类型，auth-file表示数据为htpasswd直接生成的文件，auth-map表示数据是直接给出用户的名称和hash格式的密钥信息；
+	nginx.ingress.kubernetes.io/auth-realm: "realm string"，认证时使用的realm信息。
+
+
+HTTPProxy资源规范基础
+apiVersion: projectcontour.io/v1   # API群组及版本；
+kind: HTTPProxy   # CRD资源的名称；
+metadata:
+  name <string>
+  namespace <string>   # 名称空间级别的资源
+spec:
+  virtualhost <VirtualHost>   # 定义FQDN格式的虚拟主机，类似于Ingress中host
+    fqdn <string>   # 虚拟主机FQDN格式的名称
+    tls <TLS>   # 启用HTTPS，且默认以301将HTTP请求重定向至HTTPS
+      secretName <string>   # 存储于证书和私钥信息的Secret资源名称
+      minimumProtocolVersion <string>   # 支持的SSL/TLS协议的最低版本
+      passthrough <boolean>   # 是否启用透传模式，启用时控制器不卸载HTTPS会话
+      clientValidation <DownstreamValidation>   # 验证客户端证书，可选配置
+        caSecret <string>   # 用于验证客户端证书的CA的证书
+  routes <[]Route>  # 定义路由规则
+    conditions <[]Condition>   # 流量匹配条件，支持PATH前缀和标头匹配两种检测机制
+      prefix <String>   # PATH路径前缀匹配，类似于Ingress中的path字段
+    permitInsecure <Boolean>   # 是否禁止默认的将HTTP重定向到HTTPS的功能
+    services <[]Service>   # 后端服务，会对应转换为Envoy的Cluster定义
+      name <String>    # 服务名称
+      port <Integer>   # 服务端口
+      protocol <String>   # 到达后端服务的协议，可用值为tls、h2或者h2c
+      validation <UpstreamValidation>   # 是否校验服务端证书
+        caSecret <String>  
+        subjectName <string>   # 要求证书中使用的Subject值
+
+HTTPProxy高级路由
+spec:
+  routes <[]Route>  # 定义路由规则
+    conditions <[]Condition>
+      prefix <String>
+      header <HeaderCondition>   # 请求报文标头匹配
+        name <String>        # 标头名称
+        present <Boolean>   # true表示存在该标头即满足条件，值false没有意义
+        contains <String>   # 标头值必须包含的子串
+        notcontains <String>  # 标头值不能包含的子串
+        exact <String>      # 标头值精确的匹配
+        notexact <String>  # 标头值精确反向匹配，即不能与指定的值相同
+    services <[]Service>   # 后端服务，转换为Envoy的Cluster
+      name <String>
+      port <Integer>
+      protocol <String>  
+      weight <Int64>     # 服务权重，用于流量分割
+      mirror <Boolean>   # 流量镜像
+      requestHeadersPolicy <HeadersPolicy>   # 到上游服务器请求报文的标头策略
+        set <[]HeaderValue>   # 添加标头或设置指定标头的值
+          name <String>
+          value <String>
+        remove <[]String>   # 移除指定的标头
+      responseHeadersPolicy <HeadersPolicy>   # 到下游客户端响应报文的标头策略
+    loadBalancerPolicy <LoadBalancerPolicy>   # 指定要使用负载均衡策略
+      strategy <String>    # 具体使用的策略，支持Random、RoundRobin、Cookie
+# 和WeightedLeastRequest，默认为RoundRobin；
+    requestHeadersPolicy <HeadersPolicy>   # 路由级别的请求报文标头策略
+    reHeadersPolicy <HeadersPolicy>         # 路由级别的响应报文标头策略
+    pathRewritePolicy <PathRewritePolicy>  # URL重写
+      replacePrefix <[]ReplacePrefix>
+        prefix <String>         # PATH路由前缀
+        replacement <String>   # 替换为的目标路径
+
+HTTPProxy服务弹性
+spec:
+  routes <[]Route> 
+    timeoutPolicy <TimeoutPolicy>   # 超时策略
+      response <String>   # 等待服务器响应报文的超时时长
+      idle <String>   # 超时后，Envoy维持与客户端之间连接的空闲时长
+    retryPolicy <RetryPolicy>   # 重试策略
+      count <Int64>   # 重试的次数，默认为1
+      perTryTimeout <String>   # 每次重试的超时时长
+    healthCheckPolicy <HTTPHealthCheckPolicy>   # 主动健康状态检测
+      path <String>   # 检测针对的路径（HTTP端点）
+      host <String>   # 检测时请求的虚拟主机
+      intervalSeconds <Int64>   # 时间间隔，即检测频度，默认为5秒
+      timeoutSeconds <Int64>   # 超时时长，默认为2秒
+      unhealthyThresholdCount <Int64>   # 判定为非健康状态的阈值，即连续错误次数
+      healthyThresholdCount <Int64>   # 判定为健康状态的阈值
+
+
+
+14、Kustomize、Helm 简介
+Kustomize, Helm
+部署应用程序: 资源清单
+	Deployment, Service, ConfigMap, Secret, RBAC(Role, ClusterRole, ...), ...
+	
+	kustomize, helm: 部署工具
+
+	StatefulSet, Deployment, Service, ...
+
+	Operator
+		etcd-operator
+			etcdCluster
+
+Kustomize
+Kustomize的核心目标在于为管理的应用生成资源配置，而这些资源配置中定义了资源的期望状态，在具体实现上，它通过kustomization.yaml文件组合和（或）叠加多种不同的来源的资源配置来生成。
+Kustomize将一个特定应用的配置保存于专用的目录中，且该目录中必须有一个名为kustomization.yaml的文件作为该应用的核心控制文件。由以下kustomization.yaml文件的格式说明可以大体看出，Kustomize可以直接组合由resources字段中指定资源文件作为最终配置，也可在它们的基础上进行额外的修订，例如添加通用标签和通用注解、为各个资源添加统一的名称前缀或名称后缀、改动Pod模板中的镜像文件及向容器传递变量等。
+
+Kustomization资源规范
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources <[]string>   # 待定制的原始资源配置文件列表，将由kustomize按顺序处理
+namespace <string>     # 设定所有名称空间级别资源所属的目标名称空间
+commonLabels <map[string]string>  # 添加到所有资源的通用标签，包括Pod模板及相关的
+# 相关的标签选择器
+commonAnnotations <map[string]string>   # 添加到所有资源的通用注解
+namePrefix <string>   # 统一给所有资源添加的名称前缀
+nameSuffix <string>   # 统一给所有资源添加的名称后缀
+images <[]Image>   # 将所有Pod模板中的符合name字段条件镜像文件修改为指定的镜像
+- name <String>    # 资源清单中原有的镜像名称，即待替换的镜像
+  nameName <String>   # 要使用的新镜像名称
+  newTag <String>     # 要使用的新镜像的标签
+  digest <String>     # 要使用的新镜像的sha256校验码
+vars <[]Var>       # 指定可用于替换Pod容器参数中变量的值或容器环境变量的值
+- name <String>   # 变量的名称，支持以“$(name)”格式进行引用
+  objref <String>  # 包含了要引用的目标字段的对象的名称
+  fieldref <String>  # 引用的字段名称，默认为metadata.name
+
+配置生成器：
+configMapGenerator <[]ConfigMapGeneratorArgs>  # ConfigMap资源生成器列表
+- name <String>   # ConfigMap资源的名称，会受到namePrefix和nameSuffix的影响
+  namespace <String>  # 资源所在的名称空间，会覆盖kustomize级别的名称空间设定
+  behavior <String>   # 与上级同名资源的合并策略，可用取值为create/replace/merge；
+  files <[]String>   # 从指定的路径加载文件生成ConfigMap，要使用当前项目的相对路径
+  literals <[]String>   # 从指定的“key=value”格式的直接值生成ConfigMap
+  env <String>   # 从指定的环境变量文件中加载“key=value”格式的环境变量为资源数据
+secretGenerator <[]secretGeneratorArgs>  # Secret资源生成器列表
+- name <String>   # Secret资源的名称，会受到namePrefix和nameSuffix的影响
+  namespace <String>  # 资源所在的名称空间，会覆盖kustomize级别的名称空间设定
+  behavior <String>   # 与上级同名资源的合并策略，可用取值为create/replace/merge
+  files <[]String>   # 从指定的路径加载文件生成Secret，起始于当前项目的相对路径
+  literals <[]String>   # 从指定的“key=value”格式的直接值生成Secret
+  type <String>   # Secret资源的类型，且“kubernetes.io/tls”有特殊的键名要求
+generatorOptions <GeneratorOptions>   # 当前kustomization.yaml中的ConfigMap
+# 和Secret生成器专用的选项
+  labels <map[String]String>   # 当前kustomization.yaml中所有生成资源添加的标签
+  annotations <map[String]String>   # 为生成所有资源添加的注解
+  disableNameSuffixHash <Boolean>  # 是否禁用hash名称后缀，默认为启用
+
+资源补丁
+patchesJson6902 <[]Json6902>   # 由各待补对象及其补丁文件所组成的列表
+  path <String>   # 补丁文件，不含有目标资源对象的信息，支持json或yaml格式
+  target <Target>   # 待补资源对象
+    group <String>  # 资源所属的群组
+    version <String>   # API版本
+    kind <String>   # 资源类型
+    name <String>   # 资源对象的名称
+    namespace <string>   # 资源对象所属的名称空间
+patchesStrategicMerge <[]string>   # 将补丁补到匹配的资源之上，匹配的方式是根据资源
+                                         # Group/Version/Kind + Name/Namespace判断
+
+Helm
+	Chart：即一个Helm程序包，它包含了运行一个Kubernetes应用所需要的镜像、依赖关系和资源定义等，它类似于APT的dpkg文件或者yum的rpm文件。
+	Repository：集中存储和分发Chart的仓库，类似于Perl的CPAN，或者Python的PyPI等。
+	Config：Chart实例化安装运行时使用的配置信息。
+	Release：Chart实例化配置后运行于Kubernetes集群中的一个应用实例；在同一个集群上，一个Chart可以使用不同的Config重复安装多次，每次安装都会创建一个新的“发布（Release）”。
+
+	helm命令行选项传递参数； 也可以通过值文件传递参数values.yaml； 
+
+
+
+16、Promethous
+部署Prometheus
+	helm部署原生版Prometheus Server, 要借助于StatefulSet完成; 
+	helm部署prometheus-operator, 再operator部署prometheus server
+		CRD
+
+https://ip:port/metrics
+
+https://kubernetes.default.svc:443/api/v1/nodes/node01/proxy/metrics
+
+pod
+	prometheus.io/scrape: true/false
+
+	__meta_kubernetes_pod_annotation_prometheus_io_scrape = true|false
+
+	__meta_kubernetes_pod_annotation_prometheus_io_path = /metrics
+
+	 __meta_kubernetes_pod_annotation_prometheus_io_port = 80
+	 	http://10.244.1.6:80/metrics
+
+
+	--tls-cert-file和--tls-private-key-file：metrics-server服务进程使用的证书和私钥，未指定时将由程序自动生成自签证书，生产环境建议自行指定；
+	--secure-port=<port>：metrics-server服务进程对外提供服务的端口，默认为443，以非管理员账户运行时建议修改为1024及以上的端口号，例如4443等；
+	--metric-resolution=<duration>：从kubelet抓取指标数据的时间间隔，默认为60s；
+	--kubelet-insecure-tls：不验证为kubelet签发证书的CA，对于kubelet使用自签证书的测试环境较为有用，但不建议生产环境使用；
+	--kubelet-preferred-address-types：与kubelet通信时倾向于使用的地址类型顺序，默认为Hostname、InternalDNS、InternalIP、ExternalDNS和ExternalIP；
+	--kubelet-port：kubelet监听的能够提供指标数据的端口号，默认为10250。
+
+1）监控代理程序，例如node_exporter，收集标准的主机指标数据，包括平均负载、CPU、Memory、Disk、Network及诸多其他维度的数据。
+2）kubelet（cAdvisor）：收集容器指标数据，它们也是Kubernetes“核心指标”，每个容器的相关指标数据主要有CPU利用率（user和system）及限额、文件系统读/写/限额、内存利用率及限额、网络报文发送/接收/丢弃速率等。
+3）Kubernetes API Server：收集API Server的性能指标数据，包括控制工作队列的性能、请求速率与延迟时长、etcd缓存工作队列及缓存性能、普通进程状态（文件描述符、内存、CPU等）、Golang状态（GC、内存和线程等）。
+3）etcd：收集etcd存储集群的相关指标数据，包括领导节点及领域变动速率、提交/应用/挂起/错误的提案次数、磁盘写入性能、网络与gRPC计数器等。
+4）kube-state-metrics：该组件用于根据Kubernetes API Server中的资源派生出多种资源指标，它们主要是资源类型相关的计数器和元数据信息，包括指定类型的对象总数、资源限额、容器状态（ready/restart/running/terminated/waiting）以及Pod资源的标签系列等。
+
+k8s-prometheus-adapter: 
+	custom.metrics.k8s.io或external.metrics.k8s.io
+
+kube-metrics-adapter
+
+rules:
+  default: true   # 是否加载默认规则；
+  custom:
+#  - seriesQuery: '{__name__=~"^http_requests_.*",kubernetes_namespace!="",kubernetes_pod_name!=""}'
+#    resources:
+#      overrides:
+#        kubernetes_namespace: {resource: "namespace"}
+#        kubernetes_pod_name: {resource: "pod"}
+#    metricsQuery: '<<.Series>>{<<.LabelMatchers>>}'
+  - seriesQuery: 'http_requests_total{kubernetes_namespace!="",kubernetes_pod_name!=""}'
+    resources:
+      overrides:
+        kubernetes_namespace: {resource: "namespace"}
+        kubernetes_pod_name: {resource: "pod"}
+    name:
+      matches: "^(.*)_total"
+      as: "${1}_per_second"
+    metricsQuery: 'rate(<<.Series>>{<<.LabelMatchers>>}[2m])'
+  existing:
+  external: []

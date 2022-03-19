@@ -1,0 +1,102 @@
+Prometheus：
+	Prometheus-Server
+		Exporters
+		Instrumentation
+		Pushgateway
+
+		TSDB: Time Series DB
+
+		PromQL
+
+	Alertmanager
+
+	Grafana
+
+Service Discovery
+
+
+prom_http{job=node_exporter}
+
+prom_http{job=~"node.*"}
+
+
+指标抓取的生命周期：
+	服务发现（Target）， http/https, Metrics Path
+	配置
+	重新打标（操作target上的标签）
+		标签值：修改修定标签的值，或附加新标签
+		标签值：删除Target
+		标签名：删除标签，标签重新映射
+	抓取
+	指标重新打标（操作的该target上的所有指标的标签）
+		标签值：修改指定标签的值，或附加新标签
+		标签值：删除指标，但要匹配__name__标签值完成
+		标签名：删除标签，标签重新映射		
+
+	Action：
+		replace, hashmod
+		drop/keep
+		labelkeep/labeldrop/labelmap
+
+PromQL：
+	指标标识：<metric_name>{label=value, ...}
+	查询：
+		过滤时间序列：
+			metric_name：只查询该指标名称下所有时间序列； 
+			{}：=, !=, =~, !~
+				app=~"prom.*"
+			metric_name{}：
+
+	返回值有四种类型：
+		即时向量；
+		范围向量；
+		标量；
+		字符串； 
+
+	指标类型：
+		Counter
+		Gauge
+		Histogram:
+			指标采样的取值范围，划分为多个bucket； 每次采样的样本值不会被记录，而只是将该值映入其所处的bucket，对该bucket中计数加1；
+				<basename>_bucket{le} 
+			额外还有两种固定指标：<basename>_count，所有样本总个数； <basename>_sum，所有样本值的和； 
+			le=60/ le="+Inf"
+		Summary
+
+
+source_match:
+  [ <labelname>: <labelvalue>, ... ]
+source_match_re:
+  [ <labelname>: <regex>, ... ]
+
+
+target_match:
+  [ <labelname>: <labelvalue>, ... ]
+target_match_re:
+  [ <labelname>: <regex>, ... ]
+  
+[ equal: '[' <labelname>, ... ']' ]
+
+
+- source_match:
+    alertname: NodeDown
+    severity: critical
+
+  target_match:
+    severity: critical
+  equal:
+    - node
+
+
+up{node="node01.magedu.com",instance="node01.magedu.com:9100",...} == 0
+
+	severity: critical
+
+ALERT{node="node01.magedu.com",instance="node01.magedu.com:9100",severity=critical}
+
+
+up{node="node01.magedu.com",instance="node01.magedu.com:3000",...} == 0
+
+	severity: critical
+
+ALERT{node="node01.magedu.com",instance="node01.magedu.com:3000",severity=critical}

@@ -1,0 +1,231 @@
+---alertmanager-secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: alertmanager-main
+  namespace: monitoring
+type: Opaque
+stringData:
+  alertmanager.yaml: |-
+    global:
+      smtp_require_tls: false
+      smtp_smarthost: ''
+      smtp_from: ''
+      smtp_auth_username: ''
+      smtp_auth_password: ''
+      
+    inhibit_rules:
+    - target_match:
+        severity: 'warn'
+      source_match:
+        severity: 'critical'
+      equal: ['alertname', 'prometheus', 'namespace', 'component', 'app']
+
+    route:
+      receiver: 'user-admin-mails'
+      group_by: ['alertname', 'prometheus', 'namespace', 'component', 'app']
+      group_wait: 25s
+      group_interval: 30m
+      repeat_interval: 5h
+      routes:
+      - receiver: 'team-devops-mails'
+        match_re:
+          namespace: kube-system|monitoring
+        routes:
+          - receiver: 'team-devops-mails'
+            match_re:
+              severity: warn
+          - receiver: 'team-devops-sms'
+            match_re:
+              severity: critical
+      - receiver: 'team-devops-sms'
+        match_re:
+          severity: critical
+          
+    receivers:
+    - name: 'user-admin-mails'
+      email_configs:
+      - send_resolved: true
+        to: 'aoyang@qq.com
+    - name: 'team-devops-sms'
+      email_configs:
+      - send_resolved: true
+        to: ''
+      webhook_configs:
+      - send_resolved: true
+        url: http://alarm-sms:8080/alarm
+---alarm-sms-configMap.yaml
+apiVersion: v1
+data:
+  application.yaml: |
+    sms_url: 'https://dripsms.xfpaas.com/sms'
+    sms_appid: 'DZR0GHTL'
+    receivers:
+      - name: 'team-devops-sms'
+        templateName: 'K8sTemplate'
+        to:
+          - ''
+    management:
+      endpoints:
+        web:
+          exposure:
+            include: '*'
+          base-path: '/'
+    logging:
+      level:
+        com.iflytek: 'debug'
+kind: ConfigMap
+metadata:
+  name: alarm-sms-config
+  namespace: monitoring
+---prometheus-prometheus.yaml 
+  additionalScrapeConfigs:
+    name: additional-scrape-configs
+    key: prometheus-additional.yaml
+#  externalLabels:
+#    promid: ultron-sha
+#    env: prod-ultron-sha
+#  externalUrl: http://XXXXXX.com/prometheus
+  externalLabels:
+    promid: vearch-bja
+    env: prod-vearch-bja
+  externalUrl: http://XXXXXX.com/prometheus
+  storage:
+    volumeClaimTemplate:
+      spec:
+        selector:
+          matchLabels:
+            prometheus: k8s
+        resources:
+          requests:
+            storage: 200Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: prometheus-k8s-pv-0
+  labels:
+    prometheus: k8s
+spec:
+  capacity:
+    storage: 200Gi
+  accessModes:
+    - ReadWriteOnce # required
+  local:
+    path: "/data/prometheus"
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: prometheus
+              operator: In
+              values:
+              - k8s-pv-0
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: prometheus-k8s-pv-1
+  labels:
+    prometheus: k8s
+spec:
+  capacity:
+    storage: 200Gi
+  accessModes:
+    - ReadWriteOnce # required
+  local:
+    path: "/data/prometheus"
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: prometheus
+              operator: In
+              values:
+                - k8s-pv-1
+---monitoring-ingress.yaml
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: monitoring-ingress
+  namespace: monitoring
+  annotations:
+      kubernetes.io/ingress.class: "nginx"
+      nginx.org/rewrites: "serviceName=prometheus-k8s rewrite=/;serviceName=grafana rewrite=/;serviceName=alertmanager-main rewrite=/"
+spec:
+  rules:
+  - host: sha-k8s-monitor.ultron.iflytek.com
+    http:
+      paths:
+      - path: /prometheus/
+        backend:
+          serviceName: prometheus-k8s
+          servicePort: 9090
+      - path: /grafana/
+        backend:
+          serviceName: grafana
+          servicePort: 3000
+      - path: /alertmanager/
+        backend:
+          serviceName: alertmanager-main
+          servicePort: 9093
+---prometheus-additional-rules.yaml      #自定义监控规则
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  labels:
+    prometheus: k8s
+    role: alert-rules
+  name: prometheus-additional-rules
+  namespace: monitoring
+spec:
+  groups:
+  - name: service-is-down.rules
+    rules:
+    - alert: ServiceDown
+      expr: avg_over_time(probe_success[5m]) < 0.85
+      labels:
+        severity: critical
+      annotations:
+        title: 服务不可用
+        message: 服务 {{ $labels.namespace }}/{{ $labels.service }} 端口 {{ $labels.instance }} 的可用率在过去5分钟内低于85%。
+---prometheus-additionalScrapeSecret.yaml   #自定义监控规则secret
+apiVersion: v1
+kind: Secret
+metadata:
+  name: additional-scrape-configs
+  namespace: monitoring
+type: Opaque
+stringData:
+  prometheus-additional.yaml: |
+    - job_name: 'kubernetes-services'
+
+      metrics_path: /probe
+      params:
+        module: [http_2xx]
+
+      kubernetes_sd_configs:
+      - role: service
+
+      relabel_configs:
+      - source_labels: [__meta_kubernetes_service_annotation_monitoring_blackbox_exporter_enabled]
+        action: keep
+        regex: true
+      - source_labels: [__address__, __meta_kubernetes_service_annotation_monitoring_blackbox_exporter_path]
+        separator: ''
+        target_label: __param_target
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+      - source_labels: [__param_target]
+        target_label: instance
+      - source_labels: [__meta_kubernetes_service_annotation_monitoring_blackbox_exporter_module]
+        target_label: __param_module
+        action: replace
+        regex: (.+)
+      - action: labelmap
+        regex: __meta_kubernetes_service_label_(.+)
+      - source_labels: [__meta_kubernetes_namespace]
+        target_label: namespace
+      - source_labels: [__meta_kubernetes_service_name]
+        target_label: service
+---
