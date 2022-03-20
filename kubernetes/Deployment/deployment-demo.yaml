@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deployment-demo
+spec:
+  replicas: 4
+  selector:
+    matchLabels:
+      app: demoapp
+      release: stable
+  template:
+    metadata:
+      labels:
+        app: demoapp
+        release: stable
+    spec:
+      containers:
+      - name: demoapp
+        image: ikubernetes/demoapp:${VERSION}
+        ports:
+        - containerPort: 80
+          name: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: demoapp-deploy
+spec:
+  selector:
+    app: demoapp
+    release: stable
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80

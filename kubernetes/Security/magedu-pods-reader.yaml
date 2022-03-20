@@ -1,0 +1,13 @@
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: magedu-pods-reader
+  namespace: default
+subjects:
+- kind: User
+  name: magedu
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: Role
+  name: pods-reader
+  apiGroup: rbac.authorization.k8s.io
