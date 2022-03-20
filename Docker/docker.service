@@ -10,7 +10,7 @@
    # exists and systemd currently does not support the cgroup feature set required
    # for containers run by docker
    ExecStartPost=/sbin/iptables -I FORWARD -s 0.0.0.0/0 -j ACCEPT
-   ExecStart=/usr/bin/dockerd -H 127.0.0.1:2375 -H unix:///var/run/docker.sock --insecure-registry=172.16.31.2 --insecure-registry=hub.xfyun.cn --insecure-registry=hub.iflytek.com --registry-mirror=https://registry.docker-cn.com --default-ulimit=core=0:0 --live-restore --graph /data/docker
+   ExecStart=/usr/bin/dockerd -H 127.0.0.1:2375 -H unix:///var/run/docker.sock --insecure-registry=172.16.31.24 --insecure-registry=hub.linux.com --registry-mirror=https://registry.docker-cn.com --default-ulimit=core=0:0 --live-restore --graph /data/docker
    ExecReload=/bin/kill -s HUP $MAINPID
    # Having non-zero Limit*s causes performance problems due to accounting overhead
    # in the kernel. We recommend using cgroups to do container-local accounting.
