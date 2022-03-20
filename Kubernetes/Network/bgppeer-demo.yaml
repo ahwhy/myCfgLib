@@ -1,7 +1,0 @@
-kind: BGPPeer
-apiVersion: projectcalico.org/v3
-metadata:
-  name: bgppeer-demo
-spec:
-  nodeSelector: all()
-  peerSelector: route-reflector=="true"
