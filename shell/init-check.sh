@@ -9,9 +9,9 @@ fi
 
 echo "#perfer 表示『优先使用』的服务器
 server 10.255.254.88 prefer
-#下面没有prefer参数，做为备用NTP时钟上层服务器地址，我这里设置的是公网，语音云则可以设置其他两地NTP IP。
+#下面没有prefer参数，做为备用NTP时钟上层服务器地址，这里设置的是公网。
 server 10.255.255.88
-#我们每一个system clock的频率都有小小的误差,这个就是为什么机器运行一段时间后会不精确. NTP会自动来监测我们时钟的误差值并予以调整.但问题是这是一个冗长的过程,所以它会把记录下来的误差先写入driftfile.这样即使你重新开机以后之前的计算结果也就不会丢了
+#每一个system clock的频率都有小小的误差,这个就是为什么机器运行一段时间后会不精确. NTP会自动来监测我们时钟的误差值并予以调整.但问题是这是一个冗长的过程,所以它会把记录下来的误差先写入driftfile.这样即使重新开机以后之前的计算结果也就不会丢了
 driftfile /var/lib/ntp/ntp.drift
 statistics loopstats peerstats clockstats
 filegen loopstats file loopstats type day enable
@@ -168,7 +168,6 @@ echo "check cpu performance"
 if ! rpm -q tuned  > /dev/null 2>&1; then
     yum -y install tuned > /dev/null 2>&1
 fi
-
 
 ls /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor > /dev/null 2>&1
 if [ $? -eq 0 ];then

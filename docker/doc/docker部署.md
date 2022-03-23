@@ -9,7 +9,7 @@
 ```shell
 $ tar -xzvf docker-18.06.3-ce.tgz 
 $ cp docker/* /usr/bin
-$ scp /lib/systemd/system/docker.service /lib/systemd/system/docker.socket /lib/systemd/system/containerd.service root@192.168.80.10:/lib/systemd/system/
+$ cp docker.service docker.socket containerd.service  /lib/systemd/system/
 $ systemctl unmask containerd
 $ systemctl unmask docker
 $ systemctl unmask docker.socket
