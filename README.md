@@ -11,6 +11,7 @@
 - [Containerd 部署](./containerd/containerd部署.md)
 
 ## Kubernetes
+- [Pod yaml](./kubernetes/01-pod/)
 
 ## Jenkins
 - [Jenkinsfile](./jenkins/pipe/Jenkinsfile)
