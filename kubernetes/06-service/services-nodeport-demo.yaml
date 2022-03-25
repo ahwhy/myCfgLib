@@ -1,6 +1,3 @@
-# Maintainer: MageEdu <mage@magedu.com>
-# URL: http://www.magedu.com
----
 kind: Service
 apiVersion: v1
 metadata:

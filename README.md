@@ -13,6 +13,9 @@
 ## Kubernetes
 - [Pod yaml](./kubernetes/03-pod/)
 - [PV && PVC yaml](./kubernetes/04-storage)
-- [Configmap && Secret yaml](./kubernetes/05-config)
+- [Configmap && Secret yaml](./kubernetes/05-configuration)
+- [Service yaml](./kubernetes/06-service)
+- [Workload yaml](./kubernetes/07-workload)
+
 ## Jenkins
 - [Jenkinsfile](./jenkins/pipe/Jenkinsfile)
