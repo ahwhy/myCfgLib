@@ -16,6 +16,9 @@
 - [Configmap && Secret yaml](./kubernetes/05-configuration)
 - [Service yaml](./kubernetes/06-service)
 - [Workload yaml](./kubernetes/07-workload)
+- [Affinity yaml](./kubernetes/10-affinity)
+- [Ingress yaml](./kubernetes/12-ingress)
+- [Hpa yaml](./kubernetes/14-monitor/hpa/)
 
 ## Jenkins
 - [Jenkinsfile](./jenkins/pipe/Jenkinsfile)
