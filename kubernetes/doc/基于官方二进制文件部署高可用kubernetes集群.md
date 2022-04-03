@@ -1,10 +1,10 @@
-参考网址：http://blog.mykernel.cn/2021/02/05/%E9%AB%98%E5%8F%AF%E7%94%A8Kubernetes/#%E5%9F%BA%E4%BA%8Ek8s%E5%AE%98%E6%96%B9%E4%BA%8C%E8%BF%9B%E5%88%B6%E7%A8%8B%E5%BA%8F%E9%83%A8%E7%BD%B2k8s%E9%9B%86%E7%BE%A4
+# 基于官方二进制文件部署高可用kubernetes集群
 
-## 准备软件包
+## 准备软件包以及参考文档
 
-kubernetes官方项目地址
+- [参考实验](http://blog.mykernel.cn/2021/02/05/%E9%AB%98%E5%8F%AF%E7%94%A8Kubernetes/#%E5%9F%BA%E4%BA%8Ek8s%E5%AE%98%E6%96%B9%E4%BA%8C%E8%BF%9B%E5%88%B6%E7%A8%8B%E5%BA%8F%E9%83%A8%E7%BD%B2k8s%E9%9B%86%E7%BE%A4)
 
-https://github.com/kubernetes/kubernetes
+- [kubernetes官方项目地址](https://github.com/kubernetes/kubernetes)
 
 
 
@@ -15,7 +15,6 @@ https://github.com/kubernetes/kubernetes
 kubernetes版本：1.20.2
 
 集群信息：
-
 | 节点名称        | IP             | 命令                                     | 角色 |
 | --------------- | -------------- | ---------------------------------------- | ---- |
 | kube20-master01 | 192.168.137.51 | hostnamectl set-hostname kube20-master01 | Etcd |
@@ -240,12 +239,12 @@ etcd存放所有资源，不允许任何人访问，而且etcd基于restful(http
 
    一个server证书（全部一样），一个client证书（全部一样）
 
-   ### 部署etcd
+### 部署etcd
 
-   -  extras/apt
-   -  二进制部署
+-  extras/apt
+-  二进制部署
 
-   etcd版本 etcd-v2、etcd-v3，kubernetes新版使用v3
+etcd版本 etcd-v2、etcd-v3，kubernetes新版使用v3
 
 ```
 root@kube20-master01:~# apt update                                            #缓存
@@ -563,7 +562,7 @@ ETCD_PEER_AUTO_TLS="false"
 
 [http://blog.mykernel.cn/2021/01/29/%E8%AE%A4%E8%AF%81%E3%80%81%E6%8E%88%E6%9D%83%E5%8F%8A%E5%87%86%E5%85%A5%E6%8E%A7%E5%88%B6/#%E5%88%B6%E4%BD%9C%E8%B4%A6%E6%88%B7](http://blog.mykernel.cn/2021/01/29/认证、授权及准入控制/#制作账户)
 
-https://github.com/iKubernetes/k8s-certs-generator
+[k8s-certs-generator](https://github.com/iKubernetes/k8s-certs-generator)
 
 证书要求
 
@@ -2324,7 +2323,8 @@ Node节点初始化，略
 # docker 和 二进制下载版本一样
 ```
 
-https://developer.aliyun.com/mirror/docker-ce?spm=a2c6h.13651102.0.0.3e221b11JBwFyb
+- [mirror docker](https://developer.aliyun.com/mirror/docker-ce?spm=a2c6h.13651102.0.0.3e221b11JBwFyb)
+
 
 ```
 # step 1: 安装必要的一些系统工具
@@ -2715,7 +2715,7 @@ rtt min/avg/max/mdev = 0.523/0.664/0.805/0.141 ms
 
 提供cni插件
 
-https://github.com/containernetworking/plugins/releases
+- [containernetworking](https://github.com/containernetworking/plugins/releases)
 
 ![image-20210206152305669](http://myapp.img.mykernel.cn/image-20210206152305669.png)
 
@@ -3363,7 +3363,7 @@ root@kube20-master01:~# systemctl restart kube-apiserver.service kube-controller
 
 ### 配置coredns *
 
-https://github.com/coredns/deployment/tree/master/kubernetes
+- [coredns](https://github.com/coredns/deployment/tree/master/kubernetes)
 
 ```
 root@kube20-master01:~# git clone https://github.com/coredns/deployment.git
@@ -3449,7 +3449,6 @@ myapp   NodePort   10.66.140.172   <none>        80:38793/TCP   3m49s
 
 > 外部访问 node节点的 172.16.0.104:32953
 
-![](C:\Users\Administrator\AppData\Roaming\Typora\typora-user-images\image-20210217153524257.png)
 
 node节点查看ipvs规则
 
@@ -3626,6 +3625,8 @@ root@kube20-master02:~# kubectl -n kube-system describe endpoints kube-controlle
 - keepalived的VIP：haip
 - 内网SLB
 
+
+
 ## node节点快速添加 *
 
 ```
@@ -3783,6 +3784,8 @@ myapp-7d4b7b84b-hphjq   0/1     ContainerCreating   0          6s    <none>     
 
 测试跨主机的两个pod通信，依赖node节点有ipv4.ip_forward规则
 
+
+
 ## 部署容器监控及告警
 
 Prometheus + 钉钉 + grafana
@@ -3791,10 +3794,12 @@ Prometheus + 钉钉 + grafana
 
 展示：PromQL
 
-可以参考 [http://blog.mykernel.cn/2021/02/03/%E8%B5%84%E6%BA%90%E6%8C%87%E6%A0%87%E4%B8%8EHPA%E6%8E%A7%E5%88%B6%E5%99%A8/#hpa](http://blog.mykernel.cn/2021/02/03/资源指标与HPA控制器/#hpa)
+参考：[http://blog.mykernel.cn/2021/02/03/%E8%B5%84%E6%BA%90%E6%8C%87%E6%A0%87%E4%B8%8EHPA%E6%8E%A7%E5%88%B6%E5%99%A8/#hpa](http://blog.mykernel.cn/2021/02/03/资源指标与HPA控制器/#hpa)
 
 - adaptor内置核心指标
 - cumstom metrics完成基于pod指标自动伸缩
+
+
 
 ## 部署ELK
 

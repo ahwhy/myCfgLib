@@ -529,7 +529,7 @@ downwardAPI存储卷类型，从严格意义上来说，downwardAPI不是存储�
 
 另外，还可以通过resourceFieldRef字段引用当前容器的资源请求及资源限额的定义，因此它们包括requests.cpu、requests.memory、requests.ephemeral-storage、limits.cpu、limits.memory和limits.ephemeral-storage这6项。
 
-作业：
+实验：
 	在kubernetes部署wordpress，要满足以下要求：
 	(1) 部署一个独立的nginx Pod实例，为wordpress提供反向代理；同时提供https和http虚拟主机，其中发往http的请求都重定向给https；以ConfigMap和Secret提供必要的配置；
 	(2) 独立部署两个wordpress Pod实例，它们使用Longhorn存储卷存储用户上传的图片或文件等数据；以ConfigMap和Secret提供必要的配置；
@@ -710,7 +710,7 @@ spec:
    2、在后端的应用集群上，做 session 复制集群，相互之间同步状态信息；
    3、在后端的应用集群上，做共享的存储服务，存储状态信息。（不能使用块存储，因为不允许两个进程同时写一个文件）
 
-作业：
+实验：
 1、statefulset跑一个mysql实例，使用secret保存账号、密码、数据库名称等信息，使用volumeClaimTemplate请求创建PVC，并持久存储数据；
 2、Deployment跑两个wordpress实例，从secret中加载数据库名称、用户名和密码等信息，基于支持RWX访问模式的PVC保存页面资源。
 
