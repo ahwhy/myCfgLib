@@ -1,0 +1,45 @@
+vrrp_script chk_mysql_port {
+    script "/etc/keepalived/check_mysql.sh"
+    interval 4 
+    weight -5
+    fall 2          
+    rise 1
+}
+
+vrrp_instance VI_1 {
+    state BACKUP
+    nopreempt
+    interface bond0
+    mcast_src_ip 10.101.5.104
+    virtual_router_id 106 
+    script_user root
+    priority 100          
+    advert_int 1         
+    authentication {   
+        auth_type PASS 
+        auth_pass 1111     
+    }
+    virtual_ipaddress {    
+        10.101.5.106
+    }
+      
+track_script {               
+   chk_mysql_port             
+   }
+}
+
+vrrp_instance VI_2 {
+    state BACKUP
+    interface bond0
+    virtual_router_id 45
+    priority 50
+    advert_int 1
+
+    authentication {
+        auth_type PASS
+        auth_pass 1111
+    }
+    virtual_ipaddress {
+        10.101.5.201
+    }
+}
