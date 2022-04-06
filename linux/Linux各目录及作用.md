@@ -275,7 +275,7 @@ xwindow 系统是一个功能强大的图形环境，提供了大量的图形工
 ### 14、/proc/net
 网络协议状态信息。
 
-#### 主机级别的流量信息 /proc/net/snmp && /proc/net/netstat
+#### 主机级别的流量信息
 - `/proc/net/snmp` 文件提供 主机各层的IP、ICMP、ICMPMsg、TCP、UDP详细数据
 
 - `/proc/net/netstat` 文件提供 主机的收发包数、收包字节数据
@@ -283,7 +283,7 @@ xwindow 系统是一个功能强大的图形环境，提供了大量的图形工
 
 - `/proc/net/dev` 查看网卡中数据包的转发情况
 
-#### 进程级别的流量信息 /proc/net/snmp && /proc/net/netstat
+#### 进程级别的流量信息
 - `/proc/net/tcp` 文件提供 tcp的四元组和 inode信息
 
 - `/proc/net/udp` 文件提供 udp的四元组和 inode信息
