@@ -275,6 +275,24 @@ xwindow 系统是一个功能强大的图形环境，提供了大量的图形工
 ### 14、/proc/net
 网络协议状态信息。
 
+#### 主机级别的流量信息 /proc/net/snmp && /proc/net/netstat
+- `/proc/net/snmp` 文件提供 主机各层的IP、ICMP、ICMPMsg、TCP、UDP详细数据
+
+- `/proc/net/netstat` 文件提供 主机的收发包数、收包字节数据
+	- 查看 SYN 丢包是否全都是 PAWS 校验失败导致 `cat /proc/net/netstat | grep TcpE| awk '{print $15, $22}'`
+
+- `/proc/net/dev` 查看网卡中数据包的转发情况
+
+#### 进程级别的流量信息 /proc/net/snmp && /proc/net/netstat
+- `/proc/net/tcp` 文件提供 tcp的四元组和 inode信息
+
+- `/proc/net/udp` 文件提供 udp的四元组和 inode信息
+
+- `/proc/{pid}/fd/` 文件提供 pid 及 socket inode文件描述符的映射关系
+	- `netstat -antp | grep pid | wc -l` 用netstat来统计进程的connection数量
+	- `cd /proc/$pid/fd && ls -al | grep socket | wc -l` 到/proc/$pid/fd下统计socket类型的fd数量
+	- [netstat统计的tcp连接数与⁄proc⁄pid⁄fd下socket类型fd数量不一致的分析](https://hengyun.tech/netstat-difference-proc-fd-socket-stat/)
+
 ### 15、/proc/self
 存放到查看/proc 的程序的进程目录的符号连接。当 2 个进程查看/proc 时，这将会是不同的连接。这主要便于程序得到它自己的进程目录。
 
@@ -286,3 +304,13 @@ xwindow 系统是一个功能强大的图形环境，提供了大量的图形工
 
 ### 18、/proc/version
 核心版本。
+
+### 19、/proc/{pid}/cgroup 进程cgroup信息
+- `/proc/{pid}/cgroup` 文件提供 进程cgroup信息，可用于获取容器信息
+	- [Kubernetes 根据 PID 获取 Pod 名称](https://www.jianshu.com/p/1ea7ec6f98ed)
+
+- 容器cgroup残留
+	- `kubelet[1264599]: I0218 10:11:57.155941 1264599 kubelet_pods.go:981] Pod "xxxx-xxxx(6923ffa2-3c15-4aa7-8f15-7a18a4b3745b)" is terminated, but pod cgroup sandbox has not been cleaned up`
+	- 在节点查询到上面的日志，定位到有cgroup残留
+	- 可以在 节点上手动删除一下terminating中的几个pod的这个cgroup
+	- `rmdir /sys/fs/cgroup/cpu/kubepods.slice/kubepods-burstable.slice/kubepods-burstable-pod6923ffa2_3c15_4aa7_8f15_7a18a4b3745b.slice`
