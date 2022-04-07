@@ -1,105 +1,105 @@
-# ipmitoolÊ¹ÓÃ±Ê¼Ç
+# ipmitoolä½¿ç”¨ç¬”è®°
 
-## ipmitool°²×°ÅäÖÃ
+## ipmitoolå®‰è£…é…ç½®
 
 ```shell
-# °²×°
+# ipmitoolå®‰è£…
 $ yum install ipmitool
 
-# ¼ÓÔØÄ£¿é
+# åŠ è½½æ¨¡å—
 $ modprobe ipmi_poweroff
 $ modprobe ipmi_watchdog
 $ modprobe ipmi_msghandler  
 $ modprobe ipmi_devintf  
 $ modprobe ipmi_si 
 
-# Æô¶¯³ÌĞò
+# å¯åŠ¨ç¨‹åº
 $ service ipmi start
 
-# lanplusÊÇ²Ù×÷Ô¶³Ì»úÆ÷£¬Èç¹ûÒª²Ù×÷±¾µØ»úÆ÷£¬ĞèÒª°Ñlanplus»»³É open 
-# ÉèÖÃpxeÆô¶¯
+# lanplusæ˜¯æ“ä½œè¿œç¨‹æœºå™¨ï¼Œå¦‚æœè¦æ“ä½œæœ¬åœ°æœºå™¨ï¼Œéœ€è¦æŠŠlanplusæ¢æˆ open 
+# è®¾ç½®pxeå¯åŠ¨
 $ ipmitool -I lanplus -H {ipmi} -U {user} -P {passwd} chassis bootdev pxe
-# ÖØÆô»úÆ÷
+# é‡å¯æœºå™¨
 $ ipmitool -I lanplus -H {ipmi} -U {user} -P {passwd} chassis power cycle
 
-# ±¾»úÖØÆôbmc
-# warm±íÊ¾ÈíÖØÆô£»cold±íÊ¾Ó²ÖØÆô
+# æœ¬æœºé‡å¯bmc
+# warmè¡¨ç¤ºè½¯é‡å¯ï¼›coldè¡¨ç¤ºç¡¬é‡å¯
 $ ipmitool mc reset <warm|cold>
 
-# ÍøÂçÅäÖÃ
+# ç½‘ç»œé…ç½®
 $ ipmitool lan set 1 ipsrc static;
 $ ipmitool lan set 1 ipaddr 192.168.7.60;
 $ ipmitool lan set 1 netmask 255.255.255.0; 
 $ ipmitool lan set 1 defgw ipaddr 192.168.7.1;
 $ ipmitool lan set 1 access on
 
-±¾»úÖØÆôbmc
-$ ipmitool mc reset <warm|cold>  warm±íÊ¾ÈíÖØÆô£»cold±íÊ¾Ó²ÖØÆô
+æœ¬æœºé‡å¯bmc
+$ ipmitool mc reset <warm|cold>  warmè¡¨ç¤ºè½¯é‡å¯ï¼›coldè¡¨ç¤ºç¡¬é‡å¯
 
-# ÆäËû
-# ²é¿´µ±Ç°ipmi µØÖ·
+# å…¶ä»–
+# æŸ¥çœ‹å½“å‰ipmi åœ°å€
 $ ipmitool lan print
-# ²é¿´ÈÕÖ¾
+# æŸ¥çœ‹æ—¥å¿—
 $ ipmitool sel list
-# ²éÇå³ıÈÕÖ¾
+# æŸ¥æ¸…é™¤æ—¥å¿—
 $ ipmitool sel clear 
 ```
 
 
-## ipmitoolÃüÁî
+## ipmitoolå‘½ä»¤
 
-### 1¡¢·şÎñÆ÷×´Ì¬¹ÜÀí
-- ²é¿´¿ª¹Ø»ú×´Ì¬ 
-	- `ipmitool -H (BMCµÄ¹ÜÀíIPµØÖ·) -I lanplus -U (BMCµÇÂ¼ÓÃ»§Ãû) -P (BMC µÇÂ¼ÓÃ»§ÃûµÄÃÜÂë) power status`
+### 1ã€æœåŠ¡å™¨çŠ¶æ€ç®¡ç†
+- æŸ¥çœ‹å¼€å…³æœºçŠ¶æ€ 
+	- `ipmitool -H (BMCçš„ç®¡ç†IPåœ°å€) -I lanplus -U (BMCç™»å½•ç”¨æˆ·å) -P (BMC ç™»å½•ç”¨æˆ·åçš„å¯†ç ) power status`
 
-- ¿ª»ú:
-	- `ipmitool -H (BMCµÄ¹ÜÀíIPµØÖ·) -I lanplus -U (BMCµÇÂ¼ÓÃ»§Ãû) -P (BMC µÇÂ¼ÓÃ»§ÃûµÄÃÜÂë) power on`
+- å¼€æœº:
+	- `ipmitool -H (BMCçš„ç®¡ç†IPåœ°å€) -I lanplus -U (BMCç™»å½•ç”¨æˆ·å) -P (BMC ç™»å½•ç”¨æˆ·åçš„å¯†ç ) power on`
 
-- ¹Ø»ú
-	- `ipmitool -H (BMCµÄ¹ÜÀíIPµØÖ·) -I lanplus -U (BMCµÇÂ¼ÓÃ»§Ãû) -P (BMC µÇÂ¼ÓÃ»§ÃûµÄÃÜÂë) power off`
+- å…³æœº
+	- `ipmitool -H (BMCçš„ç®¡ç†IPåœ°å€) -I lanplus -U (BMCç™»å½•ç”¨æˆ·å) -P (BMC ç™»å½•ç”¨æˆ·åçš„å¯†ç ) power off`
 
-- ÖØÆô 
-	- `ipmitool -H (BMCµÄ¹ÜÀíIPµØÖ·) -I lanplus -U (BMCµÇÂ¼ÓÃ»§Ãû) -P (BMC µÇÂ¼ÓÃ»§ÃûµÄÃÜÂë) power reset`
+- é‡å¯ 
+	- `ipmitool -H (BMCçš„ç®¡ç†IPåœ°å€) -I lanplus -U (BMCç™»å½•ç”¨æˆ·å) -P (BMC ç™»å½•ç”¨æˆ·åçš„å¯†ç ) power reset`
 
-### 2¡¢IPÍøÂçÉèÖÃ
-[ChannelNo] ×Ö¶ÎÊÇ¿ÉÑ¡µÄ£¬ChannoNoÎª1(Share NicÍøÂç)»òÕß8(BMC¶ÀÁ¢¹ÜÀíÍøÂç)£»ÉèÖÃÍøÂç²ÎÊı£¬±ØĞëÊ×ÏÈÉèÖÃIPÎª¾²Ì¬£¬È»ºóÔÙ½øĞĞÆäËûÉèÖÃ£»
+### 2ã€IPç½‘ç»œè®¾ç½®
+[ChannelNo] å­—æ®µæ˜¯å¯é€‰çš„ï¼ŒChannoNoä¸º1(Share Nicç½‘ç»œ)æˆ–è€…8(BMCç‹¬ç«‹ç®¡ç†ç½‘ç»œ)ï¼›è®¾ç½®ç½‘ç»œå‚æ•°ï¼Œå¿…é¡»é¦–å…ˆè®¾ç½®IPä¸ºé™æ€ï¼Œç„¶åå†è¿›è¡Œå…¶ä»–è®¾ç½®ï¼›
 
-- ²é¿´ÍøÂçĞÅÏ¢: 
-	- `ipmitool -H (BMCµÄ¹ÜÀíIPµØÖ·) -I lanplus -U (BMCµÇÂ¼ÓÃ»§Ãû) -P (BMC µÇÂ¼ÓÃ»§ÃûµÄÃÜÂë) lan print [ChannelNo]`
+- æŸ¥çœ‹ç½‘ç»œä¿¡æ¯: 
+	- `ipmitool -H (BMCçš„ç®¡ç†IPåœ°å€) -I lanplus -U (BMCç™»å½•ç”¨æˆ·å) -P (BMC ç™»å½•ç”¨æˆ·åçš„å¯†ç ) lan print [ChannelNo]`
 
-- ĞŞ¸ÄIPÎª¾²Ì¬»¹ÊÇDHCPÄ£Ê½: 
-	- `ipmitool -H (BMCµÄ¹ÜÀíIPµØÖ·) -I lanplus -U (BMCµÇÂ¼ÓÃ»§Ãû) -P (BMC µÇÂ¼ÓÃ»§ÃûµÄÃÜÂë) lan set <ChannelNo> ipsrc <static/dhcp>`
+- ä¿®æ”¹IPä¸ºé™æ€è¿˜æ˜¯DHCPæ¨¡å¼: 
+	- `ipmitool -H (BMCçš„ç®¡ç†IPåœ°å€) -I lanplus -U (BMCç™»å½•ç”¨æˆ·å) -P (BMC ç™»å½•ç”¨æˆ·åçš„å¯†ç ) lan set <ChannelNo> ipsrc <static/dhcp>`
 
-- ĞŞ¸ÄIPµØÖ·: 
-	- `ipmitool -H (BMCµÄ¹ÜÀíIPµØÖ·) -I lanplus -U (BMCµÇÂ¼ÓÃ»§Ãû) -P (BMC µÇÂ¼ÓÃ»§ÃûµÄÃÜÂë) lan set <ChannelNo> ipaddr <IPAddress>`
+- ä¿®æ”¹IPåœ°å€: 
+	- `ipmitool -H (BMCçš„ç®¡ç†IPåœ°å€) -I lanplus -U (BMCç™»å½•ç”¨æˆ·å) -P (BMC ç™»å½•ç”¨æˆ·åçš„å¯†ç ) lan set <ChannelNo> ipaddr <IPAddress>`
 
-- ĞŞ¸Ä×ÓÍøÑÚÂë: 
-	- `ipmitool -H (BMCµÄ¹ÜÀíIPµØÖ·) -I lanplus -U (BMCµÇÂ¼ÓÃ»§Ãû) -P (BMC µÇÂ¼ÓÃ»§ÃûµÄÃÜÂë) lan set <ChannelNo> netmask <NetMask>`
+- ä¿®æ”¹å­ç½‘æ©ç : 
+	- `ipmitool -H (BMCçš„ç®¡ç†IPåœ°å€) -I lanplus -U (BMCç™»å½•ç”¨æˆ·å) -P (BMC ç™»å½•ç”¨æˆ·åçš„å¯†ç ) lan set <ChannelNo> netmask <NetMask>`
 
-- ĞŞ¸ÄÄ¬ÈÏÍø¹Ø: 
-	- `ipmitool -H (BMCµÄ¹ÜÀíIPµØÖ·) -I lanplus -U (BMCµÇÂ¼ÓÃ»§Ãû) -P (BMC µÇÂ¼ÓÃ»§ÃûµÄÃÜÂë) lan set <ChannelNo> defgw ipaddr <Ä¬ÈÏÍø¹Ø>`
+- ä¿®æ”¹é»˜è®¤ç½‘å…³: 
+	- `ipmitool -H (BMCçš„ç®¡ç†IPåœ°å€) -I lanplus -U (BMCç™»å½•ç”¨æˆ·å) -P (BMC ç™»å½•ç”¨æˆ·åçš„å¯†ç ) lan set <ChannelNo> defgw ipaddr <é»˜è®¤ç½‘å…³>`
 
-### 3¡¢Ó²¼şĞÅÏ¢
-- ²é¿´FRUĞÅÏ¢ 
-	- `ipmitool -H (BMCµÄ¹ÜÀíIPµØÖ·) -I lanplus -U (BMCµÇÂ¼ÓÃ»§Ãû) -P (BMC µÇÂ¼ÓÃ»§ÃûµÄÃÜÂë) fru list`
+### 3ã€ç¡¬ä»¶ä¿¡æ¯
+- æŸ¥çœ‹FRUä¿¡æ¯ 
+	- `ipmitool -H (BMCçš„ç®¡ç†IPåœ°å€) -I lanplus -U (BMCç™»å½•ç”¨æˆ·å) -P (BMC ç™»å½•ç”¨æˆ·åçš„å¯†ç ) fru list`
 
-- ÖØÆô¶¯BMC
-	- `ipmitool -H (BMCµÄ¹ÜÀíIPµØÖ·) -I lanplus -U (BMCµÇÂ¼ÓÃ»§Ãû) -P (BMC µÇÂ¼ÓÃ»§ÃûµÄÃÜÂë) mc reset <warm/cold>`
+- é‡å¯åŠ¨BMC
+	- `ipmitool -H (BMCçš„ç®¡ç†IPåœ°å€) -I lanplus -U (BMCç™»å½•ç”¨æˆ·å) -P (BMC ç™»å½•ç”¨æˆ·åçš„å¯†ç ) mc reset <warm/cold>`
 
-- ²é¿´SDR SensorĞÅÏ¢
-	- `ipmitool -H (BMCµÄ¹ÜÀíIPµØÖ·) -I lanplus -U (BMCµÇÂ¼ÓÃ»§Ãû) -P (BMC µÇÂ¼ÓÃ»§ÃûµÄÃÜÂë) sdr`
+- æŸ¥çœ‹SDR Sensorä¿¡æ¯
+	- `ipmitool -H (BMCçš„ç®¡ç†IPåœ°å€) -I lanplus -U (BMCç™»å½•ç”¨æˆ·å) -P (BMC ç™»å½•ç”¨æˆ·åçš„å¯†ç ) sdr`
 
-- ²é¿´SensorĞÅÏ¢
-	- `ipmitool -H (BMCµÄ¹ÜÀíIPµØÖ·) -I lanplus -U (BMCµÇÂ¼ÓÃ»§Ãû) -P (BMC µÇÂ¼ÓÃ»§ÃûµÄÃÜÂë) sensor list`
+- æŸ¥çœ‹Sensorä¿¡æ¯
+	- `ipmitool -H (BMCçš„ç®¡ç†IPåœ°å€) -I lanplus -U (BMCç™»å½•ç”¨æˆ·å) -P (BMC ç™»å½•ç”¨æˆ·åçš„å¯†ç ) sensor list`
 
 
-## ÆäËû
+## å…¶ä»–
 
-- [ipmitoolÊ¹ÓÃÊÖ²á](https://blog.csdn.net/xinqidian_xiao/article/details/80924897)
+- [ipmitoolä½¿ç”¨æ‰‹å†Œ](https://blog.csdn.net/xinqidian_xiao/article/details/80924897)
 
-- ¸÷³§ÉÌ·şÎñÆ÷IPMIÄ¬ÈÏÓÃ»§
-	- ´÷¶ûIPMIÄ¬ÈÏÓÃ»§Ãû: root ÃÜÂë: calvin
-	- Êï¹âIPMIÄ¬ÈÏÓÃ»§Ãû: admin ÃÜÂë: admin     
-	- ÀË³±IPMIÄ¬ÈÏÓÃ»§Ãû: admin ÃÜÂë: admin     
-	- H3C IPMIÄ¬ÈÏÓÃ»§Ãû: admin ÃÜÂë: Password@_
-	- »ªÎªIPMIÄ¬ÈÏÓÃ»§Ãû: root ÃÜÂë: Huawei12#$
+- å„å‚å•†æœåŠ¡å™¨IPMIé»˜è®¤ç”¨æˆ·
+	- æˆ´å°”IPMIé»˜è®¤ç”¨æˆ·å: root å¯†ç : calvin
+	- æ›™å…‰IPMIé»˜è®¤ç”¨æˆ·å: admin å¯†ç : admin     
+	- æµªæ½®IPMIé»˜è®¤ç”¨æˆ·å: admin å¯†ç : admin     
+	- H3C IPMIé»˜è®¤ç”¨æˆ·å: admin å¯†ç : Password@_
+	- åä¸ºIPMIé»˜è®¤ç”¨æˆ·å: root å¯†ç : Huawei12#$
