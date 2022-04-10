@@ -1,4 +1,5 @@
 #!/bin/bash
+
 cluster=$(kubectl get quota -n odeon -oyaml | grep -A 4 used)
 echo -e "Cluster:$1"
 echo -e "Cluster-quota:\n${cluster}"

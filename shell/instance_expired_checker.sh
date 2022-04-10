@@ -1,4 +1,5 @@
 #!/bin/bash
+
 OK=0
 NONOK=1
 UNKNOWN=2

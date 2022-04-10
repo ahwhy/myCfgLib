@@ -1,4 +1,5 @@
-#!/bin/ksh
+#!/bin/bash
+
 # 修改文件中对应配置
 
 flag_cfg="/root/replace.conf"          # aaa bbb 将aaa修改为bbb

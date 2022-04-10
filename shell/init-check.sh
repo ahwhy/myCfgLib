@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-#set -o errexit
+# set -o errexit
 
 # check ntpd
 if ! rpm -q ntp > /dev/null 2>&1; then

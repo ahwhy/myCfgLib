@@ -1,4 +1,5 @@
 #!/bin/sh
+
 # 刷新容器中host文件
 
 array_list=`docker ps |grep -v POD |grep -v kube-proxy |grep -v calico-node |grep -v install-cni | grep -v CONTAINER|awk '{print $1}'`

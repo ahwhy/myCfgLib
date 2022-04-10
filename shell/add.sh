@@ -1,4 +1,5 @@
 #!/bin/sh
+
 # shell中各类累加方法记录
 
 count=1

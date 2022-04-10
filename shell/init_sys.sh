@@ -1,5 +1,6 @@
 #!/bin/bash
-#1、安装基础环境:添加DNS、更新yum源、修改主机名、NTP、关闭selinux、关闭防火墙、关闭重启CTtl+alt+delete组合键、修改最大文件描述符、修改最大文件描述符
+
+# 1、安装基础环境:添加DNS、更新yum源、修改主机名、NTP、关闭selinux、关闭防火墙、关闭重启CTtl+alt+delete组合键、修改最大文件描述符、修改最大文件描述符
 function Initialization()  
 {
     basePath=`pwd`

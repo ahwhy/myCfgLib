@@ -1,4 +1,5 @@
 #!/bin/bash
+
 # check inode utilization on block device of mounting point /
 OK=0
 NONOK=1
