@@ -1,0 +1,53 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: zookeeper-webui-configmap
+  namespace: zookeeper
+  labels:
+    zookeeper-webui-configmap: zookeeper-webui-configmap
+data:
+  zk-web-conf.clj: |-
+    {
+     :server-port 8081
+     :users {"zookeeper" "zk@2022"}
+     :default-node "172.16.0.2:2181"
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: zookeeper-webui-dev-01
+  name: zookeeper-webui-dev-01
+  namespace: zookeeper
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        component: zookeeper-webui-dev-01
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: dev-01
+      containers:
+      - name: zookeeper-webui-dev-01
+        image: zookeeper-webui
+        imagePullPolicy: IfNotPresent
+        volumeMounts:
+        - mountPath: /app/zk-web/conf/zk-web-conf.clj
+          name: zookeeper-webui-config
+          subPath: zk-web-conf.clj
+      volumes:
+      - name: zookeeper-webui-config
+        configMap:
+          name: zookeeper-webui-configmap
+#        env:
+#        - name: "ZK_DEFAULT_NODE"
+#          value: "172.16.0.2:2182"
+#        - name: "USER"
+#          value: "zookeeper"
+#        - name: "PASSWORD"
+#          value: "zk@2022
+#        - name: "server-port"
+#          value: "8083"
+      hostNetwork: true

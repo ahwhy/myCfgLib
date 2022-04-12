@@ -1,0 +1,171 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: zookeeper-configmap
+  namespace: zookeeper
+  labels:
+    zookeeper-configmap: zookeeper-configmap
+data:
+  zoo.cfg: |-
+    tickTime=2000
+    initLimit=100
+    syncLimit=50
+    dataDir=/home/zookeeper-3.4.5/zkdata
+    dataLogDir=/home/zookeeper-3.4.5/zkdatalog
+    autopurge.snapRetainCount=3
+    autopurge.purgeInterval=1
+    maxClientCnxns=0
+    clientPort=2181
+    server.1=dev-01:2888:3888
+    server.2=dev-02:2888:3888
+    server.3=dev-03:2888:3888
+  java.env: |-    export JVMFLAGS="-Xms2g -Xmx2g $JVMFLAGS"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: zookeeper-dev-01
+  name: zookeeper-dev-01
+  namespace: zookeeper
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        component: zookeeper-dev-01
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: dev-01
+      containers:
+      - name: zookeeper-dev-01
+        image: zookeeper:3.4.5-rc1
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/bash", "-c", "./bin/zkServer.sh start"]
+        volumeMounts:
+        - mountPath: /home/zookeeper-3.4.5/conf/zoo.cfg
+          name: zookeeper-config
+          subPath: zoo.cfg
+        - mountPath: /home/zookeeper-3.4.5/conf/java.env
+          name: zookeeper-config
+          subPath: java.env
+        - mountPath: /home/zookeeper-3.4.5/zkdata
+          name: zkdata
+        - mountPath: /home/zookeeper-3.4.5/zkdatalog
+          name: zkdatalog
+        - mountPath: /home/zookeeper-3.4.5/logs
+          name: logs
+      volumes:
+      - name: zookeeper-config
+        configMap:
+          name: zookeeper-configmap
+      - name: zkdata
+        hostPath:
+          path: /data/zookeeper/zkdata
+      - name: zkdatalog
+        hostPath:
+          path: /data/zookeeper/zkdatalog
+      - name: logs
+        hostPath:
+          path: /data/zookeeper/logs
+      hostNetwork: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: zookeeper-dev-02
+  name: zookeeper-dev-02
+  namespace: zookeeper
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        component: zookeeper-dev-02
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: dev-02
+      containers:
+      - name: zookeeper-dev-02
+        image: zookeeper:3.4.5-rc1
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/bash", "-c", "./bin/zkServer.sh start"]
+        volumeMounts:
+        - mountPath: /home/zookeeper-3.4.5/conf/zoo.cfg
+          name: zookeeper-config
+          subPath: zoo.cfg
+        - mountPath: /home/zookeeper-3.4.5/conf/java.env
+          name: zookeeper-config
+          subPath: java.env
+        - mountPath: /home/zookeeper-3.4.5/zkdata
+          name: zkdata
+        - mountPath: /home/zookeeper-3.4.5/zkdatalog
+          name: zkdatalog
+        - mountPath: /home/zookeeper-3.4.5/logs
+          name: logs
+      volumes:
+      - name: zookeeper-config
+        configMap:
+          name: zookeeper-configmap
+      - name: zkdata
+        hostPath:
+          path: /data/zookeeper/zkdata
+      - name: zkdatalog
+        hostPath:
+          path: /data/zookeeper/zkdatalog
+      - name: logs
+        hostPath:
+          path: /data/zookeeper/logs
+      hostNetwork: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: zookeeper-dev-03
+  name: zookeeper-dev-03
+  namespace: zookeeper
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        component: zookeeper-dev-03
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: dev-03
+      containers:
+      - name: zookeeper-dev-03
+        image: zookeeper:3.4.5-rc1
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/bash", "-c", "./bin/zkServer.sh start"]
+        volumeMounts:
+        - mountPath: /home/zookeeper-3.4.5/conf/zoo.cfg
+          name: zookeeper-config
+          subPath: zoo.cfg
+        - mountPath: /home/zookeeper-3.4.5/conf/java.env
+          name: zookeeper-config
+          subPath: java.env
+        - mountPath: /home/zookeeper-3.4.5/zkdata
+          name: zkdata
+        - mountPath: /home/zookeeper-3.4.5/zkdatalog
+          name: zkdatalog
+        - mountPath: /home/zookeeper-3.4.5/logs
+          name: logs
+      volumes:
+      - name: zookeeper-config
+        configMap:
+          name: zookeeper-configmap
+      - name: zkdata
+        hostPath:
+          path: /data/zookeeper/zkdata
+      - name: zkdatalog
+        hostPath:
+          path: /data/zookeeper/zkdatalog
+      - name: logs
+        hostPath:
+          path: /data/zookeeper/logs
+      hostNetwork: true
+---
+
