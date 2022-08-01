@@ -91,11 +91,9 @@ if __name__ == "__main__":
     main(sys.argv[1:])
 
 
-# /bin/sh -c #(nop)  ENTRYPOINT ["/bin/sh" "-c" "python3 /usr/local/bin/demo.py"]
-# /bin/sh -c #(nop)  ENV DEPLOYENV=Production RELEASE=Stable PS1=[\u@\h \w]\$  
-# /bin/sh -c #(nop) ADD file:a07c2bcbb176aca5008c7c17bbaf6bb7db5672fab550b36c96a6e26ad35a4e08 in /usr/local/bin/ 
-# /bin/sh -c pip3 install --no-cache-dir --upgrade pip &&   pip3 install --no-cache-dir -q Flask==0.12.4 requests==2.21.0 
-# /bin/sh -c apk update && apk --no-cache add python3 curl bind-tools iproute2 iptables ipvsadm 
-# CMD ["/bin/sh"]               0B
-# ADD file:e69d441d729412d24675dcd33e04580885df99981cec43de8c9b24015313ff8e in /
-# Alpine
+# FROM alpine
+# RUN apk update && apk --no-cache add python3 curl bind-tools iproute2 iptables ipvsadm
+# RUN pip3 install --no-cache-dir --upgrade pip && pip3 install --no-cache-dir -q Flask==0.12.4 requests==2.21.0 
+# ADD demo.py /usr/local/bin/
+# ENV DEPLOYENV=Production RELEASE=Stable PS1=[\u@\h \w]\$
+# ENTRYPOINT ["/bin/sh" "-c" "python3 /usr/local/bin/demo.py"]
