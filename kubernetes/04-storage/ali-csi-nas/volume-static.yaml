@@ -1,0 +1,63 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-nas
+  labels:
+    alicloud-pvname: pv-nas
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes:
+    - ReadWriteMany
+  csi:
+    driver: nasplugin.csi.alibabacloud.com
+    volumeHandle: pv-nas
+    volumeAttributes:
+      server: "2564f4****-ysu87.cn-shenzhen.nas.aliyuncs.com"
+      path: "/csi"
+  mountOptions:
+  - nolock,tcp,noresvport
+  - vers=3
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: pvc-nas
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 5Gi
+  selector:
+    matchLabels:
+      alicloud-pvname: pv-nas
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nas-static
+  labels:
+    app: nginx
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.17
+        ports:
+        - containerPort: 80
+        volumeMounts:
+          - name: pvc-nas
+            mountPath: "/data"
+      volumes:
+        - name: pvc-nas
+          persistentVolumeClaim:
+            claimName: pvc-nas

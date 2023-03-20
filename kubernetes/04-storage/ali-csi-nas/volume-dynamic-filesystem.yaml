@@ -1,0 +1,57 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: alicloud-nas-fs
+mountOptions:
+- nolock,tcp,noresvport
+- vers=3
+parameters:
+  volumeAs: filesystem
+  storageType: Performance
+  zoneId: cn-hangzhou-a
+  vpcId: "vpc-2ze9c51qb5kp1nfqu****"
+  vSwitchId: "vsw-gw8tk6gecif0eu9ky****"
+  accessGroupName: DEFAULT_VPC_GROUP_NAME
+  deleteVolume: "false"
+provisioner: nasplugin.csi.alibabacloud.com
+reclaimPolicy: Retain
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: nas-csi-pvc-fs
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: alicloud-nas-fs
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deployment-nas-fs
+  labels:
+    app: nginx
+spec:
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.17
+        ports:
+        - containerPort: 80
+        volumeMounts:
+          - name: nas-pvc
+            mountPath: "/data"
+      volumes:
+        - name: nas-pvc
+          persistentVolumeClaim:
+            claimName: nas-csi-pvc-fs
