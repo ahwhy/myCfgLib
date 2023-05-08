@@ -42,6 +42,8 @@
 
 
 ## 二、环境准备
+
+### 1.安装 kubebuilder
 ```shell
 # kubebuilder依赖
 # https://github.com/kubernetes-sigs/kustomize 
@@ -54,15 +56,17 @@ chmod +x kubebuilder && mv kubebuilder /usr/local/bin/
 
 # Using master branch
 https://go.kubebuilder.io/dl/master/$(go env GOOS)/$(go env GOARCH).
-
-# Create a Project
-kubebuilder init --domain my.domain --repo my.domain/guestbook --plugins=go/v4-alpha
-
 ```
-mkdir -p ~/projects/guestbook
-cd ~/projects/guestbook
-kubebuilder init --domain my.domain --repo my.domain/guestbook
-```
+
+### 2.Create a Project
+```shell
+# create a project directory, and then run the init command.
+mkdir project
+cd project
+
+# we'll use a domain of tutorial.kubebuilder.io,
+# so all API groups will be <group>.tutorial.kubebuilder.io.
+kubebuilder init --domain tutorial.kubebuilder.io --repo tutorial.kubebuilder.io/project
 
 # Create an API
 kubebuilder create api --group webapp --version v1 --kind Guestbook
