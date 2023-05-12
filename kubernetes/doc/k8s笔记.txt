@@ -71,7 +71,8 @@ StartupProbe：便于用户使用同livenessProbe不同参数或阈值；
 三种探针：
   ExecAction：直接执行命令，命令成功返回表示探测成功； 
   TCPSocketAction：端口能正常打开，即成功； 
-  HTTPGetAction：向指定的path发HTTP请求，2xx, 3xx的响应码表示成功； 
+  HTTPGetAction：向指定的path发HTTP请求，2xx, 3xx的响应码表示成功；
+  GRPCContainerProbe；grpc探针 Kubernetes v1.24 [beta]
 
 
 
@@ -1073,7 +1074,7 @@ Pod-to-Pod：
 
 
     Calico的组件
-    	Felix：接口管理、路由管理、ACL、状态报告； 需要运行于每个节点；
+    	Felix：接口管理、路由管理、ACL、状态报告 ； 需要运行于每个节点；
     	BIRD：
     		BGP客户端：需要运行于每个节点，负责将Felix生成的路由信息载入内核并通告到整个网络中； 		
     		BGP Reflector：专用反射各BGP客户端发来路由信息；
