@@ -706,6 +706,24 @@ spec:
     rollingUpdate <Object>  # 滚动更新参数，专用于RollingUpdate类型
       maxUnavailable <string>  # 更新期间可比期望的Pod数量缺少的数量或比例
 
+DaemonSet 的主要作用，在 Kubernetes 集群里，运行一个 Daemon Pod。 所以，这个 Pod 有如下三个特征: 
+1. 这个 Pod 运行在 Kubernetes 集群里的每一个节点(Node)上;
+2. 每个节点上只有一个这样的 Pod 实例;
+3. 当有新的节点加入 Kubernetes 集群后，该 Pod 会自动地在新节点上被创建出来;而当 旧节点被删除后，它上面的 Pod 也相应地会被回收掉。 
+
+这个机制听起来很简单，但 Daemon Pod 的意义确实是非常重要的。例子: 
+	1.	各种网络插件的 Agent 组件，都必须运行在每一个节点上，用来处理这个节点上的容器 网络; 
+	2.	各种存储插件的 Agent 组件，也必须运行在每一个节点上，用来在这个节点上挂载远程 存储目录，操作容器的 Volume 目录; 
+	3.	各种监控组件和日志组件，也必须运行在每一个节点上，负责这个节点上的监控信息和 日志搜集
+
+更重要的是，跟其他编排对象不一样，DaemonSet 开始运行的时机，很多时候比整个 Kubernetes 集群出现的时机都要早。 
+如：集群刚刚初始化完成后，节点还处于NotReady状态，节点上还有污点；需要网络插件的 Agent，容忍污点进行部署
+
+所谓，一切皆对象! 
+在 Kubernetes 项目中，任何需要记录下来的状态，都可以被用 API 对象的方式实 现。当然，"版本"也不例外。 
+无论是 Statefulset、DaemonSet，都可以通过查看  controllerrevision 资料，了解资源变更情况
+$ kubectl get controllerrevision -n kube-system
+
 Job的配置规范
 apiVersion: batch/v1  # API群组及版本
 kind: Job  # 资源类型特有标识
@@ -720,6 +738,11 @@ spec:
   parallelism  <integer>  # 作业的最大并行度，默认为1
   backoffLimit <integer>  # 将作业标记为Failed之前的重试次数，默认为6
   activeDeadlineSeconds  <integer> # 作业启动后可处于活动状态的时长
+
+三种常用的、使用 Job 对象的方法 
+外部管理器 +Job 模板 ，如 TensorFlow 社区的 KubeFlow 项目 
+拥有固定任务数目的并行 Job:
+指定并行度(parallelism)，但不设置固定的 completions 的值。
 
 CronJob的配置规范
 apiVersion: batch/v1beta1  # API群组及版本
@@ -773,10 +796,30 @@ spec:
    2、在后端的应用集群上，做 session 复制集群，相互之间同步状态信息；
    3、在后端的应用集群上，做共享的存储服务，存储状态信息。（不能使用块存储，因为不允许两个进程同时写一个文件）
 
+Statefulset
+1. StatefulSet 的控制器直接管理的是 Pod。这是因为，StatefulSet 里的不同 Pod 实例，不再像 ReplicaSet 中那样都是完全一样的，而是有了细微区别的。比如，每个 Pod 的 hostname、名字等都是不同的、携带了编号的。而 StatefulSet 区分这些实例的方式， 就是通过在 Pod 的名字里加上事先约定好的编号。 
+2. Kubernetes 通过 Headless Service，为这些有编号的 Pod，在 DNS 服务器中生 成带有同样编号的 DNS 记录。只要 StatefulSet 能够保证这些 Pod 名字里的编号不变， 那么 Service 里类似于 web-0.nginx.default.svc.cluster.local 这样的 DNS 记录也就不会 变，而这条记录解析出来的 Pod 的 IP 地址，则会随着后端 Pod 的删除和再创建而自动更 新。这当然是 Service 机制本身的能力，不需要 StatefulSet 操心。 
+3. StatefulSet 还为每一个 Pod 分配并创建一个同样编号的 PVC。这样， Kubernetes 就可以通过 Persistent Volume 机制为这个 PVC 绑定上对应的 PV，从而保 证了每一个 Pod 都拥有一个独立的 Volume。 
+在这种情况下，即使 Pod 被删除，它所对应的 PVC 和 PV 依然会保留下来。所以当这个 Pod 被重新创建出来之后，Kubernetes 会为它找到同样编号的 PVC，挂载这个 PVC 对应 的 Volume，从而获取到以前保存在 Volume 里的数据。 
+
 实验：
 1、statefulset跑一个mysql实例，使用secret保存账号、密码、数据库名称等信息，使用volumeClaimTemplate请求创建PVC，并持久存储数据；
 2、Deployment跑两个wordpress实例，从secret中加载数据库名称、用户名和密码等信息，基于支持RWX访问模式的PVC保存页面资源。
 
+
+https://blog.csdn.net/lyshark_lyshark/article/details/125846809
+Ncat 是 nmap 项⽬对传统的 Netcat(即 nc 命令)的重写，是包含在 nmap 安装包⾥的。
+XtraBackup 是业界主要使用的开源 MySQL 备份和恢复工具 
+
+通过 statefulset实现mysql主从结构的难点
+1. Master 节点和 Slave 节点需要有不同的配置文件(即:不同的 my.cnf); 
+2. Master 节点和 Salve 节点需要能够传输备份信息文件;
+3. 在 Slave 节点第一次启动之前，需要执行一些初始化 SQL 操作; 
+
+在这个过程中，有以下几个关键点(坑)特别值得你注意和体会。
+	1.	“人格分裂”:在解决需求的过程中，一定要记得思考，该 Pod 在扮演不同角色时的不 同操作。
+	2.	“阅后即焚”:很多“有状态应用”的节点，只是在第一次启动的时候才需要做额外处理。所以，在编写 YAML 文件时，一定要考虑“容器重启”的情况，不要让这一次的 操作干扰到下一次的容器启动。
+	3.	“容器之间平等无序”:除非是 InitContainer，否则一个 Pod 里的多个容器之间，是 完全平等的。所以，你精心设计的 sidecar，绝不能对容器的顺序做出假设，否则就需要 进行前置检查。 
 
 
 9、认证 授权 准入控制
