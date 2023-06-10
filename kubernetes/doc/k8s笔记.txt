@@ -817,9 +817,9 @@ XtraBackup 是业界主要使用的开源 MySQL 备份和恢复工具
 3. 在 Slave 节点第一次启动之前，需要执行一些初始化 SQL 操作; 
 
 在这个过程中，有以下几个关键点(坑)特别值得你注意和体会。
-	1.	“人格分裂”:在解决需求的过程中，一定要记得思考，该 Pod 在扮演不同角色时的不 同操作。
-	2.	“阅后即焚”:很多“有状态应用”的节点，只是在第一次启动的时候才需要做额外处理。所以，在编写 YAML 文件时，一定要考虑“容器重启”的情况，不要让这一次的 操作干扰到下一次的容器启动。
-	3.	“容器之间平等无序”:除非是 InitContainer，否则一个 Pod 里的多个容器之间，是 完全平等的。所以，你精心设计的 sidecar，绝不能对容器的顺序做出假设，否则就需要 进行前置检查。 
+	1.	"人格分裂":在解决需求的过程中，一定要记得思考，该 Pod 在扮演不同角色时的不 同操作。
+	2.	"阅后即焚":很多"有状态应用"的节点，只是在第一次启动的时候才需要做额外处理。所以，在编写 YAML 文件时，一定要考虑"容器重启"的情况，不要让这一次的 操作干扰到下一次的容器启动。
+	3.	"容器之间平等无序":除非是 InitContainer，否则一个 Pod 里的多个容器之间，是 完全平等的。所以，你精心设计的 sidecar，绝不能对容器的顺序做出假设，否则就需要 进行前置检查。 
 
 
 9、认证 授权 准入控制
@@ -868,6 +868,7 @@ XtraBackup 是业界主要使用的开源 MySQL 备份和恢复工具
 	ServiceAccount令牌认证：
 		K8S自动为每个Pod注入一个ServiceAccount，令牌
 		在每个名称空间中，会自动存在（由ServiceAccount准入控制器负责）一个ServiceAccount，将被该空间下的每个Pod共享使用。
+    在生产环境中，强烈建议为所有 Namespace 下的默认 ServiceAccount，绑定 一个只读权限的 Role。
 		认证令牌保存于该空间下的一个Secret对象中，该对象中共有三个信息：
 			namespace 
 			ca.crt     #用以验证Api-server的身份
@@ -965,6 +966,10 @@ XtraBackup 是业界主要使用的开源 MySQL 备份和恢复工具
 		Subject --> RoleBinding --> Roles
 		Subject --> ClusterRoleBinding --> ClusterRoles
 		Subject --> RoleBinding --> ClusterRoles
+
+    roleRef 字段
+    通过这个字段，RoleBinding 对象就可以直接通过名字，来引用定义的 Role 对象(example-role)，从而定义了"被作用者(Subject)"和"角色(Role)"之间的绑定关系
+    所谓角色(Role)，其实就是一组权限规则列表。而分配这些权限的方式，就是通过创建 RoleBinding 对象，将被作用者(subject)和权限列表 进行绑定。 
 
 	API Server： RESTful风格的http/https服务
 
@@ -1103,6 +1108,18 @@ subjects:
 - kind: Group
   apiGroup: rbac.authorization.k8s.io
   name: system:authenticated
+
+Apiserver - Admission
+Initializer机制
+
+Istio 项目使用的，是 Kubernetes 中的一个非常重要的功能，叫作 Dynamic Admission Control 
+
+这个机制得以实现的原理，正是借助了 Kubernetes 能够对 API 对象进行在线更新的能力，这也正是Kubernetes"声明式 API"的独特之处: 
+首先，所谓"声明式"，指的就是只需要提交一个定义好的 API 对象来"声明"，所期望的状态是什么样子。
+其次，"声明式 API"允许有多个 API 写端，以 PATCH 的方式对 API 对象进行修改， 而无需关心本地原始 YAML 文件的内容。 
+最后，也是最重要的，有了上述两个能力，Kubernetes 项目才可以基于对 API 对象的 增、删、改、查，在完全无需外界干预的情况下，完成对"实际状态"和"期望状态"的 调谐(Reconcile)过程。 
+所以说，声明式 API，才是 Kubernetes 项目编排能力"赖以生存"的核心所在 
+https://github.com/resouer/kubernetes-initializer-tutorial
 
 
 
