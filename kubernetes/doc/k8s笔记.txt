@@ -1122,6 +1122,10 @@ Istio 项目使用的，是 Kubernetes 中的一个非常重要的功能，叫�
 https://github.com/resouer/kubernetes-initializer-tutorial
 
 
+声明式 API   "kubectl apply"
+在 Initializer 更新用户的 Pod 对象的时候，必须使用 PATCH API 来完成。而这 种 PATCH API，正是声明式 API 最主要的能力 
+在 Kubernetes 项目中，一个 API 对象在 Etcd 里的完整资源路径，是由:Group(API 组)、Version(API 版本)和 Resource(API 资源类型)三个部分组成的。 
+
 
 10、集群网络
 Kubernetes主要存在4种类型的通信：
@@ -1517,6 +1521,10 @@ preemptionPolicy  <string>  # 抢占策略，Never为禁用，默认为PreemptLo
 
 
 CRD
+CRD 的全称是 Custom Resource Definition，顾名思义，它指的就是，允许用户在 Kubernetes 中添加一个跟 Pod、Node 类似的、新的 API 资源类型，即:自定义 API 资 源 
+参考代码 https://github.com/resouer/k8s-controller-custom-resource
+
+
 apiVersion: apiextensions.k8s.io/v1  # API群组和版本
 kind: CustomResourceDefinition  # 资源类别
 metadata:
@@ -1557,7 +1565,28 @@ for {
 }
 
 Operator, SDK
+Operator 的工作原理，实际上是利用了 Kubernetes 的自定义 API 资源(CRD)，来描 述用户想要部署的“有状态应用”;然后在自定义控制器里，根据自定义 API 对象的变 化，来完成具体的部署和运维工作。 
 
+
+Informer，是一个带有本地缓存和索 引机制的、可以注册 EventHandler 的 client 
+Informer 通过一种叫作 ListAndWatch 的方法，把 APIServer 中的 API 对 象缓存在了本地，并负责更新和维护这个缓存。 
+
+	ListAndWatch 方法的含义是:
+	首先，通过 APIServer 的 LIST API“获取”所有最 新版本的 API 对象;
+	然后，再通过 WATCH API 来“监听”所有这些 API 对象的变化。 
+
+Informer，是一个自带缓存和索引机制，可以触发 Handler 的客户端库。这个本 地缓存在 Kubernetes 中一般被称为 Store，索引一般被称为 Index。 
+Informer 使用了 Reflector 包，它是一个可以通过 ListAndWatch 机制获取并监视 API 对 象变化的客户端封装。 
+Reflector 和 Informer 之间，用到了一个“增量先进先出队列”进行协同。而 Informer 与你要编写的控制循环之间，则使用了一个工作队列来进行协同。 
+在实际应用中，除了控制循环之外的所有代码，实际上都是 Kubernetes 为你自动生成 的，即:pkg/client/{informers, listers, clientset}里的内容。 
+而这些自动生成的代码，就为我们提供了一个可靠而高效地获取 API 对象“期望状态”的 编程库。
+ 
+所以，作为开发者，就只需要关注如何拿到“实际状态”，然后如何拿它去跟“期望状态”做对比，从而决定接下来要做的业务逻辑即可。
+以上内容，就是 Kubernetes API 编程范式的核心思想。 
+
+
+为什么 Informer 和编写的控制循环之间，一定要使用一个工作队列来进行 协作？
+Informer 和控制循环分开是为了解耦，为了匹配双方速度不一致，防止控制循环执行过慢把Informer 拖死。比如典型的 生产者、消费者问题 
 
 
 13、集群ingress
