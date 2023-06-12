@@ -363,11 +363,34 @@ PVC和PV
   PVC: Persistent Volume Claim，持久卷申请，简称PVC；k8s上标准的资源类型之一； 由用户使用；名称空间级别； 
   PV： Persistent Volume，持久卷，可被PVC绑定；而PV一定要与某个真正的存储空间（一般是网络存储服务上的存储空间）对应起来，才能真正存储数据。由集群管理员负责管理。集群级别。
 
+  PVC 描述的，则是 Pod 所希望使用的持久化存储的属性。比如，Volume 存储的大小、 可读写权限等等。
+  PV 描述的，是持久化存储数据卷。这个 API 对象主要定义的是一个持久化存储在宿 主机上的目录，比如一个 NFS 的挂载目录。
+
   PVC创建完成后，需要找到最为匹配的PV，并与之绑定。
     在哪儿找：
       二者要么都不属于任何StorageClass资源，要么属于同一个StorageClass资源；
     怎么找：
 	  标签、
+
+  在 Kubernetes 中，实际上存在着一个专门处理持久化存储的控制器，叫作 Volume Controller。这个 Volume Controller 维护着多个控制循环，其中有一个循环，扮演的就 是撮合 PV 和 PVC 的 "红娘"的角色。它的名字叫作 PersistentVolumeController。 
+  PersistentVolumeController 会不断地查看当前每一个 PVC，是不是已经处于 Bound(已绑定)状态。如果不是，那它就会遍历所有的、可用的 PV，并尝试将其与这 个“单身”的 PVC 进行绑定。这样，Kubernetes 就可以保证用户提交的每一个 PVC，只 要有合适的 PV 出现，它就能够很快进入绑定状态，从而结束“单身”之旅。 
+
+PV创建的“两阶段处理“
+  “第一阶段”(Attach)，虚拟机挂载远程磁盘的操作，Kubernetes 提供的可用参数是 nodeName，即宿主机的名字。 
+  “第二阶段”(Mount)，将磁盘设备格式化并挂载到 Volume 宿主机目录的操作，Kubernetes 提供的可用参数是 dir，即 Volume 的宿主机目录。 
+  对应地，在删除一个 PV 的时候，Kubernetes 也需要 Unmount 和 Dettach 两个阶段来处理 
+  上述关于 PV 的“两阶段处理”流程，是靠独立于 kubelet 主 控制循环(Kubelet Sync Loop)之外的两个控制循环来实现的。 
+
+  第一阶段 的 Attach(以及 Dettach)操作，是由 Volume Controller 负责维护 的，这个控制循环的名字叫作:AttachDetachController。而它的作用，就是不断地检查 每一个 Pod 对应的 PV，和这个 Pod 所在宿主机之间挂载情况。从而决定，是否需要对这个 PV 进行 Attach(或者 Dettach)操作。 
+  需要注意，作为一个 Kubernetes 内置的控制器，Volume Controller 自然是 kube- controller-manager 的一部分 
+  第二阶段 的 Mount(以及 Unmount)操作，必须发生在 Pod 对应的宿主机上，所 以它必须是 kubelet 组件的一部分。这个控制循环的名字，叫作: VolumeManagerReconciler，它运行起来之后，是一个独立于 kubelet 主循环的 Goroutine。 
+
+  通过这样将 Volume 的处理同 kubelet 的主循环解耦，Kubernetes 就避免了这些耗时的 远程挂载操作拖慢 kubelet 的主控制循环，进而导致 Pod 的创建效率大幅下降的问题。实际上，kubelet 的一个主要设计原则，就是它的主控制循环绝对不可以被 block。 
+
+
+Static Provisioning   人工管理 PV 的方式
+Dynamic Provisioning   Kubernetes 提供的自动创建 PV 的机制
+  Dynamic Provisioning 机制工作的核心，在于一个名叫 StorageClass 的 API 对象。 而 StorageClass 对象的作用，其实就是创建 PV 的模板
 
 Pod使用这类存储的步骤：
   Admin：创建好PV；
@@ -419,7 +442,7 @@ Pod使用这类存储的步骤：
 			 
             部署Longhorn，需要提前解决的依赖关系：
                 在每个节点上部署iscsi的适配器：CentOS 7上的程序包名为iscsi-initiator-utils
-				
+
 PS：FlexVolume是Kubernetes自v1.8版本进入GA（高可用）阶段一种存储插件扩展方式，它要求将外部插件的二进制文件部署在预先配置的路径中（例如/usr/libexec/kubernetes/kubelet-plugins/volume/exec/）并设定系统环境满足其正常运行所需要的全部依赖关系。事实上，一个FlexVolume类型的插件就是一款可被kubelet驱动的可执行文件，它实现了特定存储的挂载和卸载等存储插件接口，而对其调用也就相当于请求运行该程序文件（它要求返回JSON格式的响应内容）。
     而自Kubernetes的v1.13版进入GA阶段的CSI是款更加开放的存储卷插件接口标准，它独立于Kubernetes，由CSI社区制定，可被Mesos和CloudFoundry等编排系统共同支持，而且能够以容器化形式部署，更加符合云原生的要义。除了允许第三方供应商外置实现存储插件之外，CSI支持使用存储类、PV和PVC等组件，因而它们与内置的存储卷插件具有一脉相承的功能和特性。
     第三方需要提供的CSI组件主要是两个CSI存储卷驱动程序，一个是节点插件（Identity+Node），用于同kubelet交互实现存储卷的挂载和卸载等功能，另一个是自定义控制器（Identity+Controller），负责处理来自API Server的存储卷管理请求，例如创建和删除等，它的功能类似于Controller Manager中的PV控制器，如图5-11中实线的圆角方框所示。				
