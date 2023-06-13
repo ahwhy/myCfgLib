@@ -373,17 +373,17 @@ PVC和PV
 	  标签、
 
   在 Kubernetes 中，实际上存在着一个专门处理持久化存储的控制器，叫作 Volume Controller。这个 Volume Controller 维护着多个控制循环，其中有一个循环，扮演的就 是撮合 PV 和 PVC 的 "红娘"的角色。它的名字叫作 PersistentVolumeController。 
-  PersistentVolumeController 会不断地查看当前每一个 PVC，是不是已经处于 Bound(已绑定)状态。如果不是，那它就会遍历所有的、可用的 PV，并尝试将其与这 个“单身”的 PVC 进行绑定。这样，Kubernetes 就可以保证用户提交的每一个 PVC，只 要有合适的 PV 出现，它就能够很快进入绑定状态，从而结束“单身”之旅。 
+  PersistentVolumeController 会不断地查看当前每一个 PVC，是不是已经处于 Bound(已绑定)状态。如果不是，那它就会遍历所有的、可用的 PV，并尝试将其与这 个 "单身" 的 PVC 进行绑定。这样，Kubernetes 就可以保证用户提交的每一个 PVC，只 要有合适的 PV 出现，它就能够很快进入绑定状态，从而结束 "单身" 之旅。 
 
-PV创建的“两阶段处理“
-  “第一阶段”(Attach)，虚拟机挂载远程磁盘的操作，Kubernetes 提供的可用参数是 nodeName，即宿主机的名字。 
-  “第二阶段”(Mount)，将磁盘设备格式化并挂载到 Volume 宿主机目录的操作，Kubernetes 提供的可用参数是 dir，即 Volume 的宿主机目录。 
+PV创建的 "两阶段处理 "
+   "第一阶段" (Attach)，虚拟机挂载远程磁盘的操作，Kubernetes 提供的可用参数是 nodeName，即宿主机的名字。 
+   "第二阶段" (Mount)，将磁盘设备格式化并挂载到 Volume 宿主机目录的操作，Kubernetes 提供的可用参数是 dir，即 Volume 的宿主机目录。 
   对应地，在删除一个 PV 的时候，Kubernetes 也需要 Unmount 和 Dettach 两个阶段来处理 
-  上述关于 PV 的“两阶段处理”流程，是靠独立于 kubelet 主 控制循环(Kubelet Sync Loop)之外的两个控制循环来实现的。 
+  上述关于 PV 的 "两阶段处理" 流程，是靠独立于 kubelet 主 控制循环(Kubelet Sync Loop)之外的两个控制循环来实现的。 
 
   第一阶段 的 Attach(以及 Dettach)操作，是由 Volume Controller 负责维护 的，这个控制循环的名字叫作:AttachDetachController。而它的作用，就是不断地检查 每一个 Pod 对应的 PV，和这个 Pod 所在宿主机之间挂载情况。从而决定，是否需要对这个 PV 进行 Attach(或者 Dettach)操作。 
-  需要注意，作为一个 Kubernetes 内置的控制器，Volume Controller 自然是 kube- controller-manager 的一部分 
-  第二阶段 的 Mount(以及 Unmount)操作，必须发生在 Pod 对应的宿主机上，所 以它必须是 kubelet 组件的一部分。这个控制循环的名字，叫作: VolumeManagerReconciler，它运行起来之后，是一个独立于 kubelet 主循环的 Goroutine。 
+  需要注意，作为一个 Kubernetes 内置的控制器，Volume Controller 自然是 kube-controller-manager 的一部分 
+  第二阶段 的 Mount(以及 Unmount)操作，必须发生在 Pod 对应的宿主机上，所以它必须是 kubelet 组件的一部分。这个控制循环的名字，叫作: VolumeManagerReconciler，它运行起来之后，是一个独立于 kubelet 主循环的 Goroutine。 
 
   通过这样将 Volume 的处理同 kubelet 的主循环解耦，Kubernetes 就避免了这些耗时的 远程挂载操作拖慢 kubelet 的主控制循环，进而导致 Pod 的创建效率大幅下降的问题。实际上，kubelet 的一个主要设计原则，就是它的主控制循环绝对不可以被 block。 
 
@@ -474,9 +474,51 @@ StorageClass资源的期望状态直接与apiVersion、kind和metadata定义于�
  volumeBindingMode <string>：定义如何为PVC完成预配和绑定，默认值为VolumeBindingImmediate；该字段仅在启用了存储卷调度功能时才能生效；
  mountOptions <[]string>：由当前类动态创建的PV资源的默认挂载选项列表。
 
+Local Persistent Volume
+(对于常规的 PV 来说，Kubernetes 都是先调度 Pod 到某个节 点上，再通过 "两阶段处理" 来 "持久化" 这台机器上的 Volume 目录，进而完成 Volume 目录与容器的绑定挂载)
+StorageClass可以配置 volumeBindingMode=WaitForFirstConsumer 的属性
+它是 Local Persistent Volume 里一个非常重要的特性，即:延迟绑定，将绑定推迟到POD调度的时候。
+
+StorageClass 里的 volumeBindingMode=WaitForFirstConsumer 的含义，就是告诉 Kubernetes 里的 Volume 控制循环( "红娘" ):虽然你已经发现这个 StorageClass 关联的 PVC 与 PV 可以绑定在一起，但请不要现在就执行绑定操作(即:设 置 PVC 的 VolumeName 字段)。 
+等到第一个声明使用该 PVC 的 Pod 出现在调度器之后，调度器再综合考虑所有的调度规则，当然也包括每个 PV 所在的节点位置，来统一决定，这个 Pod 声明的 PVC，到底 应该跟哪个 PV 进行绑定。 
+通过这个延迟绑定机制，原本实时发生的 PVC 和 PV 的绑定过程，就被延迟到了 Pod 第一次调度的时候在调度器中进行，从而保证了这个绑定结果不会影响 Pod 的正常调度。 
+
 存储卷总结：
 	介绍的存储卷：emptyDir，hostPath， NFS， Longhorn
 	CSI: 外置存储服务，带来了扩展功能，快照、恢复；也会引入CRD类型的CR
+
+
+在有了 CSI 插件之后，
+当 AttachDetachController 需要进行 "Attach" 操作时( "Attach 阶段" )，它实际上会执行到 pkg/volume/csi 目录中，创建一个 VolumeAttachment 对象，从而触发 External Attacher 调用 CSI Controller 服务的 ControllerPublishVolume 方法。 
+当 VolumeManagerReconciler 需要进行 "Mount" 操作时( "Mount 阶段" )，它实际上也会执行到 pkg/volume/csi 目录中，直接向 CSI Node 服务发起调用 NodePublishVolume 方法的请求。 
+以上，就是 CSI 插件最基本的工作原理 
+
+
+部署 CSI 插件的常用原则是: 
+第一，通过 DaemonSet 在每个节点上都启动一个 CSI 插件，来为 kubelet 提供 CSI Node 服务。这是因为，CSI Node 服务需要被 kubelet 直接调用，所以它要和 kubelet "一对一" 地部署起来。 
+此外，在上述 DaemonSet 的定义里面，除了 CSI 插件，我们还以 sidecar 的方式运行着 driver-registrar 这个外部组件。它的作用，是向 kubelet 注册这个 CSI 插件。这个注册过 程使用的插件信息，则通过访问同一个 Pod 里的 CSI 插件容器的 Identity 服务获取到。 
+需要注意的是，由于 CSI 插件运行在一个容器里，那么 CSI Node 服务在 "Mount 阶 段" 执行的挂载操作，实际上是发生在这个容器的 Mount Namespace 里的。可是，我们真正希望执行挂载操作的对象，都是宿主机 /var/lib/kubelet 目录下的文件和目录。 
+所以，在定义 DaemonSet Pod 的时候，我们需要把宿主机的 /var/lib/kubelet 以 Volume 的方式挂载进 CSI 插件容器的同名目录下，然后设置这个 Volume 的 mountPropagation=Bidirectional，即开启双向挂载传播，从而将容器在这个目录下进行 的挂载操作 "传播" 给宿主机，反之亦然。 
+第二，通过 StatefulSet 在任意一个节点上再启动一个 CSI 插件，为 External Components 提供 CSI Controller 服务。所以，作为 CSI Controller 服务的调用者， External Provisioner 和 External Attacher 这两个外部组件，就需要以 sidecar 的方式和 这次部署的 CSI 插件定义在同一个 Pod 里。 
+
+举个例子，对于一个部署了 CSI 存储插件的 Kubernetes 集群来说: 
+当用户创建了一个 PVC 之后，你前面部署的 StatefulSet 里的 External Provisioner 容器，就会监听到这个 PVC 的诞生，然后调用同一个 Pod 里的 CSI 插件的 CSI Controller 服务的 CreateVolume 方法，为你创建出对应的 PV。 
+这时候，运行在 Kubernetes Master 节点上的 Volume Controller，就会通过 PersistentVolumeController 控制循环，发现这对新创建出来的 PV 和 PVC，并且看到它 们声明的是同一个 StorageClass。所以，它会把这一对 PV 和 PVC 绑定起来，使 PVC 进 入 Bound 状态。 
+然后，用户创建了一个声明使用上述 PVC 的 Pod，并且这个 Pod 被调度器调度到了宿主机 A 上。这时候，Volume Controller 的 AttachDetachController 控制循环就会发现，上述 PVC 对应的 Volume，需要被 Attach 到宿主机 A 上。所以，AttachDetachController 会创建一个 VolumeAttachment 对象，这个对象携带了宿主机 A 和待处理的 Volume 的名字。 
+这样，StatefulSet 里的 External Attacher 容器，就会监听到这个 VolumeAttachment 对象的诞生。于是，它就会使用这个对象里的宿主机和 Volume 名字，调用同一个 Pod 里的 CSI 插件的 CSI Controller 服务的 ControllerPublishVolume 方法，完成 "Attach 阶段" 。 
+上述过程完成后，运行在宿主机 A 上的 kubelet，就会通过 VolumeManagerReconciler 控制循环，发现当前宿主机上有一个 Volume 对应的存储设备(比如磁盘)已经被 Attach 到了某个设备目录下。于是 kubelet 就会调用同一台宿主机上的 CSI 插件的 CSI Node 服务的 NodeStageVolume 和 NodePublishVolume 方法，完成这个 Volume 的 "Mount 阶段" 。 
+至此，一个完整的持久化 Volume 的创建和挂载流程就结束了。 
+
+
+相关链接
+Config：https://githuubernetes-retired/external-storage/tree/master/local-volume/helm
+External Provisioner：https:/b.com/k/github.com/kubernetes-retired/external-storage/tree/master/local-volume
+部署：https://github.com/kubernetes-retired/external-storage/tree/master/local-volume#option-1-using-the-local-volume-static-provisioner
+
+nfs-server：https://github.com/ehough/docker-nfs-server
+flexvolume-nas：https://github.com/kubernetes/examples/blob/master/staging/volumes/flexvolume/nfs
+flexvolume-nas-go：https://github.com/kubernetes-retired/frakti/tree/master/pkg/flexvolume
+csi.proto：https://github.com/container-storage-interface/spec/blob/master/csi.proto
 
 
 
@@ -1588,23 +1630,23 @@ for {
 }
 
 Operator, SDK
-Operator 的工作原理，实际上是利用了 Kubernetes 的自定义 API 资源(CRD)，来描 述用户想要部署的“有状态应用”;然后在自定义控制器里，根据自定义 API 对象的变 化，来完成具体的部署和运维工作。 
+Operator 的工作原理，实际上是利用了 Kubernetes 的自定义 API 资源(CRD)，来描 述用户想要部署的 "有状态应用" ;然后在自定义控制器里，根据自定义 API 对象的变 化，来完成具体的部署和运维工作。 
 
 
 Informer，是一个带有本地缓存和索 引机制的、可以注册 EventHandler 的 client 
 Informer 通过一种叫作 ListAndWatch 的方法，把 APIServer 中的 API 对 象缓存在了本地，并负责更新和维护这个缓存。 
 
 	ListAndWatch 方法的含义是:
-	首先，通过 APIServer 的 LIST API“获取”所有最 新版本的 API 对象;
-	然后，再通过 WATCH API 来“监听”所有这些 API 对象的变化。 
+	首先，通过 APIServer 的 LIST API "获取" 所有最 新版本的 API 对象;
+	然后，再通过 WATCH API 来 "监听" 所有这些 API 对象的变化。 
 
 Informer，是一个自带缓存和索引机制，可以触发 Handler 的客户端库。这个本 地缓存在 Kubernetes 中一般被称为 Store，索引一般被称为 Index。 
 Informer 使用了 Reflector 包，它是一个可以通过 ListAndWatch 机制获取并监视 API 对 象变化的客户端封装。 
-Reflector 和 Informer 之间，用到了一个“增量先进先出队列”进行协同。而 Informer 与你要编写的控制循环之间，则使用了一个工作队列来进行协同。 
+Reflector 和 Informer 之间，用到了一个 "增量先进先出队列" 进行协同。而 Informer 与你要编写的控制循环之间，则使用了一个工作队列来进行协同。 
 在实际应用中，除了控制循环之外的所有代码，实际上都是 Kubernetes 为你自动生成 的，即:pkg/client/{informers, listers, clientset}里的内容。 
-而这些自动生成的代码，就为我们提供了一个可靠而高效地获取 API 对象“期望状态”的 编程库。
+而这些自动生成的代码，就为我们提供了一个可靠而高效地获取 API 对象 "期望状态" 的 编程库。
  
-所以，作为开发者，就只需要关注如何拿到“实际状态”，然后如何拿它去跟“期望状态”做对比，从而决定接下来要做的业务逻辑即可。
+所以，作为开发者，就只需要关注如何拿到 "实际状态" ，然后如何拿它去跟 "期望状态" 做对比，从而决定接下来要做的业务逻辑即可。
 以上内容，就是 Kubernetes API 编程范式的核心思想。 
 
 
