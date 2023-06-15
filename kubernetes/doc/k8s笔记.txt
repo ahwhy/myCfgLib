@@ -1193,6 +1193,17 @@ https://github.com/resouer/kubernetes-initializer-tutorial
 
 
 10、集群网络
+The Layers of the OSI Model Illustrated：https://www.lifewire.com/layers-of-the-osi-model-illustrated-818017
+
+网络栈，包括了：网卡(Network Interface)、回环设备(Loopback Device)、路由表(Routing Table)和 iptables 规则。对于一个进程来说，这些要素， 其实就构成了它发起和响应网络请求的基本环境 
+实际的数据传递时，数据的传递过程在网络协议栈的不同层次，都有 Linux 内核 Netfilter 参与其中。
+通过打开 iptables 的 TRACE 功能查看到数据包的传输过程 
+# 在宿主机上执行
+$ iptables -t raw -A OUTPUT -p icmp -j TRACE
+$ iptables -t raw -A PREROUTING -p icmp -j TRACE 
+通过上述设置，可以在 /var/log/syslog 里看到数据包传输的日志了。 
+
+
 Kubernetes主要存在4种类型的通信：
 	C-to-C：发生在Pod内部，借助于lo实现；
 	Pod-to-Pod：Pod间的通信，k8s自身并未解决该该类通信，而是借助于CNI接口，交给第三方解决方案；CNI之前的接口叫kubenet；
@@ -1203,6 +1214,9 @@ Flannel, Calico
 	构建出虚拟网络：
 		Overlay Network：叠加网络，覆盖网络
 		Underlay Network：承载网络
+
+      构建这种容器网络的核心在于：需要在已有的宿主机网络上，再通过软件构 建一个覆盖在已有宿主机网络之上的、可以把所有容器连通在一起的虚拟网络。所以，这种技术就被称为:Overlay Network(覆盖网络) 
+
 
 	将容器接入虚拟网络，
 		虚拟网桥
@@ -1220,11 +1234,25 @@ Flannel, Calico
 	node01: 172.29.1.1  10.244.1.0/24
 
 Flannel支持三种Pod网络模型，每个模型在flannel中称为一种"backend":
+  UDP：最早期，已弃用
 	vxlan：Pod与Pod经由隧道封装后通信，各节点彼此间能通信就行，不要求在同一个二层网络；
 	vxlan directrouting: 位于同一个二层网络上的、但不同节点上的Pod间通信，无须隧道封装；但非同一个二层网络上的节点上的Pod间通信，仍须隧道封装；
 	host-gw：Pod与Pod不经隧道封装而直接通信，要求各节点位于同一个二层网络； 
 
+
+我们在进行系统级编程的时候，有一个非常重要的优化原则，就是要减少用户态到内 核态的切换次数，并且把核心的处理逻辑都放在内核态进行。这也是为什么，Flannel 后来支 持的VXLAN 模式，逐渐成为了主流的容器网络方案的原因 
+
+VXLAN，即 Virtual Extensible LAN(虚拟可扩展局域网)，是 Linux 内核本身就支持的一种 网络虚似化技术。所以说，VXLAN 可以完全在内核态实现上述封装和解封装的工作，从而通 过与前面相似的“隧道”机制，构建出覆盖网络(Overlay Network)。 
+
+VXLAN 的覆盖网络的设计思想是:在现有的三层网络之上，“覆盖”一层虚拟的、由内核 VXLAN 模块负责维护的二层网络，使得连接在这个 VXLAN 二层网络上的“主机”(虚拟机或者容器都可以)之间，可以像在同一个局域网(LAN)里那样自由通信。当然，实际上，这 些“主机”可能分布在不同的宿主机上，甚至是分布在不同的物理机房里。 
+而为了能够在二层网络上打通“隧道”，VXLAN 会在宿主机上设置一个特殊的网络设备作 为“隧道”的两端。这个设备就叫作 VTEP，即:VXLAN Tunnel End Point(虚拟隧道端点)。 
+而 VTEP 设备的作用，其实跟前面的 flanneld 进程非常相似。只不过，它进行封装和解封装 的对象，是二层数据帧(Ethernet frame);而且这个工作的执行流程，全部是在内核里完成 的(因为 VXLAN 本身就是 Linux 内核中的一个模块) 
+
+
 配置CNI
+CNI 的设计思想，就是:Kubernetes 在启动 Infra 容器之后，就可以直接调用 CNI 网络插件，为这个 Infra 容器的 Network Namespace，配置符合预期的网络栈。 
+被限制在 Network Namespace 里的容器进程，实际上是通过 Veth Pair 设备 + 宿主机网桥的方式，实现了 跟同其他容器的数据交换。 
+
 cniVersion <string>  # CNI配置文件的语义版本
 name <string>  # 网络的名称，在当前主机上必须唯一
 type <string>： # CNI插件的可执行文件名
@@ -1252,7 +1280,7 @@ Pod-to-Pod：
 			flanneld --> api server (etcd)
 
 	Calico:
-		三层虚拟网络解决方案：BGP
+		三层虚拟网络解决方案：BGP，就是在大规模网络中实现节点路由信息共享的一种协议 
 			节点：vRouter
 			各节点上的vRouter通过BGP协议学习生成路由表； 
 				小规模网络：BGP peer
@@ -1263,6 +1291,11 @@ Pod-to-Pod：
 				也支持类似于Flannel VXLAN with DirectRouting
 				Vxlan With BGP
 
+  Calico 维护的网络在默认配置下，是一个被称为“Node-to-Node Mesh”的模式。这时候，每台宿主机上的 BGP Client 都需要跟其他所有节点的 BGP Client 进行通信以便交换路由信息。但是，随着节点数量 N 的增加，这些连接的数量就会 以 N2的规模快速增长，从而给集群本身的网络带来巨大的压力。 
+  所以，Node-to-Node Mesh 模式一般推荐用在少于 100 个节点的集群里。而在更大规模 的集群中，你需要用到的是一个叫作 Route Reflector 的模式。 
+  在这种模式下，Calico 会指定一个或者几个专门的节点，来负责跟所有节点建立 BGP 连接 从而学习到全局的路由规则。而其他节点，只需要跟这几个专门的节点交换路由信息，就可 以获得整个集群的路由规则信息了。 
+  这些专门的节点，就是所谓的 Route Reflector 节点，它们实际上扮演了“中间代理”的 角色，从而把 BGP 连接的规模控制在 N 的数量级上。 
+  Flannel host-gw 模式最主要的限制，就是要求集群宿主机之间是 二层连通的。而这个限制对于 Calico 来说，也同样存在 
 
     Calico的组件
     	Felix：接口管理、路由管理、ACL、状态报告 ； 需要运行于每个节点；
