@@ -1249,10 +1249,59 @@ VXLAN 的覆盖网络的设计思想是:在现有的三层网络之上，“覆�
 而 VTEP 设备的作用，其实跟前面的 flanneld 进程非常相似。只不过，它进行封装和解封装 的对象，是二层数据帧(Ethernet frame);而且这个工作的执行流程，全部是在内核里完成 的(因为 VXLAN 本身就是 Linux 内核中的一个模块) 
 
 
-配置CNI
+CNI
 CNI 的设计思想，就是:Kubernetes 在启动 Infra 容器之后，就可以直接调用 CNI 网络插件，为这个 Infra 容器的 Network Namespace，配置符合预期的网络栈。 
 被限制在 Network Namespace 里的容器进程，实际上是通过 Veth Pair 设备 + 宿主机网桥的方式，实现了 跟同其他容器的数据交换。 
 
+在部署 Kubernetes 的时候，有一个步骤是安装 kubernetes-cni 包，它的目的就是在 宿主机上安装CNI 插件所需的基础可执行文件。 
+# ls -al /opt/cni/bin/
+总用量 104720
+drwxr-xr-x 2 root root     4096 6月  12 13:44 .
+drwxr-xr-x 3 root root     4096 6月   7 10:21 ..
+-rwxr-xr-x 1 root root  2769360 5月  18 15:07 bandwidth
+-rwxr-xr-x 1 root root  3099896 5月  18 15:07 bridge
+-rwxr-xr-x 1 root root 14753792 6月  12 13:44 cilium-cni
+-rwxr-xr-x 1 root root  7404776 5月  18 15:07 dhcp
+-rwxr-xr-x 1 root root  3191600 5月  18 15:07 firewall
+-rwxr-xr-x 1 root root  2100184 5月  18 15:07 flannel
+-rwxr-xr-x 1 root root  2779512 5月  18 15:07 host-device
+-rwxr-xr-x 1 root root  2345824 5月  18 15:07 host-local
+-rwxr-xr-x 1 root root  2863240 5月  18 15:07 ipvlan
+-rwxr-xr-x 1 root root  2397136 5月  18 15:07 loopback
+-rwxr-xr-x 1 root root  2893272 5月  18 15:07 macvlan
+-rwxr-xr-x 1 root root  2689616 5月  18 15:07 portmap
+-rwxr-xr-x 1 root root  2999880 5月  18 15:07 ptp
+-rwxr-xr-x 1 root root  2537944 5月  18 15:07 sbr
+-rwxr-xr-x 1 root root  2083248 5月  18 15:07 static
+-rwxr-xr-x 1 root root 42391247 6月  12 13:44 terway
+-rwxr-xr-x 1 root root  2461080 5月  18 15:07 tuning
+-rwxr-xr-x 1 root root  2863064 5月  18 15:07 vlan
+-rwxr-xr-x 1 root root  2566296 5月  18 15:07 vrf
+
+这些 CNI 的基础可执行文件，按照功能可以分为三类: 
+第一类，叫作 Main 插件，它是用来创建具体网络设备的二进制文件。比如，bridge(网 桥设备)、ipvlan、loopback(lo 设备)、macvlan、ptp(Veth Pair 设备)，以及 vlan。 
+第二类，叫作 IPAM(IP Address Management)插件，它是负责分配 IP 地址的二进 制文件。比如，dhcp，这个文件会向 DHCP 服务器发起请求;host-local，则会使用预先 配置的 IP 地址段来进行分配。 
+第三类，是由 CNI 社区维护的内置 CNI 插件。比如:flannel，就是专门为 Flannel 项目 提供的 CNI 插件;tuning，是一个通过 sysctl 调整网络设备参数的二进制文件; portmap，是一个通过 iptables 配置端口映射的二进制文件;bandwidth，是一个使用 Token Bucket Filter (TBF) 来进行限流的二进制文件。 
+
+从这些二进制文件中，可以看到，如果要实现一个给 Kubernetes 用的容器网络方案，其实需要做两部分工作，以 Flannel 项目为例: 
+首先，实现这个网络方案本身。这一部分需要编写的，其实就是 flanneld 进程里的主要逻辑。比如，创建和配置 flannel.1 设备、配置宿主机路由、配置 ARP 和 FDB 表里的信息等等。 
+然后，实现该网络方案对应的 CNI 插件。这一部分主要需要做的，就是配置 Infra 容器里面的网络栈，并把它连接在 CNI 网桥上。 
+由于 Flannel 项目对应的 CNI 插件已经被内置了，所以它无需再单独安装。而对于 Weave、Calico 等其他项目来说，我们就必须在安装插件的时候，把对应的 CNI 插件的可执行文件放在 /opt/cni/bin/ 目录下。 
+实际上，对于 Weave、Calico 这样的网络方案来说，它们的 DaemonSet 只需要挂载宿主机的 /opt/cni/bin/，就可以实现插件可执行文件的安装了 
+
+接下来，你就需要在宿主机上安装 flanneld(网络方案本身)。而在这个过程中， flanneld 启动后会在每台宿主机上生成它对应的CNI 配置文件(它其实是一个 ConfigMap)，从而告诉 Kubernetes，这个集群要使用 Flannel 作为容器网络方案。 
+cat /etc/cni/net.d/10-flannel.conflist 
+
+需要注意的是，在 Kubernetes 中，处理容器网络相关的逻辑并不会在 kubelet 主干代码 里执行，而是会在具体的 CRI(Container Runtime Interface，容器运行时接口)实现里 完成。对于 Docker 项目来说，它的 CRI 实现叫作 dockershim，你可以在 kubelet 的代 码里找到它。 
+所以，接下来 dockershim 会加载上述的 CNI 配置文件。 
+需要注意，Kubernetes 目前不支持多个 CNI 插件混用。如果你在 CNI 配置目录 (/etc/cni/net.d)里放置了多个 CNI 配置文件的话，dockershim 只会加载按字母顺序排 序的第一个插件。 
+但另一方面，CNI 允许你在一个 CNI 配置文件里，通过 plugins 字段，定义多个插件进行协作。 
+
+Container Network Interface (CNI) Specification
+https://github.com/containernetworking/cni/blob/main/SPEC.md#network-configuration
+
+
+配置CNI
 cniVersion <string>  # CNI配置文件的语义版本
 name <string>  # 网络的名称，在当前主机上必须唯一
 type <string>： # CNI插件的可执行文件名
