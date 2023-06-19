@@ -227,6 +227,9 @@ ipvs类型：nat； 仅需要借助于极少量的iptables规则完成源地址�
 
 PS：会在每个节点上创建一个名为kube-ipvs0的虚拟接口，并将集群所有Service对象的ClusterIP和ExternalIP都配置在该接口； kube-proxy为每个service生成一个虚拟服务器（Virtual Server）的定义。
 
+一直以 来，基于 iptables 的 Service 实现，都是制约 Kubernetes 项目承载更多量级的 Pod 的 主要障碍。 
+iptables，IPVS 在内核中的实现其实也是基于 Netfilter 的 NAT 模式，所以在转 发这一层上，理论上 IPVS 并没有显著的性能提升。但是，IPVS 并不需要在宿主机上为每 个 Pod 设置 iptables 规则，而是把对这些"规则"的处理放到了内核态，从而极大地降低了维护这些规则的代价，这也是提高性能的重要手段 "将重要操作放入内核态"
+IPVS 模块只负责上述的负载均衡和代理功能。而一个完整的 Service 流程正常工作所需要的包过滤、SNAT 等操作，还是要靠 iptables 来实现。只不过，这些 辅助性的 iptables 规则数量有限，也不会随着 Pod 数量的增加而增加。 
 
 
 6、kubernetes的服务发现
