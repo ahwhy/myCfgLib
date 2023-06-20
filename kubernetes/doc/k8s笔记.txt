@@ -164,6 +164,19 @@ spec:
   loadBalancerIP  <string>  # 外部负载均衡器使用的IP地址，仅适用于LoadBlancer
   externalName <string>  # 外部服务名称，该名称将作为Service的DNS CNAME值
    
+  如果不显式地声明 nodePort 字段，Kubernetes 就会分配随机的可用端口来 设置代理。这个端口的范围默认是 30000-32767，可以通过 kube-apiserver 的– service-node-port-range 参数来修改它 
+
+  Service 的 spec.externalTrafficPolicy 字段设置为 local，这就 保证了所有 Pod 通过 Service 收到请求之后，一定可以看到真正的、外部 client 的源地址。 
+  在local的配置下，一台宿主机上的 iptables 规则，会设置为只将 IP 包转发给运行在这台宿主机上的 Pod。 
+
+
+  公有云提供的 Kubernetes 服务里，都使用了一个叫作 CloudProvider 的转接层，来跟 公有云本身的 API 进行对接。所以，在上述 LoadBalancer 类型的 Service 被提交后， Kubernetes 就会调用 CloudProvider 在公有云上创建一个负载均衡服务，并且把被 代理的 Pod 的 IP 地址配置给负载均衡服务做后端 
+  一种典型问题，就是 Pod 没办法通过 Service 访问到自己。这往往就是因为 kubelet 的 hairpin-mode 没有被正确设置。关于 Hairpin 的原理我在前面已经介绍过， 这里就不再赘述了。你只需要确保将 kubelet 的 hairpin-mode 设置为 hairpin-veth 或者 promiscuous-bridge 即可。 
+  1 $ for d in /sys/devices/virtual/net/cni0/brif/veth*/hairpin_mode; do echo "$d = $(cat $d 
+  2 /sys/devices/virtual/net/cni0/brif/veth4bfbfe74/hairpin_mode = 13 /sys/devices/virtual/net/cni0/brif/vethfc2a18c5/hairpin_mode = 1 
+  如果是 promiscuous-bridge 模式的话，你应该看到 CNI 网桥的混杂模式 (PROMISC)被开启，如下所示: 
+  $ ifconfig cni0 |grep PROMISC2 UP BROADCAST RUNNING PROMISC MULTICAST MTU:1460 Metric:1 
+
    标签范例
  版本标签："release" : "stable"，"release" : "canary"，"release" : "beta"。
  环境标签："environment" : "dev"，"environment" : "qa"，"environment" : "prod"。
@@ -523,6 +536,25 @@ flexvolume-nas：https://github.com/kubernetes/examples/blob/master/staging/volu
 flexvolume-nas-go：https://github.com/kubernetes-retired/frakti/tree/master/pkg/flexvolume
 csi.proto：https://github.com/container-storage-interface/spec/blob/master/csi.proto
 
+FlexVolume驱动程序（https:// oreil.ly/YnnCq）
+PersistentVolume（https://oreil.ly/7_OAz）
+PersistentVolumeClaim（https://oreil.ly/PKtAr）
+StorageClass（https://oreil.ly/MoG_T
+
+emptyDir（https://oreil.ly/mPwBg）
+hostPath（https://oreil.ly/PAU8Y）
+Local Persistence Volume Static Provisioner（https://oreil.ly/YiQ0G）
+
+块设备、文件存储、对象存储与文件存储的区别在于没有传统的层次结构。对象存储使开发者能够采取非结构化数据，给它一个唯一的标识符，在它周围添加一些元数据，并存储它。云服务商的对象存储[如Amazon S3（https://aws.amazon.com/s3）]已经成为很多组织托管图像、二进制文件等的最佳解决方案
+块设备（https://oreil.ly/mrHwE）
+Google Persistent Disks（https://cloud.google.com/persistent-disk）
+Amazon Web Services（AWS）AWS的弹性块（https://oreil.ly/I4VVw）
+
+
+云服务商（本例中是AWS）需要驱动程序识别自己并且确保它有合适的权限。在这种情况下，有三个选项可供选择。
+一是更新Kubernetes节点的实例配置文件（https://oreil.ly/fGWYd）。虽然这将使我们不必担心Kubernetes层面的安全凭证，但是会导致一些能够触及AWS API的工作负载拥有同样的权限。
+二是引入一个身份服务，可以为特定的工作负载提供IAM许可。这可能是最安全的一个选择。其中代表项目是kiam（https:// github.com/uswitch/kiam）
+最后，可以在一个secret中添加凭证，该secret被装入CSI驱动程序中。
 
 
 7、Volumes-Configmap&&Secret
