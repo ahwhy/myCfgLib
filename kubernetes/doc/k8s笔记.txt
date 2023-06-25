@@ -141,6 +141,15 @@ Service的类型
     ServicePort：被映射进Pod上的应用程序监听的端口； 而且如果后端Pod有多个端口，并且每个端口都想通过SErvice暴露的话，每个都要单独定义。
       最终接收请求的是PodIP和containerPort；
 
+ExternalName。ExternalName Service类型不执行任何类型的负载均衡或代理。相反，ExternalName Service主要是在集群的DNS中实现的服务中断结构。ExternalName Service将集群Service映射到一个DNS名称。由于不涉及负载均衡，这种类型的服务缺乏集群IP。
+ExternalName Service在不同方面都很有用。例如，零散的应用程序迁移工作可以从External-Name Service中受益。如果你将一个应用程序的组件迁移到Kubernetes，而将它的一些依赖关系留在外面，你可以使用一个ExternalName Service作为桥梁来完成迁移。一旦你迁移了整个应用程序，你可以将Service类型改为ClusterIP，而不必改变应用的部署。
+尽管ExternalName Service在创新方面很有用，但它可能是最不常用的Service类型。
+
+
+Headless Service。与ExternalName Service一样，Headless Service类型不分配ClusterIP或提供任何负载均衡。Headless Service只是一种在Kubernetes API和集群的DNS服务器中注册一个Service和它的Endpoints的方式。
+当应用程序需要连接到某个服务的特定副本或Pod时，Headless Service非常有用。这类应用可以使用服务发现来找到Service背后的所有Pod IP，然后建立与特定Pod的连接。
+
+
 Service资源的定义格式，名称空间级别的资源：
 apiVersion: v1
 kind: Service
@@ -1261,6 +1270,9 @@ Flannel, Calico
 
 	通常，在一个节点上，基于该节点的子网向该节点上的Pod分配IP地址，通常需要专门的插件完成；
 	插件统称：IPAM  ip分发模块
+   
+   IPAM，Pod的生命周期是短暂的。具体来说，它们很容易根据集群的需要或系统故障而被重新启动或重新调度。这就要求IP分配要快速执行，集群的IP池管理要高效
+
 
 10.244.0.0/16
 	子网掩码长度：24
@@ -1455,6 +1467,26 @@ Pod-to-Pod：
     	Overlay：
     		IPIP：IPIP Protocol
     		VXLAN: 帧外层，再添加UDP报文
+
+Calico（https://www.projectcalico.org）和Kube-Router（https://www.kube-router.io）等项目
+
+有两种主要的方法可以实现这一点。第一种方法是使用一个网络插件，直接与底层网络集成。
+例如，AWS的VPC CNI（https://github.com/aws/amazon-vpc-cni-k8s）为每个节点附加了多个二级IP，并将其分配给Pod。这使得每个Pod可以像EC2主机一样进行路由。这种模式的主要缺点是它会消耗你的子网/VPC中的IP。第二种方法是通过路由协议（如BGP）向Pod传播路由，如5.1.2节所述。一些使用BGP的插件甚至可以使你的Pod网络的一个子集成为可路由的，而不是必须暴露整个IP空间。
+
+
+许多网络插件都支持对通信链路上的流量进行加密。
+例如，Antrea支持在使用GRE隧道时用IPsec（https://oreil.ly/jqzCQ）进行加密。Calico能够通过接入节点的WireGuard（https://www.wireguard.com）安装来加密流量。
+
+
+Cilium相对于Calico是一个较新的CNI插件。它是第一个利用扩展的Berkeley包过滤器（eBPF）（https://ebpf.io）的CNI插件。这意味着它不是在用户空间处理数据包，而是能够在不离开内核空间的情况下进行处理。与eXpress Data Path（XDP）（https://oreil.ly/M3m6t）搭配使用，可以在网卡驱动程序中建立hook，以做出路由决定。这使路由决定在收到数据包时立即发生。
+eBPF已经在Facebook（https://oreil.ly/agUXl）和Netflix（https://oreil.ly/Ubt1Q）等组织中展示了性能和规模。随着eBPF的使用，Cilium能够声称在可扩展性、可观测性和安全性方面有更多的功能。与BPF的深度集成意味着常见的CNI问题（如NetworkPolicy的执行）不再通过iptables在用户空间中处理。相反，eBPF maps（https://oreil.ly/4Rdvf）的广泛使用使得决策能够以一种随着越来越多的规则被添加而扩展的方式快速产生。图5-7显示了安装了Cilium堆栈的高层次架构。
+引入了hubble（https://github.com/cilium/hubble）。它利用Cilium的eBPF程序，为操作员提供用户界面和CLI。
+
+Antrea（https://antrea.io/docs）数据平面通过Open vSwitch（https://www.openvswitch.org）来实现。提供高性能的路由，同时能够反省流数据。
+Weave（https://www.weave.works/oss/net）覆盖网络，提供许多机制来路由流量，例如使用OVS模块的快速数据路径选项，将数据包处理保留在内核中。
+flannel（https://github.com/coreos/flannel）用于Pod的简单3层网络，也是早期的CNI之一。它支持多个后端，但最常被配置为使用VXLAN。
+
+Multus可以被认为是一个CNI，它能够使用多个其他CNI。在这种模式下，Multus成为与Kubernetes互动的CNI插件。Multus配置了一个默认的网络，这个网络通常是用来促进Pod到Pod通信的。
 
 
 网络策略：管控Pod间的通信流量；
