@@ -175,9 +175,13 @@ spec:
    
   如果不显式地声明 nodePort 字段，Kubernetes 就会分配随机的可用端口来 设置代理。这个端口的范围默认是 30000-32767，可以通过 kube-apiserver 的– service-node-port-range 参数来修改它 
 
+  在使用NodePort Service和LoadBalancer Service时，要考虑的一个关键问题是Service的外部流量规则设置。外部流量规则决定了该Service是将外部流量路由到节点本地端点（externalTrafficPolicy:Local）还是集群范围的端点（externalTrafficPolicy:Cluster）。每种规则都有好处和权衡。
+  当规则被设置为Local时，Service将流量路由到接收流量的节点上运行的端点（Pod）。路由到本地端点有两个重要的好处。首先，没有涉及SNAT，所以源IP被保留下来，使其可用于工作负载。其次，在将流量转发到另一个节点时，不会产生额外的网络跳转。
+  话虽如此，Local策略也有弊端。主要是到达缺乏Service端点的节点的流量会被放弃。出于这个原因，Local策略通常与外部负载均衡器相结合，对节点进行健康检查。当节点没有Service端点时，考虑到健康检查失败，负载均衡器不会向该节点发送流量。图6-6展示了这个功能。
+  Local策略的另一个缺点是可能会出现不平衡的应用负载。例如，如果一个节点有三个服务端点，每个端点接收33%的流量。如果另一个节点只有一个端点，它就会收到100%的流量。这种不平衡可以通过使用反亲和规则分散Pod或使用DaemonSet安排Pod来缓解。
+
   Service 的 spec.externalTrafficPolicy 字段设置为 local，这就 保证了所有 Pod 通过 Service 收到请求之后，一定可以看到真正的、外部 client 的源地址。 
   在local的配置下，一台宿主机上的 iptables 规则，会设置为只将 IP 包转发给运行在这台宿主机上的 Pod。 
-
 
   公有云提供的 Kubernetes 服务里，都使用了一个叫作 CloudProvider 的转接层，来跟 公有云本身的 API 进行对接。所以，在上述 LoadBalancer 类型的 Service 被提交后， Kubernetes 就会调用 CloudProvider 在公有云上创建一个负载均衡服务，并且把被 代理的 Pod 的 IP 地址配置给负载均衡服务做后端 
   一种典型问题，就是 Pod 没办法通过 Service 访问到自己。这往往就是因为 kubelet 的 hairpin-mode 没有被正确设置。关于 Hairpin 的原理我在前面已经介绍过， 这里就不再赘述了。你只需要确保将 kubelet 的 hairpin-mode 设置为 hairpin-veth 或者 promiscuous-bridge 即可。 
@@ -185,6 +189,10 @@ spec:
   2 /sys/devices/virtual/net/cni0/brif/veth4bfbfe74/hairpin_mode = 13 /sys/devices/virtual/net/cni0/brif/vethfc2a18c5/hairpin_mode = 1 
   如果是 promiscuous-bridge 模式的话，你应该看到 CNI 网桥的混杂模式 (PROMISC)被开启，如下所示: 
   $ ifconfig cni0 |grep PROMISC2 UP BROADCAST RUNNING PROMISC MULTICAST MTU:1460 Metric:1 
+
+
+  连接跟踪（conntrack）。当内核的网络堆栈对指向某个Service的数据包执行DNAT时，它会在连接跟踪（conntrack）表中添加一个条目。该表跟踪所执行的转换，以便将其应用于任何指向同一Service的额外数据包。该表还用于在将响应数据包发送到源Pod之前从响应数据包中删除NAT。
+
 
    标签范例
  版本标签："release" : "stable"，"release" : "canary"，"release" : "beta"。
@@ -311,10 +319,14 @@ nameserver 10.96.0.10
 search default.svc.cluster.local svc.cluster.local cluster.local
 options ndots:5
 
+ndots配置要考虑的是它对与集群外服务通信应用程序的影响。ndots参数指定了域名中必须出现多少个点才能被认为是一个绝对合格或完全合格的名称。
+
 上述search参数中指定的DNS各搜索域，是以次序指定的几个域名后缀，它们各自的如下所示。 
  <ns>.svc.<zone>：附带有特定名称空间的域名，例如default.svc.cluster.local；
  svc. <zone>：附带了Kubernetes标识Service专用子域svc的域名，例如svc.cluster.local；
  <zone>：集群本地域名，例如cluster.local。
+
+Kubernetes社区维护着一个名为NodeLocal DNSCache（https://oreil.ly/lQdTH）的DNS缓存插件。该插件在每个节点上运行一个DNS缓存，用以解决多个问题。首先，缓存减少了DNS查询的延迟，因为工作负载从本地缓存中获得结果（假设缓存命中）
 
 Headless Service
   stateful, stateless
@@ -1481,6 +1493,9 @@ Calico（https://www.projectcalico.org）和Kube-Router（https://www.kube-route
 Cilium相对于Calico是一个较新的CNI插件。它是第一个利用扩展的Berkeley包过滤器（eBPF）（https://ebpf.io）的CNI插件。这意味着它不是在用户空间处理数据包，而是能够在不离开内核空间的情况下进行处理。与eXpress Data Path（XDP）（https://oreil.ly/M3m6t）搭配使用，可以在网卡驱动程序中建立hook，以做出路由决定。这使路由决定在收到数据包时立即发生。
 eBPF已经在Facebook（https://oreil.ly/agUXl）和Netflix（https://oreil.ly/Ubt1Q）等组织中展示了性能和规模。随着eBPF的使用，Cilium能够声称在可扩展性、可观测性和安全性方面有更多的功能。与BPF的深度集成意味着常见的CNI问题（如NetworkPolicy的执行）不再通过iptables在用户空间中处理。相反，eBPF maps（https://oreil.ly/4Rdvf）的广泛使用使得决策能够以一种随着越来越多的规则被添加而扩展的方式快速产生。图5-7显示了安装了Cilium堆栈的高层次架构。
 引入了hubble（https://github.com/cilium/hubble）。它利用Cilium的eBPF程序，为操作员提供用户界面和CLI。
+
+eBPF 的出现，让CNI插件如Cilium（https://oreil.ly/sWoh5）和Calico（https://oreil.ly/0jrKG）可以接替kube-proxy的职责。CNI插件不需要用iptables或IPVS处理Service，而是将Service直接编入Pod网络数据平面。使用eBPF可以提高Kubernetes中Service的性能和可扩展性，因为eBPF的实现使用哈希表进行端点查询。它还改善了Service更新处理，因为它可以有效地处理单个Service更新。
+
 
 Antrea（https://antrea.io/docs）数据平面通过Open vSwitch（https://www.openvswitch.org）来实现。提供高性能的路由，同时能够反省流数据。
 Weave（https://www.weave.works/oss/net）覆盖网络，提供许多机制来路由流量，例如使用OVS模块的快速数据路径选项，将数据包处理保留在内核中。
