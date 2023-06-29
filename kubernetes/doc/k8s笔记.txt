@@ -744,6 +744,52 @@ kubelet 还通过 gRPC 协议同一个叫作 Device Plugin 的插件进行交互
 kubelet 的另一个重要功能，则是调用网络插件和存储插件为容器配置网络和持久化存 储。这两个插件与 kubelet 进行交互的接口，分别是 CNI(Container Networking Interface)和 CSI(Container Storage Interface)。 
 
 
+kubelet 的工作核心，就是一个控制循环，即: SyncLoop 
+驱动这个控制循环运行的事件，包括四种:
+1. Pod 更新事件;
+2. Pod 生命周期变化;
+3. kubelet本身设置的执行周期; 
+4. 定时的清理事件。 
+
+kubelet 还负责维护着很多其他的子控制循环(也就是图中的小圆圈)。这些控制循环的名字，一般被称作某某 Manager，比如 Volume Manager、Image Manager、 Node Status Manager 等等 
+这些控制循环的责任，就是通过控制器模式，完成 kubelet 的某项具体职责。 比如 Node Status Manager，就负责响应 Node 的状态变化，然后将 Node 的状态收集起来，并通过 Heartbeat 的方式上报给 APIServer。
+再比如 CPU Manager，就负责维护该 Node 的 CPU 核的信息，以便在 Pod 通过 cpuset 的方式请求 CPU 核的时候，能够正确地管理 CPU 核的使用量和可用量。 
+ 
+kubelet 也是通过 Watch 机制，监听了与自己相关的 Pod 对象的变化。当然，这个 Watch 的过滤条件是该 Pod 的 nodeName 字段与自己相同。kubelet 会把这些 Pod 的信息缓存在自己的内存里 
+当一个 Pod 完成调度、与一个 Node 绑定起来之后， 这个 Pod 的变化就会触发 kubelet 在控制循环里注册的 Handler，也就是上图中的 HandlePods 部分。此时，通过检查该 Pod 在 kubelet 内存里的状态，kubelet 就能够判断出这是一个新调度过来的 Pod，从而触发 Handler 里 ADD 事件对应的处理逻辑 
+
+在具体的处理过程当中，kubelet 会启动一个名叫 Pod Update Worker 的、单独的 Goroutine 来完成对 Pod 的处理工作 
+比如，如果是 ADD 事件的话，kubelet 就会为这个新的 Pod 生成对应的 Pod Status，检 查 Pod 所声明使用的 Volume 是不是已经准备好。然后，调用下层的容器运行时(比如 Docker)，开始创建这个 Pod 所定义的容器。 
+如果是 UPDATE 事件的话，kubelet 就会根据 Pod 对象具体的变更情况，调用下层容器 运行时进行容器的重建工作。 
+
+kubelet 调用下层容器运行时的执行过程，并不会直接调用 Docker 的 API，而是通过一组叫作 CRI(Container Runtime Interface，容器运行时接口)的 gRPC 接口来间接执行的。 
+需要在每台宿主机上单独安装一个负责响应 CRI 的组件，这个组件，一般被称作 CRI shim。顾名思义，CRI shim 的工作，就是扮演 kubelet 与容器项目 之间的“垫片”(shim)。所以它的作用非常单一，那就是实现 CRI 规定的每个接口，然 后把具体的 CRI 请求“翻译”成对后端容器项目的请求或者操作 
+
+
+CRI的接口 分为两组
+第一组，是 RuntimeService。它提供的接口，主要是跟容器相关的操作。比如，创建和 启动容器、删除容器、执行 exec 命令等等。 
+第二组，则是 ImageService。它提供的接口，主要是容器镜像相关的操作，比如拉取 镜像、删除镜像等等。 
+
+
+CRI 设计的一个重要原则，就是确保这个接口本身，只关注容器，不关注 Pod。 
+
+第一，Pod 是 Kubernetes 的编排概念，而不是容器运行时的概念。所以，就不能假设所有下层容器项目，都能够暴露出可以直接映射为 Pod 的 API。 
+第二，如果 CRI 里引入了关于 Pod 的概念，那么接下来只要 Pod API 对象的字段发生变化，那么 CRI 就很有可能需要变更。 
+
+CRI 里还是有一组叫作 RunPodSandbox 的接口的。 这个 PodSandbox，对应的并不是 Kubernetes 里的 Pod API 对象，而只是抽取了 Pod 里的一部分与容器运行时相关的字段，比如 HostName、DnsConfig、CgroupParent 等。所以说，PodSandbox 这个接口描述的，其实是 Kubernetes 将 Pod 这个概念映射到容器运行时层面所需要的字段，或者说是一个 Pod 对象子集 
+
+
+除了对容器生命周期的实现之外，CRI shim 还有一个重要的工作，就是如何实现 exec、logs 等接口。
+这些接口跟前面的操作有一个很大的不同，就是这些 gRPC 接口调用期间，kubelet 需要跟容器项目维护一个长连接来传输数据。这种 API，就称之为 Streaming API。 
+CRI shim 里对 Streaming API 的实现，依赖于一套独立的 Streaming Server 机制。 
+
+当对一个容器执行 kubectl exec 命令的时候，这个请求首先交给 API  Server，然后 API Server 就会调用 kubelet 的 Exec API 。这时，kubelet 就会调用 CRI 的 Exec 接口，而负责响应这个接口的，自然就是具体的 CRI shim。 
+但在这一步，CRI shim 并不会直接去调用后端的容器项目(比如 Docker )来进行处理， 而只会返回一个 URL 给 kubelet。这个 URL，就是该 CRI shim 对应的 Streaming Server 的地址和端口。 
+而 kubelet 在拿到这个 URL 之后，就会把它以 Redirect 的方式返回给 API Server。所以这时候，API Server 就会通过重定向来向 Streaming Server 发起真正的 /exec 请求，与它建立长连接 
+
+这个 Streaming Server 本身，是需要通过使用 SIG-Node 维护的 Streaming API 库来实现的。并且，Streaming Server 会在 CRI shim 启动时就一起启动。此外， Stream Server 这一部分具体怎么实现，完全可以由 CRI shim 的维护者自行决定。比如， 对于 Docker 项目来说，dockershim 就是直接调用 Docker 的 Exec API 来作为实现的 
+
+
 负责应用编排的控制器有如下几种：
 
 	ReplicationController：最早期的Pod控制器； 
