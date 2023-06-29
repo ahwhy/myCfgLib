@@ -2054,6 +2054,23 @@ Ingress简介
 			Traefik
 			...
 
+具体来说，应用程序需要哪些功能和要求？以下是一个标准列表，可以从应用支持的角度来评估Ingress控制器。
+•应用程序是否暴露了HTTPS端点？它们是否需要直接处理与客户端的TLS握手，或者在边缘终止TLS也可以吗？
+•应用程序使用什么SSL密码？
+•应用程序是否需要会话亲和性或黏性会话？
+•应用程序是否需要先进的请求路由功能，如基于HTTP头的路由、基于cookie的路由、基于HTTP方法的路由等？
+•应用程序是否有不同的负载平衡算法要求，如轮询、加权最小请求或随机？
+•应用程序是否需要对跨源资源共享（CORS）的支持？
+•应用程序是否将认证问题卸载到外部系统？一些Ingress控制器提供了认证功能，你可以利用这些功能来提供一个跨应用程序的通用认证机制。
+•是否有应用程序需要暴露TCP或UDP端点？
+•应用程序是否需要对传入流量进行速率限制的能力？
+
+目前ingress-controller 需要考虑的点
+专用的Ingress节点
+与主机网络的绑定
+Ingress控制器和外部流量策略
+将Ingress控制器分散到各个故障域
+
 v1beta1-Ingress资源规范
 apiVersion: extensions/v1beta1   # 资源所属的API群组和版本
 kind: Ingress   # 资源类型标识符
@@ -2349,3 +2366,35 @@ rules:
     metricsQuery: 'rate(<<.Series>>{<<.LabelMatchers>>}[2m])'
   existing:
   external: []
+
+17、服务网格
+Twitter创建了Finagle（https://twitter.github.io/finagle），这是一个Scala库，其所有的微服务都嵌入其中。它处理负载均衡、断路、自动重试、遥测等。
+Netflix开发了Hystrix（https://github.com/Netflix/Hystrix），这是一个类似的Java应用库。
+
+
+Envoy代理（https://www.envoyproxy.io）
+Envoy被用于Ingress控制器[Contour（https://projectcontour.io）]、
+API网关[Amb-assador（https://www.getambassador.io）、
+Gloo（https://docs.solo.io/gloo/ latest）]，以及
+服务网格[Istio（https://istio.io）、
+OSM（https:// github.com/openservicemesh/osm）]中。
+
+
+Envoy是一个很好的构建模块的原因之一是它支持通过gRPC/REST API进行动态配置。
+Envoy之前的开源代理不是为Kubernetes这样的动态环境设计的。它们使用静态的配置文件，需要重新启动才能使配置变化生效。
+另外，Envoy提供xDS（*发现服务）API，用于动态配置。它还支持热重启，这使得Envoy可以在不放弃任何活动连接的情况下重新初始化。
+
+Envoy支持通过XDS API进行动态配置。Envoy连接到配置服务器，并使用LDS、RDS、EDS、CDS和其他XDS API请求其配置
+Envoy的xDS是一个API集合，包括监听器发现服务（LDS）、集群发现服务（CDS）、端点发现服务（EDS）、路由发现服务（RDS）等。
+Envoy配置服务器实现这些API，并作为Envoy的动态配置源。在启动过程中，Envoy会与配置服务器通信（通常是通过gRPC）并订阅配置变化。当环境发生变化时，配置服务器会将变化流向Envoy。
+
+
+SMI 服务网格结构接口
+Istio提供了SMI中所包含的所有功能。
+SMI社区维护了一个适配器（https://github.com/servicemeshinterface/smi-adapter-istio），
+
+sidecar模式
+Linkerd、Istio
+
+代理节点模式 一个节点部署一个envoy
+遵循这种架构的服务网格包括Consul Connect（https://www.consul.io/docs/connect）和Maesh（https://containo.us/maesh）。
