@@ -2367,7 +2367,74 @@ rules:
   existing:
   external: []
 
-17、服务网格
+Kubernetes 的监控 体系汇总 
+
+第一种 Metrics，是宿主机的监控数据
+Node Exporter
+https://github.com/prometheus/node_exporter
+https://github.com/prometheus/node_exporter#enabled-by-default
+
+第二种 Metrics，是来自于 Kubernetes 的 API Server、kubelet 等组件的 /metrics API。 
+除了常规的 CPU、内存的信息外，这部分信息还主要包括了各个组件的核心监控指标。比如，对于 API Server 来说，它就会在 /metrics API 里，暴露出各个 Controller 的 工作队列(Work Queue)的长度、请求的 QPS 和延迟数据等等。这些信息，是检查 Kubernetes 本身工作情况的主要依据 
+
+第三种 Metrics，是 Kubernetes 相关的监控数据。
+这部分数据，一般叫作 Kubernetes 核心监控数据(core metrics)。这其中包括了 Pod、Node、容器、Service 等主要 Kubernetes 核心概念的 Metrics。 
+容器相关的 Metrics 主要来自于 kubelet 内置的 cAdvisor 服务。在 kubelet 启动 后，cAdvisor 服务也随之启动，而它能够提供的信息，可以细化到每一个容器的 CPU 、 文件系统、内存、网络等资源的使用情况。 
+
+Kubernetes 核心监控数据，其实使用的是 Kubernetes 的一个非常重要的扩展能力，叫作 Metrics Server 
+有了 Metrics Server 之后，用户就可以通过标准的 Kubernetes API 来访问到这些监控数据了；
+需要注意的是 Metrics Server 并不是 kube-apiserver 的一部分，而是通过 Aggregator 这种插件机制，在独立部署的情况下同 kube-apiserver 一起统一对外服务的。 
+
+当 Kubernetes 的 API Server 开启了 Aggregator 模式之后，再访问 apis/metrics.k8s.io/v1beta1 的时候，实际上访问到的是一个叫作 kube-aggregator 的代理。而 kube-apiserver，正是这个代理的一个后端;而 Metrics Server，则是另一个后端。 
+
+kube-aggregator 其实就是一个根据 URL 选择具体的 API 后端的代理服务器 
+https://github.com/kubernetes-sigs/apiserver-builder-alpha/blob/master/docs/concepts/aggregation.md
+
+
+具体的监控指标规划上，建议遵循业界通用的 USE 原则和 RED 原则。 
+USE 原则指的是，按照如下三个维度来规划资源监控指标: 
+1. 利用率(Utilization)，资源被有效利用起来提供服务的平均时间占比;
+2. 饱和度(Saturation)，资源拥挤的程度，比如工作队列的长度;
+3. 错误率(Errors)，错误的数量。
+
+RED 原则指的是，按照如下三个维度来规划服务监控指标: 
+1. 每秒请求数量(Rate);
+2. 每秒错误数量(Errors);
+3. 服务响应时间(Duration)。 
+
+USE 原则主要关注的是“资源”，比如节点和容器的资源使用情况，
+而 RED 原则主要关注的是“服务”，比如 kube-apiserver 或者某个应用的工作情况 
+
+
+Custom Metrics 
+凭借强大的 API 扩展机制，Custom Metrics 已经成为了 Kubernetes 的一项标准能力。并且，Kubernetes 的自动扩展器组件 Horizontal Pod Autoscaler (HPA)， 也可 以直接使用 Custom Metrics 来执行用户指定的扩展策略，这里的整个过程都是非常灵活 和可定制的 
+
+Kubernetes 里的 Custom Metrics 机制，也是借助 Aggregator APIServer 扩 展机制来实现的。这里的具体原理是，当你把 Custom Metrics APIServer 启动之后， Kubernetes 里就会出现一个叫作custom.metrics.k8s.io的 API。而当你访问这个 URL 时，Aggregator 就会把你的请求转发给 Custom Metrics APIServer 
+
+
+Custom Metrics APIServer 
+的实现，其实就是一个 Prometheus 项目的 Adaptor 
+
+现在要实现一个根据指定 Pod 收到的 HTTP 请求数量来进行 Auto Scaling 的 Custom Metrics，这个 Metrics 就可以通过访问如下所示的自定义监控 URL 
+https://<apiserver_ip>/apis/custom-metrics.metrics.k8s.io/v1beta1/namespaces/default/pod/test
+
+这里的工作原理是，当访问这个 URL 的时候，Custom Metrics APIServer 就会去 Prometheus 里查询名叫 sample-metrics-app 这个 Pod 的 http_requests 指标的值，然 后按照固定的格式返回给访问者。 
+
+对于一个多实 例应用来说，通过 Service 来采集 Pod 的 Custom Metrics 其实才是合理的做法 
+而 Custom Metrics APIServer 在收到对 http_requests 指标的访问请求之后，它会从 Prometheus 里查询 http_requests_total 的值，然后把它折算成一个以时间为单位的请求 率，最后把这个结果作为 http_requests 指标对应的值返回回去。 
+
+
+
+17、日志收集
+Kubernetes 里面对容器日志的处理方式，都叫作 cluster-level-logging，即:这个日志处理系统，与容器、Pod 以及 Node 的生命周期都是完全无关的。这种设计当然是为了保证，无论是容器挂了、Pod 被删除，甚至节点宕机的时候，应用的日志依然可以被正常获取到。 
+
+第一种，在 Node 上部署 logging agent，将日志文件转发到后端存储里保存起来。 
+Kubernetes 容器日志方案的第二种，就是对这种特殊情况的一个处理，即:当容 器的日志只能输出到某些文件里的时候，我们可以通过一个 sidecar 容器把这些日志文件 重新输出到 sidecar 的 stdout 和 stderr 上，这样就能够继续使用第一种方案了。 
+第三种方案，就是通过一个 sidecar 容器，直接把应用的日志文件发送到远程存储里面去。 
+
+
+
+18、服务网格
 Twitter创建了Finagle（https://twitter.github.io/finagle），这是一个Scala库，其所有的微服务都嵌入其中。它处理负载均衡、断路、自动重试、遥测等。
 Netflix开发了Hystrix（https://github.com/Netflix/Hystrix），这是一个类似的Java应用库。
 
