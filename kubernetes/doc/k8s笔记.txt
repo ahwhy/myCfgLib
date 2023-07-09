@@ -20,6 +20,8 @@
   - 声明式的api
   - 可扩展的控制器模式
 
+资源是什么？一个资源是Kubernetes API的一个端点，包含一组特定类型对象的集合，比如Pods资源包含Pod对象的集合。在Kubernetes集群中通过kubectl get pods命令可以查询到Pod列表，同样我们常见的Service、Deployment等对象也都对应具体的资源：Services、Deployments等。资源可以增、删、改、查，对应apiserver代码中定义的某个结构体（实际已经单独拆分出来放到单独的项目里了），如内存中的一个对象、ETCD中的一组数据。所谓自定义资源，就是用户可以提交一个类似Deployment声明的结构定义给Kubernetes，
+
 1、POD
 Pod 里的所有容器，共享的是同一个 Network Namespace，并且可以声明 共享同一个 Volume 
 
