@@ -4,14 +4,16 @@
 
 ### 1、部署期望
 - 对于一个 mysql 集群的期望，可以用下面的自然语言描述
-    + 1. 是一个"主从复制"(Maser-Slave Replication)的 MySQL 集群;
-    + 2. 有 1 个主节点(Master);
-    + 3. 有多个从节点(Slave);
-    + 4. 从节点需要能水平扩展;
-    + 5. 所有的写操作，只能在主节点上执行; 
-    + 6. 读操作可以在所有节点上执行。
+    + 一个"主从复制"(Maser-Slave Replication)的 MySQL 集群;
+    + 有 1 个主节点(Master);
+    + 有多个从节点(Slave);
+    + 从节点需要能水平扩展;
+    + 所有的写操作，只能在主节点上执行; 
+    + 读操作可以在所有节点上执行。
 
 ![Mysql主从复制集群](./images/Maser-Slave.jpg)
+
+&emsp;
 
 ### 2、如何部署一个主从模式的 MySQL 集群
 在常规环境里，部署一个主从模式的 MySQL 集群的主要难点在于: 如何让从节点能够拥有主节点的数据，即: 如何配置主(Master)从(Slave)节点的复制与同步
@@ -31,16 +33,20 @@ TheMaster-bin.000001 481
 这两个信息会在接下来配置 Slave 节点的时候用到。
 
 参考资料：
+  - [Centos 7 最小化mysql 5.7 源码编译安装](https://www.cnblogs.com/guge-94/p/10552374.html)
+  - [Mysql主从同步](https://www.cnblogs.com/guge-94/p/11636794.html)
+  - [Mysql配置双主模式(可双写双读)教程](https://www.xhyz.fun/art/138.html)
   - [MySQL备份工具之xtrabackup](https://www.jianshu.com/p/578cb3837fb8)
   - [MySQL入门之Xtrabackup备份与恢复命令用法实战](https://blog.csdn.net/kiossy/article/details/120285291)
   - [innoxtrabackup全备参数-基于从库](https://blog.csdn.net/u012565458/article/details/128278995)
 
+​&nbsp;
 
 **第二步**
 
 配置 Slave 节点。Slave 节点在第一次启动前，需要先把 Master 节点的备份数 据，连同备份信息文件，一起拷贝到自己的数据目录(/var/lib/mysql)下。然后，我们执行这样一句 SQL:
 ```sql
-TheSlave|mysql> 2
+TheSlave|mysql>
             CHANGE MASTER TO
             MASTER_HOST='$masterip',
             MASTER_USER='xxx',
@@ -50,6 +56,7 @@ TheSlave|mysql> 2
 ```
 其中，MASTER_LOG_FILE 和 MASTER_LOG_POS，就是该备份对应的二进制日志 (Binary Log)文件的名称和开始的位置(偏移量)，也正是 xtrabackup_binlog_info 文 件里的那两部分内容(即:TheMaster-bin.000001 和 481)。
 
+​&nbsp;
 
 **第三步**
 
@@ -59,6 +66,7 @@ TheSlave|mysql> START SLAVE;
 ```
 这样，Slave 节点就启动了。它会使用备份信息文件中的二进制日志文件和偏移量，与主节点进行数据同步。
 
+​&nbsp;
 
 **第四步**
 
@@ -68,14 +76,15 @@ TheSlave|mysql> START SLAVE;
 
 然后，我们就可以执行跟前面一样的 `CHANGE MASTER TO` 和 `TART SLAVE` 指令，来初始化并启动这个新的 Slave 节点了。
 
+&emsp;
 
 ### 3、如何部署到k8s集群
 由于 MySQL 本身同时拥有拓扑状态(主从节点的区别)和存储状态(MySQL 保存在本地的数据)，我们要通过 StatefulSet 来解决下面"三座大山"的问题。
 
 - 将部署 MySQL 集群的流程迁移到 Kubernetes 项目上，需要能够"容器化"地解决下面的"三座大山":
-    + 1. Master 节点和 Slave 节点需要有不同的配置文件(即:不同的 my.cnf);
-    + 2. Master 节点和 Salve 节点需要能够传输备份信息文件;
-    + 3. 在 Slave 节点第一次启动之前，需要执行一些初始化 SQL 操作;
+    + Master 节点和 Slave 节点需要有不同的配置文件(即:不同的 my.cnf);
+    + Master 节点和 Salve 节点需要能够传输备份信息文件;
+    + 在 Slave 节点第一次启动之前，需要执行一些初始化 SQL 操作;
 
 
 **第一座大山**
@@ -143,6 +152,7 @@ spec:
 
 而所有用户的写请求，则必须直接以 DNS 记录的方式访问到 MySQL 的主节点，也就是: "mysql-0.mysql"这条 DNS 记录。
 
+​&nbsp;
 
 **第二座大山**
 
@@ -160,6 +170,7 @@ Master 节点和 Salve 节点需要能够传输备份文件。为了翻越这座
 
 理清楚这两个问题，我们就可以按照 Pod 的启动过程来一步步定义它们了。
 
+​&nbsp;
 
 第一步:
 从 ConfigMap 中，获取 MySQL 的 Pod 对应的配置文件。
@@ -168,39 +179,41 @@ Master 节点和 Salve 节点需要能够传输备份文件。为了翻越这座
 而根据我们已经掌握的 Pod 知识，这些初始化操作显然适合通过 InitContainer 来完成。
 
 
-StatefulSet.spec.template.spec.InitContainer.name[0]
+    StatefulSet.spec.template.spec.InitContainer.name[0]
 
-在这个名叫 init-mysql 的 InitContainer 的配置中，它从 Pod 的 hostname 里，读取到 了 Pod 的序号，以此作为 MySQL 节点的 server-id
+&emsp;在这个名叫 init-mysql 的 InitContainer 的配置中，它从 Pod 的 hostname 里，读取到 了 Pod 的序号，以此作为 MySQL 节点的 server-id
 然后，init-mysql 通过这个序号，判断当前 Pod 到底是 Master 节点(即:序号为 0) 还是 Slave 节点(即:序号不为 0)，从而把对应的配置文件从 /mnt/config-map 目录拷贝 到 /mnt/conf.d/ 目录下。
 
 
-StatefulSet.spec.template.volumes
+    StatefulSet.spec.template.volumes
 
-文件拷贝的源目录 /mnt/config-map，正是 ConfigMap 在这个 Pod 的 Volume。
+&emsp;文件拷贝的源目录 /mnt/config-map，正是 ConfigMap 在这个 Pod 的 Volume。
 通过这个定义，init-mysql 在声明了挂载 config-map 这个 Volume 之后，ConfigMap 里保存的内容，就会以文件的方式出现在它的 /mnt/config-map 目录当中。
 而文件拷贝的目标目录，即容器里的 /mnt/conf.d/ 目录，对应的则是一个名叫 conf 的、 emptyDir 类型的 Volume。基于 Pod Volume 共享的原理，当 InitContainer 复制完配 置文件退出后，后面启动的 MySQL 容器只需要直接声明挂载这个名叫 conf 的 Volume， 它所需要的.cnf 配置文件已经出现在里面了。这跟我们之前介绍的 Tomcat 和 WAR 包的 处理方法是完全一样的。
 
+​&nbsp;
 
 第二步:
 在 Slave Pod 启动前，从 Master 或者其他 Slave Pod 里拷贝数据库数据到自己的目录下。
 
 
-StatefulSet.spec.template.spec.InitContainer.name[1]
+    StatefulSet.spec.template.spec.InitContainer.name[1]
 
-在这个名叫 clone-mysql 的 InitContainer 里，我们使用的是 xtrabackup 镜像(它里面 安装了 xtrabackup 工具)。
+&emsp;在这个名叫 clone-mysql 的 InitContainer 里，我们使用的是 xtrabackup 镜像(它里面 安装了 xtrabackup 工具)。
 而在它的启动命令里，我们首先做了一个判断。即: 当初始化所需的数据 (/var/lib/mysql/mysql 目录)已经存在，或者当前 Pod 是 Master 节点的时候，不需要 做拷贝操作。
 接下来，clone-mysql 会使用 Linux 自带的 ncat 指令，向 DNS 记录为 "mysql-< 当前序 号减一 >.mysql" 的 Pod，也就是当前 Pod 的前一个 Pod，发起数据传输请求，并且直接 用 xbstream 指令将收到的备份数据保存在 /var/lib/mysql 目录下。
 ps: 3307 是一个特殊端口，运行着一个专门负责备份 MySQL 数据的辅助进程
 
 
-StatefulSet.spec.template.spec.InitContainer.name[1].volumeMounts
+    StatefulSet.spec.template.spec.InitContainer.name[1].volumeMounts
 
-这个容器里的 /var/lib/mysql 目录，实际上正是一个名为 data 的 PVC，即:我们在前面声明的持久化存储。
+&emsp;这个容器里的 /var/lib/mysql 目录，实际上正是一个名为 data 的 PVC，即:我们在前面声明的持久化存储。
 这就可以保证，哪怕宿主机宕机了，我们数据库的数据也不会丢失。更重要的是，由于 Pod Volume 是被 Pod 里的容器共享的，所以后面启动的 MySQL 容器，就可以把这个 Volume 挂载到自己的 /var/lib/mysql 目录下，直接使用里面的备份数据进行恢复操作。
 不过，clone-mysql 容器还要对 /var/lib/mysql 目录，执行一句 xtrabackup --prepare 操作，目的是让拷贝来的数据进入一致性状态，这样，这些数据才能被用作数据恢复。
 
 至此，我们就通过 InitContainer 完成了对"主、从节点间备份文件传输"操作的处理过程，也就是翻越了"第二座大山"。
 
+​&nbsp;
 
 **第三座大山**
 
@@ -211,9 +224,11 @@ StatefulSet.spec.template.spec.InitContainer.name[1].volumeMounts
 可是，容器是一个单进程模型。所以，一个 Slave 角色的 MySQL 容器启动之前，谁能负责给它执行初始化的 SQL 语句呢? 这就是我们需要解决的"第三座大山"的问题，即:如何在 Slave 节点的 MySQL 容器第 一次启动之前，执行初始化 SQL。
 
 
-StatefulSet.spec.template.spec.containers.name[0]
+    StatefulSet.spec.template.spec.containers.name[0]
 
 我们可以为这个 MySQL 容器额外定义一个 sidecar 容器，来完成这个操作。而在这个名叫 xtrabackup 的 sidecar 容器的启动命令里，其实实现了两部分工作。
+
+​&nbsp;
 
 第一部分工作: MySQL 节点的初始化工作。
 
@@ -234,6 +249,7 @@ StatefulSet.spec.template.spec.containers.name[0]
 
 同理，change_master_to.sql.in 在使用后也要被重命名，以免容器重启时因为发现这个文件存在又执行一遍初始化。
 
+​&nbsp;
 
 第二部分工作: 启动一个数据传输服务。
 
@@ -245,6 +261,7 @@ StatefulSet.spec.template.spec.containers.name[0]
 
 至此，我们也就翻越了"第三座大山"，完成了 Slave 节点第一次启动前的初始化工作。
 
+​&nbsp;
 
 **最终成果**
 
@@ -322,7 +339,7 @@ spec:
           xtrabackup --prepare --target-dir=/var/lib/mysql
         volumeMounts:
         - name: conf
-          mountPath: /mnt/conf.d/
+          mountPath: /etc/mysql/conf.d
         - name: data
           mountPath: /var/lib/mysql
           subPath: mysql
@@ -377,12 +394,12 @@ spec:
           # 使用 ncat 监听 3307 端口。它的作用是，在收到传输请求的时候，直接执行 "xtrabackup --backup --slave-info" 命令
           exec ncat --listen --keep-open --send-only --max-conns=1 3307 -c \
             "xtrabackup --backup --slave-info --stream=xbstream --host=127.0.0.1 --user=root --password=''"
-        volumeMounts:      
+        volumeMounts:
+        - name: conf
+          mountPath: /etc/mysql/conf.d
         - name: data
           mountPath: /var/lib/mysql
           subPath: mysql
-        - name: conf
-          mountPath: /mnt/conf.d/
       - name: mysql
         image: registry.cn-hangzhou.aliyuncs.com/opensf/mysql:5.7-hostname
         env:
@@ -392,11 +409,11 @@ spec:
         - name: mysql
           containerPort: 3306
         volumeMounts:
+        - name: conf
+          mountPath: /etc/mysql/conf.d
         - name: data
           mountPath: /var/lib/mysql
           subPath: mysql
-        - name: conf
-          mountPath: /mnt/conf.d/
         resources:
           requests:
             cpu: 500m
@@ -431,9 +448,7 @@ spec:
           storage: 5Gi
 ```
 
-现在，我们就可以使用 kubectl 命令，尝试运行一下这个 StatefulSet 了。
-
-首先，我们需要在 Kubernetes 集群里创建满足条件的 PV，这里通过 alicloud-nas-subpath 这个 StorageClass 自动进行申请和挂载。
+在最后运行这个 StatefulSet 之前，我们还需要在 Kubernetes 集群里创建满足条件的 PV，这里我们通过 alicloud-nas-subpath 这个 StorageClass 自动进行PV的申请和PVC的绑定。
 ```yaml
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
@@ -449,13 +464,86 @@ provisioner: nasplugin.csi.alibabacloud.com
 reclaimPolicy: Retain
 ```
 
+现在，我们就可以使用 kubectl 命令，尝试运行一下这个 StatefulSet 了。
+```shell
+$ kubectl apply -f Master-Slave/
+configmap/mysql created
+storageclass.storage.k8s.io/alicloud-nas-subpath created
+service/mysql created
+service/mysql-read created
+statefulset.apps/mysql created
+
+$ kubectl get pod -l app=mysql
+NAME      READY   STATUS    RESTARTS   AGE
+mysql-0   2/2     Running   0          97s
+mysql-1   2/2     Running   0          89s
+mysql-2   2/2     Running   0          80s
+```
+
+​&nbsp;
+
+**测试与验证**
+
+接下来，我们可以尝试向这个 MySQL 集群发起请求，执行一些 SQL 操作来验证它是否正常。
+
+```shell
+$ kubectl run mysql-client --image=registry.cn-hangzhou.aliyuncs.com/opensf/mysql:5.7 -i --rm --restart=Never --\
+  mysql -h mysql-0.mysql <<EOF
+	drop database if exists school;
+	create database school;
+	create table if not exists school.student(
+	id int not null auto_increment comment '主键自增id',
+	name char(64) not null comment '姓名',
+	province char(6) not null comment '省',
+	city char(64) not null comment '城市',
+	addr varchar(100) default '' comment '地址',
+	score float not null default 0 comment '考试成绩',
+	enrollment date not null comment '入学时间',
+	primary key (id),  unique key idx_name (name),  
+	key idx_location (province,city)
+	)default charset=utf8 comment '学员基本信息';
+	insert into school.student (name,province,city,addr,score,enrollment) values
+	('张三','北京','北京','北京','149','2021-03-05'),
+	('李四','河南','郑州','郑州','139','2021-04-25'),
+	('小丽','四川','成都','成都','129','2021-03-10');
+EOF
+```
 
 我们通过启动一个容器，使用 MySQL client 执行了创建数据库和表、以及插入 数据的操作。需要注意的是，我们连接的 MySQL 的地址必须是 mysql-0.mysql(即: Master 节点的 DNS 记录)。因为，只有 Master 节点才能处理写操作。
 
-而通过连接 mysql-read 这个 Service，我们就可以用 SQL 进行读操作，`kubectl run mysql-client --image=registry.cn-hangzhou.aliyuncs.com/opensf/mysql:5.7 -i -t --rm --restart=Never -- mysql -h mysql-read -e "SELECT * FROM test.messages"`
+而通过连接 mysql-read 这个 Service，我们就可以用 SQL 进行读操作。
+```shell
+$ kubectl run mysql-client --image=registry.cn-hangzhou.aliyuncs.com/opensf/mysql:5.7 -i -t --rm --restart=Never -- mysql -h mysql-read -e "SELECT * FROM school.student;"
++----+--------+----------+--------+--------+-------+------------+
+| id | name   | province | city   | addr   | score | enrollment |
++----+--------+----------+--------+--------+-------+------------+
+|  1 | 张三 | 北京   | 北京 | 北京 |   149 | 2021-03-05 |
+|  2 | 李四 | 河南   | 郑州 | 郑州 |   139 | 2021-04-25 |
+|  3 | 小丽 | 四川   | 成都 | 成都 |   129 | 2021-03-10 |
++----+--------+----------+--------+--------+-------+------------+
+```
 
+在有了 StatefulSet 以后，我们可以像 Deployment 那样，非常方便地扩展这个 MySQL 集群，比如:
+```shell
+$ kubectl scale statefulset mysql --replicas=5
+statefulset.apps/mysql scaled
 
-**最终成果**
+$ kubectl get pod -l app=mysql
+NAME      READY   STATUS    RESTARTS   AGE
+mysql-0   2/2     Running   0          20m
+mysql-1   2/2     Running   0          20m
+mysql-2   2/2     Running   0          20m
+mysql-3   2/2     Running   0          37s
+mysql-4   2/2     Running   0          20s
+
+# 直接连接 mysql-3.mysql，即 mysql-3 这个 Pod 的 DNS 名 字来进行查询操作
+$ kubectl run mysql-client --image=registry.cn-hangzhou.aliyuncs.com/opensf/mysql:5.7 -i -t --rm --restart=Never --\
+  mysql -h mysql-4.mysql -e "SELECT * FROM school.student;"
+```
+
+​&nbsp;
+
+**总结**
 
 在通过Statefulsel部署主从模式的 MySQL 集群的过程中，有以下几个关键点(坑)特别值得注意和体会。
   - 1. "人格分裂": 在解决需求的过程中，一定要记得思考，该 Pod 在扮演不同角色时的不同操作。

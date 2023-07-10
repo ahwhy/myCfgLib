@@ -58,7 +58,7 @@ spec:
           xtrabackup --prepare --target-dir=/var/lib/mysql
         volumeMounts:
         - name: conf
-          mountPath: /mnt/conf.d/
+          mountPath: /etc/mysql/conf.d
         - name: data
           mountPath: /var/lib/mysql
           subPath: mysql
@@ -113,12 +113,12 @@ spec:
           # 使用 ncat 监听 3307 端口。它的作用是，在收到传输请求的时候，直接执行 "xtrabackup --backup --slave-info" 命令
           exec ncat --listen --keep-open --send-only --max-conns=1 3307 -c \
             "xtrabackup --backup --slave-info --stream=xbstream --host=127.0.0.1 --user=root --password=''"
-        volumeMounts:      
+        volumeMounts:
+        - name: conf
+          mountPath: /etc/mysql/conf.d
         - name: data
           mountPath: /var/lib/mysql
           subPath: mysql
-        - name: conf
-          mountPath: /mnt/conf.d/
       - name: mysql
         image: registry.cn-hangzhou.aliyuncs.com/opensf/mysql:5.7-hostname
         env:
@@ -128,11 +128,11 @@ spec:
         - name: mysql
           containerPort: 3306
         volumeMounts:
+        - name: conf
+          mountPath: /etc/mysql/conf.d
         - name: data
           mountPath: /var/lib/mysql
           subPath: mysql
-        - name: conf
-          mountPath: /mnt/conf.d/
         resources:
           requests:
             cpu: 500m
