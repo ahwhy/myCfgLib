@@ -48,15 +48,15 @@ def CentOS():
         lines=r.readlines()
     with open('/etc/ntp.conf', 'w') as w:
         for l in lines:
-            if 'ntp1.iflytek.com' not in l:
+            if 'ntp1.test.com' not in l:
                 w.write(l)
     with open('/etc/ntp.conf', "r+") as f:
         content = f.read()
         f.seek(0, 0)
-        f.write('server ntp1.iflytek.com\n'+content)
+        f.write('server ntp1.test.com\n'+content)
     if(int(float(platform.dist()[1])) == 7):
         subprocess.call(["systemctl stop ntpd"], shell=True)
-        subprocess.call(["ntpdate ntp1.iflytek.com;hwclock - -systohc"], shell=True)
+        subprocess.call(["ntpdate ntp1.test.com;hwclock - -systohc"], shell=True)
         subprocess.call(["systemctl enable ntpd"], shell=True)
         subprocess.call(["systemctl restart ntpd"], shell=True)
     else:
@@ -97,14 +97,14 @@ def Ubuntu():
         lines=r.readlines()
     with open('/etc/ntp.conf', 'w') as w:
         for l in lines:
-            if 'ntp1.iflytek.com' not in l:
+            if 'ntp1.test.com' not in l:
                 w.write(l)
     with open('/etc/ntp.conf', "r+") as f:
         content = f.read()
         f.seek(0, 0)
-        f.write('server ntp1.iflytek.com\n'+content)
+        f.write('server ntp1.test.com\n'+content)
     subprocess.call(["/etc/init.d/ntp stop"], shell=True)
-    subprocess.call(["ntpdate ntp1.iflytek.com;hwclock --systohc"], shell=True)
+    subprocess.call(["ntpdate ntp1.test.com;hwclock --systohc"], shell=True)
     subprocess.call(["/etc/init.d/ntp restart"], shell=True)
 
 def Redhat():
@@ -149,14 +149,14 @@ def Redhat():
         lines = r.readlines()
     with open('/etc/ntp.conf', 'w') as w:
         for l in lines:
-            if 'ntp1.iflytek.com' not in l:
+            if 'ntp1.test.com' not in l:
                 w.write(l)
     with open('/etc/ntp.conf', "r+") as f:
         content = f.read()
         f.seek(0, 0)
-        f.write('server ntp1.iflytek.com\n' + content)
+        f.write('server ntp1.test.com\n' + content)
     subprocess.call(["service ntpd stop"], shell=True)
-    subprocess.call(["ntpdate ntp1.iflytek.com;hwclock - -systohc"], shell=True)
+    subprocess.call(["ntpdate ntp1.test.com;hwclock - -systohc"], shell=True)
     subprocess.call(["chkconfig ntpd on"], shell=True)
     subprocess.call(["service ntpd restart"], shell=True)
 
@@ -193,14 +193,14 @@ def SuSE():
         lines=r.readlines()
     with open('/etc/ntp.conf', 'w') as w:
         for l in lines:
-            if 'ntp1.iflytek.com' not in l:
+            if 'ntp1.test.com' not in l:
                 w.write(l)
     with open('/etc/ntp.conf', "r+") as f:
         content = f.read()
         f.seek(0, 0)
-        f.write('server ntp1.iflytek.com\n'+content)
+        f.write('server ntp1.test.com\n'+content)
     subprocess.call(["/etc/init.d/ntp stop"], shell=True)
-    subprocess.call(["ntpdate ntp1.iflytek.com;hwclock --systohc"], shell=True)
+    subprocess.call(["ntpdate ntp1.test.com;hwclock --systohc"], shell=True)
     subprocess.call(["/etc/init.d/ntp restart"], shell=True)
 
 def UsePlatform():

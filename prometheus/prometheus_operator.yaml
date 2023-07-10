@@ -73,7 +73,7 @@ data:
           base-path: '/'
     logging:
       level:
-        com.iflytek: 'debug'
+        com.test: 'debug'
 kind: ConfigMap
 metadata:
   name: alarm-sms-config
@@ -154,7 +154,7 @@ metadata:
       nginx.org/rewrites: "serviceName=prometheus-k8s rewrite=/;serviceName=grafana rewrite=/;serviceName=alertmanager-main rewrite=/"
 spec:
   rules:
-  - host: sha-k8s-monitor.ultron.iflytek.com
+  - host: sha-k8s-monitor.ultron.test.com
     http:
       paths:
       - path: /prometheus/

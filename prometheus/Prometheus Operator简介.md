@@ -48,7 +48,7 @@ Odeon现有的Kubernetes集群监控体系相对完善，其大致情况如下�
 
 ### 2.1.1部署文件
 
-​      git仓库：https://git.iflytek.com/Odeon/monitor-kubernetes.git
+​      git仓库：https://git.test.com/Odeon/monitor-kubernetes.git
 
 或  直接拷贝包至待部署集群后修改：monitor-kubernetes.tar.gz
 
@@ -121,26 +121,26 @@ $ vim manifests/prometheus-prometheus.yaml     #修改项为spec.externalLabels
 
 1、根据实际需求，确定集群搭建的监控页面访问的域名
 
-​		以Ultron上海集群为例，使用的域名为 **sha-k8s-monitor.ultron.iflytek.com**
+​		以Ultron上海集群为例，使用的域名为 **sha-k8s-monitor.ultron.test.com**
 
 2、修改yaml文件：
 
 ```
 $ vim manifests/prometheus-prometheus.yaml      #修改项为spec.externalUrl
 ---config---
-externalUrl: http://sha-k8s-monitor.ultron.iflytek.com/prometheus                 
+externalUrl: http://sha-k8s-monitor.ultron.test.com/prometheus                 
  
 $ vim manifests/grafana-deployment.yaml         #修改项为spec.template.spec.containers.env
 ---config---
         env:
           - name: GF_SERVER_ROOT_URL
-            value: http://sha-k8s-monitor.ultron.iflytek.com/grafana
+            value: http://sha-k8s-monitor.ultron.test.com/grafana
 
 $ vim Ultron/monitoring-ingress.yaml            #修改项为spec.rules.host
 ---config---   
 spec: 
   rules:
-  - host: sha-k8s-monitor.ultron.iflytek.com
+  - host: sha-k8s-monitor.ultron.test.com
 ```
 
 3、为域名设置代理，域名 + 集群任意ip + 端口：30980

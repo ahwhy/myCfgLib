@@ -110,7 +110,7 @@ echo "****************************************"
 #systemctl status kubelet.service
 #systemctl stop kubelet.service
 #mv /usr/bin/kubelet /usr/bin/kubelet.bak.20200813_1100
-#scp /usr/bin/kubelet root@10.101.5.111:/usr/bin/
+#scp /usr/bin/kubelet root@10.0.0.111:/usr/bin/
 #New Kubelet (nokmem Bug Version /usr/bin/kubelet)
 #chmod a+x /usr/bin/kubelet
 #systemctl start kubelet.service

@@ -976,10 +976,10 @@ lsof输出各列信息的意义如下：
 **2、查找某个文件相关的进程(查看谁正在使用某个文件)**
 
 ```
-$ lsof /iflymonitor/iflytek-monitor/var/app.log
+$ lsof /iflymonitor/test-monitor/var/app.log
 COMMAND     PID USER   FD   TYPE DEVICE SIZE/OFF      NODE NAME
-iflytek-m 61012 root    1w   REG    8,2   214691 536878207 /iflymonitor/iflytek-monitor/var/app.log
-iflytek-m 61012 root    2w   REG    8,2   214691 536878207 /iflymonitor/iflytek-monitor/var/app.log
+test-m 61012 root    1w   REG    8,2   214691 536878207 /iflymonitor/test-monitor/var/app.log
+test-m 61012 root    2w   REG    8,2   214691 536878207 /iflymonitor/test-monitor/var/app.log
 ```
 
 **3、递归查看某个目录的文件信息**
@@ -987,10 +987,10 @@ iflytek-m 61012 root    2w   REG    8,2   214691 536878207 /iflymonitor/iflytek-
 ```
 $ lsof +D /iflymonitor/
 COMMAND     PID USER   FD   TYPE DEVICE SIZE/OFF       NODE NAME
-iflytek-m 61012 root  cwd    DIR    8,2      162 1611346584 /iflymonitor/iflytek-monitor
-iflytek-m 61012 root  txt    REG    8,2 10595616 1611346619 /iflymonitor/iflytek-monitor/iflytek-monitor
-iflytek-m 61012 root    1w   REG    8,2   213027  536878207 /iflymonitor/iflytek-monitor/var/app.log
-iflytek-m 61012 root    2w   REG    8,2   213027  536878207 /iflymonitor/iflytek-monitor/var/app.log
+test-m 61012 root  cwd    DIR    8,2      162 1611346584 /iflymonitor/test-monitor
+test-m 61012 root  txt    REG    8,2 10595616 1611346619 /iflymonitor/test-monitor/test-monitor
+test-m 61012 root    1w   REG    8,2   213027  536878207 /iflymonitor/test-monitor/var/app.log
+test-m 61012 root    2w   REG    8,2   213027  536878207 /iflymonitor/test-monitor/var/app.log
 ```
 
 **PS:** 使用了+D，对应目录下的所有子目录和文件都会被列出

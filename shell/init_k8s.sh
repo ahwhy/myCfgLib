@@ -54,7 +54,7 @@ do
     pssh -i -H $ip "mkdir -p /opt/kubernetes/images/"
     pscp -H $ip $PWD/depend/images/master-$kubernetesVersion.tar.gz /opt/kubernetes/images/
     pssh -t 0 -i -H $ip "tar -zxvf /opt/kubernetes/images/master-$kubernetesVersion.tar.gz -C /opt/kubernetes/images/;docker load -i /opt/kubernetes/images/master-$kubernetesVersion.tar"
-    pssh -H $ip "docker tag hub.iflytek.com/k8s/pause:3.1 hub.iflytek.com/k8s/pause-amd64:3.1;docker tag hub.iflytek.com/k8s/pause-amd64:3.1 hub.iflytek.com/k8s/pause:3.1;"
+    pssh -H $ip "docker tag hub.test.com/k8s/pause:3.1 hub.test.com/k8s/pause-amd64:3.1;docker tag hub.test.com/k8s/pause-amd64:3.1 hub.test.com/k8s/pause:3.1;"
     echo ""
 done
 
@@ -66,7 +66,7 @@ do
     pssh -i -H $ip "mkdir -p /opt/kubernetes/images/"
     pscp -H $ip $PWD/depend/images/node-$kubernetesVersion.tar.gz /opt/kubernetes/images/
     pssh -t 0 -i -H $ip "tar -zxvf /opt/kubernetes/images/node-$kubernetesVersion.tar.gz -C /opt/kubernetes/images/;docker load -i /opt/kubernetes/images/node-$kubernetesVersion.tar"
-    pssh -H $ip "docker tag hub.iflytek.com/k8s/pause:3.1 hub.iflytek.com/k8s/pause-amd64:3.1;docker tag hub.iflytek.com/k8s/pause-amd64:3.1 hub.iflytek.com/k8s/pause:3.1;"
+    pssh -H $ip "docker tag hub.test.com/k8s/pause:3.1 hub.test.com/k8s/pause-amd64:3.1;docker tag hub.test.com/k8s/pause-amd64:3.1 hub.test.com/k8s/pause:3.1;"
     echo ""
 done
 

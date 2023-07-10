@@ -4,7 +4,7 @@
 . ~/.bash_profile
 . ~/.bashrc
 
-mysql_host_master='10.101.5.103'
+mysql_host_master='10.0.0.103'
 mysql_port=3306
 
 # Alive MYSQL_STATE=0,Down MYSQL_STATE=1
@@ -30,7 +30,7 @@ LOG=/usr/local/keepalived/log/mysqlcheck.$DD.log
     
     mysql_state()
     {
-      /usr/bin/mysql -S /data/mysql/$2/run/mysql.sock -umonitor -p'wymdzgshksjdjc' -e "select user() from dual;" >> /dev/null 2>&1
+      /usr/bin/mysql -S /data/mysql/$2/run/mysql.sock -umonitor -p'xxxxxxxxxxx' -e "select user() from dual;" >> /dev/null 2>&1
       res=$?
       if [ $res -eq 0 ]
       then

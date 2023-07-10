@@ -19,7 +19,7 @@ $ sudo cp containerd/bin/* /usr/bin/
 
 # 创建 containerd 启动配置 config.toml:
 $ sudo mkdir -p /etc/containerd/
-$ cat << EOF | sudo tee /etc/containerd/config.toml
+$ cat <<EOF | sudo tee /etc/containerd/config.toml
 version = 2
 
 root = "/var/lib/containerd"

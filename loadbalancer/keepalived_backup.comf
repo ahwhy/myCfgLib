@@ -10,7 +10,7 @@ vrrp_instance VI_1 {
     state BACKUP
     nopreempt
     interface bond0
-    mcast_src_ip 10.101.5.104
+    mcast_src_ip 10.0.0.104
     virtual_router_id 106 
     script_user root
     priority 100          
@@ -20,7 +20,7 @@ vrrp_instance VI_1 {
         auth_pass 1111     
     }
     virtual_ipaddress {    
-        10.101.5.106
+        10.0.0.201
     }
       
 track_script {               
@@ -40,6 +40,6 @@ vrrp_instance VI_2 {
         auth_pass 1111
     }
     virtual_ipaddress {
-        10.101.5.201
+        10.0.0.202
     }
 }

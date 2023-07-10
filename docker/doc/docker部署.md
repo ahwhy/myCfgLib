@@ -18,7 +18,7 @@ $ systemctl enable containerd
 $ systemctl start docker
 $ systemctl start containerd
 
-$ cat << EOF | sudo tee /lib/systemd/system/docker.service
+$ cat <<EOF | sudo tee /lib/systemd/system/docker.service
 [Unit]
 Description=Docker Application Container Engine
 Documentation=https://docs.docker.com
@@ -31,7 +31,7 @@ Type=notify
 # exists and systemd currently does not support the cgroup feature set required
 # for containers run by docker
 ExecStartPost=/sbin/iptables -I FORWARD -s 0.0.0.0/0 -j ACCEPT
-ExecStart=/usr/bin/dockerd -H 127.0.0.1:2375 -H unix:///var/run/docker.sock --insecure-registry=172.16.59.151 --insecure-registry=hub.iflytek.com --registry-mirror=https://registry.docker-cn.com --default-ulimit=core=0:0 --live-restore
+ExecStart=/usr/bin/dockerd -H 127.0.0.1:2375 -H unix:///var/run/docker.sock --insecure-registry=registry.cn-hangzhou.aliyuncs.com --registry-mirror=https://registry.docker-cn.com --default-ulimit=core=0:0 --live-restore
 ExecReload=/bin/kill -s HUP $MAINPID
 # Having non-zero Limit*s causes performance problems due to accounting overhead
 # in the kernel. We recommend using cgroups to do container-local accounting.
@@ -55,7 +55,7 @@ StartLimitInterval=60s
 WantedBy=multi-user.target
 EOF
 
-$ cat << EOF | sudo tee /lib/systemd/system/docker.socket
+$ cat <<EOF | sudo tee /lib/systemd/system/docker.socket
 [Unit]
 Description=Docker Socket for the API
 PartOf=docker.service
@@ -70,7 +70,7 @@ SocketGroup=docker
 WantedBy=sockets.target
 EOF
 
-$ cat << EOF | sudo tee /lib/systemd/system/containerd.service
+$ cat <<EOF | sudo tee /lib/systemd/system/containerd.service
 #   Copyright 2018-2020 Docker Inc.
 
 #   Licensed under the Apache License, Version 2.0 (the "License");
