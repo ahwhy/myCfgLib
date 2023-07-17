@@ -66,8 +66,85 @@ cd project
 
 # we'll use a domain of tutorial.kubebuilder.io,
 # so all API groups will be <group>.tutorial.kubebuilder.io.
-kubebuilder init --domain tutorial.kubebuilder.io --repo tutorial.kubebuilder.io/project
+kubebuilder init --domain tutorial.kubebuilder.io --repo tutorial.kubebuilder.io/project --owner ahwhya@outlook.com
+
+# init git
+git init
+git add . &&  git commit -m "Init project" --author "ahwhya <ahwhya@outlook.com>"
 
 # Create an API
-kubebuilder create api --group webapp --version v1 --kind Guestbook
+kubebuilder create api --group webapp --version v1 --kind Guestbook 
+```
+
+### 3.File Tree
+```shell
+$ kubebuilder init --domain application.operator.io --repo github.com/ahwhy/application-operator --owner ahwhya@outlook.com
+
+$ kubebuilder create api --group apps --version v1 --kind Application
+
+$ tree ./application-operator
+./application-operator
+├── Dockerfile                                                  # 最终Operator程序编译、构建镜像的逻辑就在这里，我们可以通过修改这个文件来解决一些镜像构建相关的问题，比如Go语言依赖下载的默认GOPROXY配置在国内不一定能访问到，可以在其中配置国内的proxy地址等
+├── Makefile                                                    # 这是解放劳动力的工具，这里实现了通过make ×××轻松实现整个程序的编译构建、镜像推送、部署、卸载等操作
+├── PROJECT                                                     # PROJECT：这个文件中可以看到项目的一些元数据，比如domain、projectName、repo等信息；添加api后，会增加 resources.api 字段
+├── README.md
+├── api                                                         # api：这个目录中包含刚才添加的API，这里的application_types.go文件是核心数据结构
+│   └── v1
+│       ├── application_types.go
+│       ├── groupversion_info.go
+│       └── zz_generated.deepcopy.go
+├── bin
+│   └── controller-gen
+├── cmd
+│   └── main.go
+├── config                                                      # config：这个目录中放置了很多个YAML文件；其中包括RBAC权限相关的YAML文件、Prometheus监控服务发现(ServiceMonitor)相关的YAML文件、控制器(Manager)本身部署的YAML文件等。
+│   ├── crd                                                     # config/crd：存放的是crd部署相关的kustomize文件
+│   │   ├── bases                                               # config/crd/bases/：添加api后，这个目录中新增了一个apps.danielhu.cn_applications.yaml文件，也就是Application类型的CRD配置
+│   │   │   └── apps.application.operator.io_applications.yaml
+│   │   ├── kustomization.yaml
+│   │   ├── kustomizeconfig.yaml
+│   │   └── patches
+│   │       ├── cainjection_in_applications.yaml
+│   │       └── webhook_in_applications.yaml
+│   ├── default
+│   │   ├── kustomization.yaml
+│   │   ├── manager_auth_proxy_patch.yaml
+│   │   └── manager_config_patch.yaml
+│   ├── manager
+│   │   ├── kustomization.yaml
+│   │   └── manager.yaml
+│   ├── prometheus
+│   │   ├── kustomization.yaml
+│   │   └── monitor.yaml
+│   ├── rbac
+│   │   ├── application_editor_role.yaml                       # application_editor_role.yaml：定义了一个有applications资源编辑权限的ClusterRole
+│   │   ├── application_viewer_role.yaml                       # application_viewer_role.yaml：定义了一个有applications资源查询权限的ClusterRole
+│   │   ├── auth_proxy_client_clusterrole.yaml
+│   │   ├── auth_proxy_role.yaml
+│   │   ├── auth_proxy_role_binding.yaml
+│   │   ├── auth_proxy_service.yaml
+│   │   ├── kustomization.yaml
+│   │   ├── leader_election_role.yaml
+│   │   ├── leader_election_role_binding.yaml
+│   │   ├── role.yaml                                          # config/rbac/role.yaml：这里面定义的是一个ClusterRole，manager-role，这是后面Controller部署后将充当的"角色"；该文件定义了对applications资源的创建、删除、查询、更新等操作
+│   │   ├── role_binding.yaml
+│   │   └── service_account.yaml
+│   └── samples
+│       ├── apps_v1_application.yaml                           # samples/apps_v1_application.yaml：这是一个CR示例文件，从这个文件的骨架很容易看到通过填充内容即可用来创建一个自定义资源Application类型的实例
+│       └── kustomization.yaml
+├── go.mod                                                     # 添加api后，会增加 BDD测试相关的ginkgo和gomega依赖
+├── go.sum
+├── hack
+│   └── boilerplate.go.txt                                     # 每个文件头Copyright会加上--owner参数的内容，这个Copyright就是来自hack/boilerplate.go.txt文件
+└── internal
+    └── controller                                             # controllers/：这里包含控制器的代码逻辑入口。Reconcile函数，"调谐"(Reconcile) 这个词会贯穿整个 Operator
+        ├── application_controller.go
+        └── suite_test.go
+
+$ make manifests
+$ make install
+$ make run
+
+$ make undeploy
+$ make uninstall
 ```
