@@ -76,6 +76,48 @@ TheSlave|mysql> START SLAVE;
 
 然后，我们就可以执行跟前面一样的 `CHANGE MASTER TO` 和 `TART SLAVE` 指令，来初始化并启动这个新的 Slave 节点了。
 
+​&nbsp;
+
+**Master 节点故障处理**
+
+在一主多从的环境下，如果Master 节点故障宕机，可以使用一台 Slave 节点接管 Master 节点的工作，继续进行主从同步，保证业务的不中断。
+
+```shell
+# 1、确认主库已经挂掉，使用 `SHOW SLAVE STATUS\G` 命令查看各个备库状态；
+TheSlave|mysql> SHOW SLAVE STATUS\G
+
+# 2、查看每个从库的 master.info 文件，选择更靠前、最新、更大、丢的数据最少的从库
+$ cat /var/lib/mysql/master.info
+mysql-0-bin.000003
+154
+
+# 3、确保所有从库，中继日志Relay Log全部更新完毕
+TheSlave|mysql> STOP SLAVE IO_THREAD;
+# 看到 Slave has read all relay log; waiting for more updates  表示从库更新完毕
+TheSlave|mysql> SHOW PROCESSLIST;
+
+# 4、确定某一从库后，进行故障转移，把备库转换成主库；将其断开与原主库的关系，并重置备库为主库
+TheSlave|mysql> STOP SLAVE;
+TheSlave|mysql> RESET MASTER;
+
+# 5、进入该从库数据目录(/var/lib/mysql)，删除master.info和relay-log.info
+$ rm -f /var/lib/mysql/master.info /var/lib/mysql/relay-log.info
+
+# 6、最终将该从库提升为主库，修改配置开启log-bin，如果存在log-slave-updates，read-only等需要注释
+$ vim /etc/mysql/conf.d/slave.cnf
+[mysqld]
+log-bin
+$ /etc/init.d/mysqld restart
+
+# 7、其它从库需要重新执行 CHANGE MASTER TO ...
+TheSlave|mysql> STOP SLAVE;
+TheSlave|mysql> CHANGE MASTER TO MASTER_HOST='$masterip';
+TheSlave|mysql> START SLAVE;
+TheSlave|mysql> SHOW SLAVE STATUS\G
+
+# 8、修改业务适配器的配置文件，将原主库地址替换成新主库地址；将业务服务重启，使其连接到新主库
+```
+
 &emsp;
 
 ### 3、如何部署到k8s集群
