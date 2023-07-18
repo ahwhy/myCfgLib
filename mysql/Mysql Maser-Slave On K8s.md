@@ -243,9 +243,11 @@ Master 节点和 Salve 节点需要能够传输备份文件。为了翻越这座
 
 &emsp;在这个名叫 clone-mysql 的 InitContainer 里，我们使用的是 xtrabackup 镜像(它里面 安装了 xtrabackup 工具)。
 而在它的启动命令里，我们首先做了一个判断。即: 当初始化所需的数据 (/var/lib/mysql/mysql 目录)已经存在，或者当前 Pod 是 Master 节点的时候，不需要 做拷贝操作。
-接下来，clone-mysql 会使用 Linux 自带的 ncat 指令，向 DNS 记录为 "mysql-< 当前序 号减一 >.mysql" 的 Pod，也就是当前 Pod 的前一个 Pod，发起数据传输请求，并且直接 用 xbstream 指令将收到的备份数据保存在 /var/lib/mysql 目录下。
-ps: 3307 是一个特殊端口，运行着一个专门负责备份 MySQL 数据的辅助进程
+接下来，clone-mysql 会使用 Linux 自带的 [ncat 指令](https://blog.csdn.net/lyshark_lyshark/article/details/125846809)，向 DNS 记录为 "mysql-< 当前序 号减一 >.mysql" 的 Pod，也就是当前 Pod 的前一个 Pod，发起数据传输请求，并且直接 用 xbstream 指令将收到的备份数据保存在 /var/lib/mysql 目录下。
 
+    ncat 是 nmap 项目对传统的 Netcat(即 nc 命令)的重写，是包含在 nmap 安装包里的
+
+ps: 3307 是一个特殊端口，运行着一个专门负责备份 MySQL 数据的辅助进程
 
     StatefulSet.spec.template.spec.InitContainer.name[1].volumeMounts
 
