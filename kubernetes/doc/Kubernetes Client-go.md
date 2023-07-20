@@ -42,3 +42,145 @@
 ## 二、Client-go 简单使用
 
 ### 1. client-go 操作 deployment
+
+- 初始化 DeploymentInterface类型 实例
+```golang
+  // 获取 home 路径
+	homePath := homedir.HomeDir()
+	if homePath == "" {
+		log.Fatal("failed to get the home directory")
+	}
+  // 构建 kubeconfig 绝对路径
+	kubeconfig := filepath.Join(homePath, ".kube", "config")
+
+	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+  // 初始化一个DeploymentDeploymentInterface类型的实例
+	dpClient := clientset.AppsV1().Deployments(coreV1.NamespaceDefault)
+```
+
+- 实现 createDeployment()函数
+```golang
+func createDeployment(dpClient v1.DeploymentInterface) error {
+	replicas := int32(2)
+	newDp := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "kube-demoapp",
+		},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: &replicas,
+			Selector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{
+					"app": "kube-demoapp",
+				},
+			},
+			Template: coreV1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						"app": "kube-demoapp",
+					},
+				},
+				Spec: coreV1.PodSpec{
+					Containers: []coreV1.Container{
+						{
+							Name:  "demoapp",
+							Image: "ikubernetes/demoapp:v1.0",
+							Ports: []coreV1.ContainerPort{
+								{
+									Name:          "demoapp",
+									Protocol:      coreV1.ProtocolTCP,
+									ContainerPort: 8080,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	_, err := dpClient.Create(context.TODO(), newDp, metav1.CreateOptions{})
+
+	return err
+}
+
+	// 函数调用
+	log.Println("create Deployment")
+	if err := createDeployment(dpClient); err != nil {
+		log.Fatal(err)
+	}
+	<-time.Tick(1 * time.Minute)
+```
+
+- 实现 updateDeployment()函数
+```golang
+func updateDeployment(dpClient v1.DeploymentInterface) error {
+	dp, err := dpClient.Get(context.TODO(), "kube-demoapp", metav1.GetOptions{})
+	if err != nil {
+		return err
+	}
+	dp.Spec.Template.Spec.Containers[0].Image = "ikubernetes/demoapp:v1.1"
+
+	return retry.RetryOnConflict(
+		retry.DefaultBackoff, func() error {
+			_, err = dpClient.Update(context.TODO(), dp, metav1.UpdateOptions{})
+			return err
+		},
+	)
+}
+
+	// 函数调用
+	log.Println("update Deployment")
+	if err := updateDeployment(dpClient); err != nil {
+		log.Fatal(err)
+	}
+	<-time.Tick(1 * time.Minute)
+```
+
+- 实现 deleteDeployment()函数
+  - 关于PropagationPolicy属性，有3种可选特性
+    - DeletePropagationOrphan 不考虑依赖资源
+    - DeletePropagationBackground 后台删除依赖资源
+    - DeletePropagationForeground 前台删除依赖资源
+```golang
+func deleteDeployment(dpClient v1.DeploymentInterface) error {
+	deletePolicy := metav1.DeletePropagationForeground
+
+	return dpClient.Delete(
+		context.TODO(), "kube-demoapp", metav1.DeleteOptions{
+			PropagationPolicy: &deletePolicy,
+		},
+	)
+}
+
+	// 函数调用
+	log.Println("delete Deployment")
+	if err := deleteDeployment(dpClient); err != nil {
+		log.Fatal(err)
+	}
+	<-time.Tick(1 * time.Minute)
+```
+
+- import
+```go
+import (
+	appsv1 "k8s.io/api/apps/v1"
+	coreV1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
+	v1 "k8s.io/client-go/kubernetes/typed/apps/v1"
+	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/util/homedir"
+	"k8s.io/client-go/util/retry"
+)
+```
+
+
+## 三、Client-go 源码分析
