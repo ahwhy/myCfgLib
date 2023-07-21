@@ -63,53 +63,53 @@
 		log.Fatal(err)
 	}
 
-  // 初始化一个DeploymentDeploymentInterface类型的实例
+  // 初始化一个DeploymentInterface类型的实例
 	dpClient := clientset.AppsV1().Deployments(coreV1.NamespaceDefault)
 ```
 
 - 实现 createDeployment()函数
 ```golang
-func createDeployment(dpClient v1.DeploymentInterface) error {
-	replicas := int32(2)
-	newDp := &appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "kube-demoapp",
-		},
-		Spec: appsv1.DeploymentSpec{
-			Replicas: &replicas,
-			Selector: &metav1.LabelSelector{
-				MatchLabels: map[string]string{
-					"app": "kube-demoapp",
-				},
+	func createDeployment(dpClient v1.DeploymentInterface) error {
+		replicas := int32(2)
+		newDp := &appsv1.Deployment{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "kube-demoapp",
 			},
-			Template: coreV1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
+			Spec: appsv1.DeploymentSpec{
+				Replicas: &replicas,
+				Selector: &metav1.LabelSelector{
+					MatchLabels: map[string]string{
 						"app": "kube-demoapp",
 					},
 				},
-				Spec: coreV1.PodSpec{
-					Containers: []coreV1.Container{
-						{
-							Name:  "demoapp",
-							Image: "ikubernetes/demoapp:v1.0",
-							Ports: []coreV1.ContainerPort{
-								{
-									Name:          "demoapp",
-									Protocol:      coreV1.ProtocolTCP,
-									ContainerPort: 8080,
+				Template: coreV1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Labels: map[string]string{
+							"app": "kube-demoapp",
+						},
+					},
+					Spec: coreV1.PodSpec{
+						Containers: []coreV1.Container{
+							{
+								Name:  "demoapp",
+								Image: "ikubernetes/demoapp:v1.0",
+								Ports: []coreV1.ContainerPort{
+									{
+										Name:          "demoapp",
+										Protocol:      coreV1.ProtocolTCP,
+										ContainerPort: 8080,
+									},
 								},
 							},
 						},
 					},
 				},
 			},
-		},
-	}
-	_, err := dpClient.Create(context.TODO(), newDp, metav1.CreateOptions{})
+		}
+		_, err := dpClient.Create(context.TODO(), newDp, metav1.CreateOptions{})
 
-	return err
-}
+		return err
+	}
 
 	// 函数调用
 	log.Println("create Deployment")
@@ -121,20 +121,20 @@ func createDeployment(dpClient v1.DeploymentInterface) error {
 
 - 实现 updateDeployment()函数
 ```golang
-func updateDeployment(dpClient v1.DeploymentInterface) error {
-	dp, err := dpClient.Get(context.TODO(), "kube-demoapp", metav1.GetOptions{})
-	if err != nil {
-		return err
-	}
-	dp.Spec.Template.Spec.Containers[0].Image = "ikubernetes/demoapp:v1.1"
-
-	return retry.RetryOnConflict(
-		retry.DefaultBackoff, func() error {
-			_, err = dpClient.Update(context.TODO(), dp, metav1.UpdateOptions{})
+	func updateDeployment(dpClient v1.DeploymentInterface) error {
+		dp, err := dpClient.Get(context.TODO(), "kube-demoapp", metav1.GetOptions{})
+		if err != nil {
 			return err
-		},
-	)
-}
+		}
+		dp.Spec.Template.Spec.Containers[0].Image = "ikubernetes/demoapp:v1.1"
+
+		return retry.RetryOnConflict(
+			retry.DefaultBackoff, func() error {
+				_, err = dpClient.Update(context.TODO(), dp, metav1.UpdateOptions{})
+				return err
+			},
+		)
+	}
 
 	// 函数调用
 	log.Println("update Deployment")
@@ -150,15 +150,15 @@ func updateDeployment(dpClient v1.DeploymentInterface) error {
     - DeletePropagationBackground 后台删除依赖资源
     - DeletePropagationForeground 前台删除依赖资源
 ```golang
-func deleteDeployment(dpClient v1.DeploymentInterface) error {
-	deletePolicy := metav1.DeletePropagationForeground
+	func deleteDeployment(dpClient v1.DeploymentInterface) error {
+		deletePolicy := metav1.DeletePropagationForeground
 
-	return dpClient.Delete(
-		context.TODO(), "kube-demoapp", metav1.DeleteOptions{
-			PropagationPolicy: &deletePolicy,
-		},
-	)
-}
+		return dpClient.Delete(
+			context.TODO(), "kube-demoapp", metav1.DeleteOptions{
+				PropagationPolicy: &deletePolicy,
+			},
+		)
+	}
 
 	// 函数调用
 	log.Println("delete Deployment")
@@ -170,16 +170,16 @@ func deleteDeployment(dpClient v1.DeploymentInterface) error {
 
 - import
 ```go
-import (
-	appsv1 "k8s.io/api/apps/v1"
-	coreV1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes"
-	v1 "k8s.io/client-go/kubernetes/typed/apps/v1"
-	"k8s.io/client-go/tools/clientcmd"
-	"k8s.io/client-go/util/homedir"
-	"k8s.io/client-go/util/retry"
-)
+	import (
+		appsv1 "k8s.io/api/apps/v1"
+		coreV1 "k8s.io/api/core/v1"
+		metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+		"k8s.io/client-go/kubernetes"
+		v1 "k8s.io/client-go/kubernetes/typed/apps/v1"
+		"k8s.io/client-go/tools/clientcmd"
+		"k8s.io/client-go/util/homedir"
+		"k8s.io/client-go/util/retry"
+	)
 ```
 
 
@@ -193,10 +193,9 @@ client-go项目 是与 kube-apiserver 通信的 clients 的具体实现，其中
 
 所以接下来我们以自定义控制器的底层实现原理为线索，来分析client-go中相关模块的源码实现。
 
-
 如图所示，我们在编写自定义控制器的过程中大致依赖于如下组件，其中圆形的是自定义控制器中需要编码的部分，其他椭圆和圆角矩形的是client-go提供的一些“工具”。
 
-![编写自定义控制器依赖的组件]()
+![编写自定义控制器依赖的组件](../images/编写自定义控制器依赖的组件.jpg)
 
 - client-go的源码入口在Kubernetes项目的 `staging/src/k8s.io/client-go` 中，先整体查看上面涉及的相关模块，然后逐个深入分析其实现。
   + Reflector：Reflector 从apiserver监听（watch）特定类型的资源，拿到变更通知后，将其丢到 DeltaFIFO队列 中。
@@ -300,22 +299,22 @@ client-go 的 `util/workqueue`包 里主要有三个队列，分别是普通队�
 	func (q *Type) Add(item interface{}) {
 		q.cond.L.Lock()
 		defer q.cond.L.Unlock()
-		if q.shuttingDown {
+		if q.shuttingDown {                   // 如果queue正在被关闭，则返回
 			return
 		}
-		if q.dirty.has(item) {
+		if q.dirty.has(item) {                // 如果dirty set中已经有了该元素，则返回
 			return
 		}
 
 		q.metrics.add(item)
 
-		q.dirty.insert(item)
-		if q.processing.has(item) {
+		q.dirty.insert(item)                  // 添加到dirty set中
+		if q.processing.has(item) {           // 如果正在被处理，则返回
 			return
 		}
 
 		q.queue = append(q.queue, item)
-		q.cond.Signal()
+		q.cond.Signal()                       // 通知getter有新元素到来
 	}
 ```
 
@@ -329,25 +328,28 @@ client-go 的 `util/workqueue`包 里主要有三个队列，分别是普通队�
 	func (q *Type) Get() (item interface{}, shutdown bool) {
 		q.cond.L.Lock()
 		defer q.cond.L.Unlock()
+		// 如果 q.queue 为空，并且没有正在关闭，则等待下一个元素的到来
 		for len(q.queue) == 0 && !q.shuttingDown {
 			q.cond.Wait()
 		}
-		if len(q.queue) == 0 {
+		// 这时如果 q.queue 长度还是为0，则说明 q.shuttingDown 为 true，所以直接返回
+		if len(q.queue) == 0 { 
 			// We must be shutting down.
 			return nil, true
 		}
 
-		item = q.queue[0]
+		item = q.queue[0]          // 获取 q.queue 第一个元素
 		// The underlying array still exists and reference this object, so the object will not be garbage collected.
-		q.queue[0] = nil
-		q.queue = q.queue[1:]
+		q.queue[0] = nil           // 这里的nil赋值是为了让底层数组不再引用该元素对象，从而使这个对象可以被GC
+		q.queue = q.queue[1:]      // 更新 q.queue
 
 		q.metrics.get(item)
 
+		// 将刚才获取到的q.queue第一个元素对象，放到 processing 集合中
 		q.processing.insert(item)
-		q.dirty.delete(item)
+		q.dirty.delete(item)       // 在 dirty 集合中删除该对象
 
-		return item, false
+		return item, false         // 返回元素
 	}
 ```
 
@@ -364,10 +366,12 @@ client-go 的 `util/workqueue`包 里主要有三个队列，分别是普通队�
 
 		q.metrics.done(item)
 
+		// 从 processing集合中删除该元素
 		q.processing.delete(item)
+		// 如果 dirty集合中，还存在该元素，则说明还需要再次处理，重新加入 q.queue中
 		if q.dirty.has(item) {
 			q.queue = append(q.queue, item)
-			q.cond.Signal()
+			q.cond.Signal()                     // 通知getter有新元素
 		} else if q.processing.len() == 0 {
 			q.cond.Signal()
 		}
