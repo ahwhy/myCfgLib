@@ -184,3 +184,193 @@ import (
 
 
 ## 三、Client-go 源码分析
+
+在深度使用Kubernetes时难免会涉及Operator的开发，目前虽然已经有Kubebuilder/Operator SDK、controller-runtime等工具可以较好地屏蔽底层细节，让我们专注于自身的业务逻辑，但是不清楚底层原理会让我们在编码过程中心里没底，比如自定义控制器重启时是否会重新收到所有相关Event，调谐的子资源是Deployment时相关Pod的变更是否会触发调谐逻辑等，很多细节问题会不停地跳出来，让我们对自己的代码没有信心。所以我们只有详细分析过client-go和Operator开发相关的各种组件的原理与源码后，才能对自己开发的自定义控制器行为知根知底，胸有成竹。
+
+### 1. client-go 源码概览
+
+client-go项目 是与 kube-apiserver 通信的 clients 的具体实现，其中包含很多相关工具包，例如 `kubernetes`包 就包含与 Kubernetes API 通信的各种 ClientSet，而 `tools/cache`包 则包含很多强大的编写控制器相关的组件。
+
+所以接下来我们以自定义控制器的底层实现原理为线索，来分析client-go中相关模块的源码实现。
+
+
+如图所示，我们在编写自定义控制器的过程中大致依赖于如下组件，其中圆形的是自定义控制器中需要编码的部分，其他椭圆和圆角矩形的是client-go提供的一些“工具”。
+
+![编写自定义控制器依赖的组件]()
+
+- client-go的源码入口在Kubernetes项目的 `staging/src/k8s.io/client-go` 中，先整体查看上面涉及的相关模块，然后逐个深入分析其实现。
+  + Reflector：Reflector 从apiserver监听（watch）特定类型的资源，拿到变更通知后，将其丢到 DeltaFIFO队列 中。
+  + Informer：Informer 从 DeltaFIFO 中弹出（pop）相应对象，然后通过 Indexer 将对象和索引丢到 本地cache中，再触发相应的事件处理函数（Resource Event Handlers）。
+  + Indexer：Indexer 主要提供一个对象根据一定条件检索的能力，典型的实现是通过 namespace/name 来构造key，通过 Thread Safe Store 来存储对象。
+  + WorkQueue：WorkQueue 一般使用的是延时队列实现，在Resource Event Handlers中会完成将对象的key放入WorkQueue的过程，然后在自己的逻辑代码里从WorkQueue中消费这些key。
+  + ClientSet：ClientSet 提供的是资源的CURD能力，与apiserver交互。
+  + Resource Event Handlers：一般在 Resource Event Handlers 中添加一些简单的过滤功能，判断哪些对象需要加到WorkQueue中进一步处理，对于需要加到WorkQueue中的对象，就提取其key，然后入队。
+  + Worker：Worker指的是我们自己的业务代码处理过程，在这里可以直接收到WorkQueue中的任务，可以通过Indexer从本地缓存检索对象，通过ClientSet实现对象的增、删、改、查逻辑。
+
+### 2. client-go 源码概览
+
+WorkQueue一般使用延时队列来实现，在 Resource Event Handlers 中会完成将对象的key放入WorkQueue的过程，然后在自己的逻辑代码里从WorkQueue中消费这些key。
+
+client-go 的 `util/workqueue`包 里主要有三个队列，分别是普通队列、延时队列和限速队列，后一个队列以前一个队列的实现为基础，层层添加新功能，下面按照 Queue、DelayingQueue、RateLimitingQueue 的顺序层层拨开来看各种队列是如何实现的。
+
+- 在 `k8s.io/client-go/util/workqueue` 包下可以看到这样三个Go源文件：
+  + queue.go
+  + delaying_queue.go
+  + rate_limiting_queue.go
+  + 这三个文件分别对应三种队列实现，下面逐个对它们进行分析
+
+#### 普通队列 Queue 的实现
+
+**1. 表示Queue的接口和相应的实现结构体**
+
+- 定义Queue的接口在queue.go中直接叫作Interface
+```golang
+	type Interface interface {
+		Add(item interface{})                     // 添加一个元素
+		Len() int                                 // 元素个数
+		Get() (item interface{}, shutdown bool)   // 获取一个元素，第二个返回值和 channel 类似，标记队列是否关闭了
+		Done(item interface{})                    // 标记一个元素已经处理完
+		ShutDown()                                // 关闭队列
+		ShutDownWithDrain()                       // 关闭队列，但是等待队列中元素处理完
+		ShuttingDown() bool                       // 标记当前 channel 是否正在关闭
+	}
+```
+
+- Interface的实现类型是Type，这个名字延续了用Interface表示interface的风格，里面的三个属性queue、dirty、processing都保存有元素（items），但是含义有所不同
+	+ queue：这是一个[ ]t类型，也就是一个切片，因为其有序，所以这里当作一个列表来存储元素的处理顺序。
+	+ dirty：属于set类型，dirty就是一个集合，其中存储的是所有需要处理的元素，这些元素也会保存在queue中，但是集合中的元素是无序的，且集合的特性是其里面的元素具有唯一性。
+	+ processing：也是一个集合，存放的是当前正在处理的元素，也就是说这个元素来自queue出队的元素，同时这个元素会被从dirty中删除。
+```golang
+	// Type is a work queue (see the package comment).
+	type Type struct {
+		// queue defines the order in which we will work on items. Every
+		// element of queue should be in the dirty set and not in the
+		// processing set.
+		queue []t
+
+		// dirty defines all of the items that need to be processed.
+		dirty set
+
+		// Things that are currently being processed are in the processing set.
+		// These things may be simultaneously in the dirty set. When we finish
+		// processing something and remove it from this set, we'll check if
+		// it's in the dirty set, and if so, add it to the queue.
+		processing set
+
+		cond *sync.Cond
+
+		shuttingDown bool
+		drain        bool
+
+		metrics queueMetrics
+
+		unfinishedWorkUpdatePeriod time.Duration
+		clock                      clock.WithTicker
+	}
+
+	// set类型的定义
+	// set类型实现了has()、insert()、delete()、len()几个方法，用于支持集合类型的基本操作
+	type empty struct{}
+	type t interface{}
+	type set map[t]empty
+
+	func (s set) has(item t) bool {
+		_, exists := s[item]
+		return exists
+	}
+
+	func (s set) insert(item t) {
+		s[item] = empty{}
+	}
+
+	func (s set) delete(item t) {
+		delete(s, item)
+	}
+
+	func (s set) len() int {
+		return len(s)
+	}
+```
+
+**2.Queue.Add()方法的实现**
+
+- Add()方法用于标记一个新的元素需要被处理
+```golang
+	// Add marks item as needing processing.
+	func (q *Type) Add(item interface{}) {
+		q.cond.L.Lock()
+		defer q.cond.L.Unlock()
+		if q.shuttingDown {
+			return
+		}
+		if q.dirty.has(item) {
+			return
+		}
+
+		q.metrics.add(item)
+
+		q.dirty.insert(item)
+		if q.processing.has(item) {
+			return
+		}
+
+		q.queue = append(q.queue, item)
+		q.cond.Signal()
+	}
+```
+
+**3.Queue.Get()方法的实现**
+
+- Get()方法在获取不到元素的时候会阻塞，直到有一个元素可以被返回
+```golang
+	// Get blocks until it can return an item to be processed. If shutdown = true,
+	// the caller should end their goroutine. You must call Done with item when you
+	// have finished processing it.
+	func (q *Type) Get() (item interface{}, shutdown bool) {
+		q.cond.L.Lock()
+		defer q.cond.L.Unlock()
+		for len(q.queue) == 0 && !q.shuttingDown {
+			q.cond.Wait()
+		}
+		if len(q.queue) == 0 {
+			// We must be shutting down.
+			return nil, true
+		}
+
+		item = q.queue[0]
+		// The underlying array still exists and reference this object, so the object will not be garbage collected.
+		q.queue[0] = nil
+		q.queue = q.queue[1:]
+
+		q.metrics.get(item)
+
+		q.processing.insert(item)
+		q.dirty.delete(item)
+
+		return item, false
+	}
+```
+
+**4.Queue.Done()方法的实现**
+
+- Done()方法的作用是标记一个元素已经处理完成
+```golang
+	// Done marks item as done processing, and if it has been marked as dirty again
+	// while it was being processed, it will be re-added to the queue for
+	// re-processing.
+	func (q *Type) Done(item interface{}) {
+		q.cond.L.Lock()
+		defer q.cond.L.Unlock()
+
+		q.metrics.done(item)
+
+		q.processing.delete(item)
+		if q.dirty.has(item) {
+			q.queue = append(q.queue, item)
+			q.cond.Signal()
+		} else if q.processing.len() == 0 {
+			q.cond.Signal()
+		}
+	}
+```
+
