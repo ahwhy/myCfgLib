@@ -378,3 +378,347 @@ client-go 的 `util/workqueue`包 里主要有三个队列，分别是普通队�
 	}
 ```
 
+#### 延时队列 DelayingQueue 的实现
+
+**1.表示DelayingQueue的接口和相应的实现结构体**
+
+- 定义 DelayingQueue 的接口在 delaying_queue.go 源文件中，名字和 Queue 所使用的 Interface 很对称，叫作 DelayingInterface
+	- 可以看到 DelayingInterface接口 中嵌套了一个表示 Queue的Interface，也就是说 DelayingInterface接口 包含 Interface接口 的所有方法声明
+	- 另外相比于 Queue，这里多了一个 AddAfter() 方法，即 延时添加元素
+	- DelayingQueueConfig 通过指定可选配置以自定义 DelayingInterface 接口。
+```golang
+	// DelayingInterface is an Interface that can Add an item at a later time. This makes it easier to
+	// requeue items after failures without ending up in a hot-loop.
+	type DelayingInterface interface {
+		Interface
+		// AddAfter adds an item to the workqueue after the indicated duration has passed
+		AddAfter(item interface{}, duration time.Duration)
+	}
+
+	// delayingType wraps an Interface and provides delayed re-enquing
+	type delayingType struct {
+		// 嵌套普通队列 Queue
+		Interface
+
+		// 计时器
+		// clock tracks time for delayed firing
+		clock clock.Clock
+
+		// stopCh lets us signal a shutdown to the waiting loop
+		stopCh chan struct{}
+		// stopOnce guarantees we only signal shutdown a single time
+		stopOnce sync.Once
+
+		// 默认10秒的心跳，后面用在一个大循环里，避免没有新元素时一直阻塞
+		// heartbeat ensures we wait no more than maxWait before firing
+		heartbeat clock.Ticker
+
+		// waitingForAddCh is a buffered channel that feeds waitingForAdd
+		waitingForAddCh chan *waitFor
+
+		// metrics counts the number of retries
+		metrics retryMetrics
+	}
+
+	// DelayingQueueConfig specifies optional configurations to customize a DelayingInterface.
+	type DelayingQueueConfig struct {
+		// Name for the queue. If unnamed, the metrics will not be registered.
+		Name string
+
+		// MetricsProvider optionally allows specifying a metrics provider to use for the queue
+		// instead of the global provider.
+		MetricsProvider MetricsProvider
+
+		// Clock optionally allows injecting a real or fake clock for testing purposes.
+		Clock clock.WithTicker
+
+		// Queue optionally allows injecting custom queue Interface instead of the default one.
+		Queue Interface
+	}
+```
+
+**2.waitFor对象**
+
+- waitFor的实现
+	- 保存 备添加到队列中的数据 和 应该被加入队列的时间
+```golang
+	// waitFor holds the data to add and the time it should be added
+	type waitFor struct {
+		// 准备添加到队列中的数据
+		data    t
+		// 应该被加入队列的时间
+		readyAt time.Time
+		// index in the priority queue (heap)
+		index int
+	}
+```
+
+- 用最小堆的方式来实现，一个waitFor的优先级队列，这个 waitForPriorityQueue 类型实现了heap.Interface接口。
+```golang
+	// waitForPriorityQueue implements a priority queue for waitFor items.
+	//
+	// waitForPriorityQueue implements heap.Interface. The item occurring next in
+	// time (i.e., the item with the smallest readyAt) is at the root (index 0).
+	// Peek returns this minimum item at index 0. Pop returns the minimum item after
+	// it has been removed from the queue and placed at index Len()-1 by
+	// container/heap. Push adds an item at index Len(), and container/heap
+	// percolates it into the correct location.
+	type waitForPriorityQueue []*waitFor
+
+	func (pq waitForPriorityQueue) Len() int {
+		return len(pq)
+	}
+	func (pq waitForPriorityQueue) Less(i, j int) bool {
+		return pq[i].readyAt.Before(pq[j].readyAt)
+	}
+	func (pq waitForPriorityQueue) Swap(i, j int) {
+		pq[i], pq[j] = pq[j], pq[i]
+		pq[i].index = i
+		pq[j].index = j
+	}
+
+	// Push adds an item to the queue. Push should not be called directly; instead,
+	// use `heap.Push`.
+	func (pq *waitForPriorityQueue) Push(x interface{}) {
+		n := len(*pq)
+		item := x.(*waitFor)
+		item.index = n
+		*pq = append(*pq, item)
+	}
+
+	// Pop removes an item from the queue. Pop should not be called directly;
+	// instead, use `heap.Pop`.
+	func (pq *waitForPriorityQueue) Pop() interface{} {
+		n := len(*pq)
+		item := (*pq)[n-1]
+		item.index = -1
+		*pq = (*pq)[0:(n - 1)]
+		return item
+	}
+
+	// Peek returns the item at the beginning of the queue, without removing the
+	// item or otherwise mutating the queue. It is safe to call directly.
+	func (pq waitForPriorityQueue) Peek() interface{} {
+		return pq[0]
+	}
+```
+
+**3.NewDelayingQueue**
+
+- DelayingQueue的几个New函数
+	- 统一调用了 `NewDelayingQueueWithConfig()`
+```golang
+	// NewDelayingQueue constructs a new workqueue with delayed queuing ability.
+	// NewDelayingQueue does not emit metrics. For use with a MetricsProvider, please use
+	// NewDelayingQueueWithConfig instead and specify a name.
+	func NewDelayingQueue() DelayingInterface {
+		return NewDelayingQueueWithConfig(DelayingQueueConfig{})
+	}
+
+	// NewDelayingQueueWithCustomQueue constructs a new workqueue with ability to
+	// inject custom queue Interface instead of the default one
+	// Deprecated: Use NewDelayingQueueWithConfig instead.
+	func NewDelayingQueueWithCustomQueue(q Interface, name string) DelayingInterface {
+		return NewDelayingQueueWithConfig(DelayingQueueConfig{
+			Name:  name,
+			Queue: q,
+		})
+	}
+
+	// NewNamedDelayingQueue constructs a new named workqueue with delayed queuing ability.
+	// Deprecated: Use NewDelayingQueueWithConfig instead.
+	func NewNamedDelayingQueue(name string) DelayingInterface {
+		return NewDelayingQueueWithConfig(DelayingQueueConfig{Name: name})
+	}
+
+	// NewDelayingQueueWithCustomClock constructs a new named workqueue
+	// with ability to inject real or fake clock for testing purposes.
+	// Deprecated: Use NewDelayingQueueWithConfig instead.
+	func NewDelayingQueueWithCustomClock(clock clock.WithTicker, name string) DelayingInterface {
+		return NewDelayingQueueWithConfig(DelayingQueueConfig{
+			Name:  name,
+			Clock: clock,
+		})
+	}
+
+	// NewDelayingQueueWithConfig constructs a new workqueue with options to
+	// customize different properties.
+	func NewDelayingQueueWithConfig(config DelayingQueueConfig) DelayingInterface {
+		if config.Clock == nil {
+			config.Clock = clock.RealClock{}
+		}
+
+		if config.Queue == nil {
+			config.Queue = NewWithConfig(QueueConfig{
+				Name:            config.Name,
+				MetricsProvider: config.MetricsProvider,
+				Clock:           config.Clock,
+			})
+		}
+
+		return newDelayingQueue(config.Clock, config.Queue, config.Name, config.MetricsProvider)
+	}
+
+	// maxWait keeps a max bound on the wait time. It's just insurance against weird things happening.
+	// Checking the queue every 10 seconds isn't expensive and we know that we'll never end up with an
+	// expired item sitting for more than 10 seconds.
+	const maxWait = 10 * time.Second
+
+	func newDelayingQueue(clock clock.WithTicker, q Interface, name string, provider MetricsProvider) *delayingType {
+		ret := &delayingType{
+			Interface:       q,
+			clock:           clock,
+			heartbeat:       clock.NewTicker(maxWait),
+			stopCh:          make(chan struct{}),
+			waitingForAddCh: make(chan *waitFor, 1000),
+			metrics:         newRetryMetrics(name, provider),
+		}
+
+		go ret.waitingLoop()
+		return ret
+	}
+```
+
+**4.waitingLoop()方法**
+
+- waitingLoop()方法是延时队列实现的核心逻辑
+```golang
+	// waitingLoop runs until the workqueue is shutdown and keeps a check on the list of items to be added.
+	func (q *delayingType) waitingLoop() {
+		defer utilruntime.HandleCrash()
+
+		// Make a placeholder channel to use when there are no items in our list
+		never := make(<-chan time.Time)
+
+		// Make a timer that expires when the item at the head of the waiting queue is ready
+		var nextReadyAtTimer clock.Timer
+
+		// 构造优先级队列
+		waitingForQueue := &waitForPriorityQueue{}
+		heap.Init(waitingForQueue)
+
+		// 处理重复添加
+		waitingEntryByData := map[t]*waitFor{}
+
+		for {
+			if q.Interface.ShuttingDown() {
+				return
+			}
+
+			now := q.clock.Now()
+
+			// Add ready entries
+			for waitingForQueue.Len() > 0 {
+				// 获取第一个元素
+				entry := waitingForQueue.Peek().(*waitFor)
+				// 判断是否达到应该被加入队列的时间
+				if entry.readyAt.After(now) {
+					break
+				}
+
+				// 满足时间要求，pop出第一个元素
+				entry = heap.Pop(waitingForQueue).(*waitFor)
+				// 将数据添加到延迟队列中
+				q.Add(entry.data)
+				// 在 map(waitingEntryByData) 中删除已经添加到延迟队列中的元素
+				delete(waitingEntryByData, entry.data)
+			}
+
+			// Set up a wait for the first item's readyAt (if one exists)
+			// 如果队列中有元素，就用第一个元素的等待时间初始化计时器；如果队列为空，则一直等待
+			nextReadyAt := never
+			if waitingForQueue.Len() > 0 {
+				if nextReadyAtTimer != nil {
+					nextReadyAtTimer.Stop()
+				}
+				entry := waitingForQueue.Peek().(*waitFor)
+				nextReadyAtTimer = q.clock.NewTimer(entry.readyAt.Sub(now))
+				nextReadyAt = nextReadyAtTimer.C()
+			}
+
+			select {
+			case <-q.stopCh:
+				return
+
+			case <-q.heartbeat.C():
+				// continue the loop, which will add ready items
+				// 心跳时间(maxWait)是10s，到了就继续下一轮循环
+
+			case <-nextReadyAt:
+				// continue the loop, which will add ready items
+				// 第一个元素的等待时间到了，继续下一轮循环
+
+			// waitingForAddCh 收到新的元素
+			case waitEntry := <-q.waitingForAddCh:
+				// 如果时间没到，就添加进延时队列；如果时间到了，就直接添加进普通队列
+				if waitEntry.readyAt.After(q.clock.Now()) {
+					insert(waitingForQueue, waitingEntryByData, waitEntry)
+				} else {
+					q.Add(waitEntry.data)
+				}
+
+				// 继续处理 waitingForAddCh 中元素
+				drained := false
+				for !drained {
+					select {
+					case waitEntry := <-q.waitingForAddCh:
+						if waitEntry.readyAt.After(q.clock.Now()) {
+							insert(waitingForQueue, waitingEntryByData, waitEntry)
+						} else {
+							q.Add(waitEntry.data)
+						}
+					default:
+						drained = true
+					}
+				}
+			}
+		}
+	}
+
+
+	// insert adds the entry to the priority queue, or updates the readyAt if it already exists in the queue
+	func insert(q *waitForPriorityQueue, knownEntries map[t]*waitFor, entry *waitFor) {
+		// if the entry already exists, update the time only if it would cause the item to be queued sooner
+		existing, exists := knownEntries[entry.data]
+		if exists {
+			if existing.readyAt.After(entry.readyAt) {
+				existing.readyAt = entry.readyAt
+				heap.Fix(q, existing.index)
+			}
+
+			return
+		}
+
+		heap.Push(q, entry)
+		knownEntries[entry.data] = entry
+	}
+```
+
+**5.AddAfter()方法**
+
+- AddAfter()方法的作用是在指定的延时时长到达之后，在work queue中添加一个元素
+```golang
+	// AddAfter adds the given item to the work queue after the given delay
+	func (q *delayingType) AddAfter(item interface{}, duration time.Duration) {
+		// don't add if we're already shutting down
+		if q.ShuttingDown() {
+			return
+		}
+
+		q.metrics.retry()
+
+		// immediately add things with no delay
+		if duration <= 0 {
+			q.Add(item)
+			return
+		}
+
+		select {
+		case <-q.stopCh:
+			// unblock if ShutDown() is called
+		case q.waitingForAddCh <- &waitFor{data: item, readyAt: q.clock.Now().Add(duration)}:
+		}
+	}
+```
+
+#### 限速队列 RateLimitingQueue 的实现
