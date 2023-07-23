@@ -6,6 +6,8 @@ Kubernetes集群中有一个kube-apiserver组件，所有组件需要操作集�
 
 Kubernetes中的资源本质就是一个API对象，这个对象的"期望状态"被API Server保存在ETCD中，然后提供RESTful接口用于更新这些对象。我们可以直接和API Server交互，使用"声明"的方式来管理这些资源(API对象)，也可以通过kubectl这种命令行工具，或者client-go这类SDK。
 
+当 Initializer 更新用户的 Pod 对象的时候，必须使用 PATCH API 来完成。而这种 PATCH API，正是声明式 API 最主要的能力。在 Kubernetes 项目中，一个 API 对象在 Etcd 里的完整资源路径，是由: Group(API 组)、Version(API 版本)和 Resource(API 资源类型)三个部分组成的。 
+
 - [Kubernetes官网的API文档](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.23/)
 
 
@@ -91,6 +93,9 @@ $ curl -X DELETE \
   }
 }%
 # 删除操作成功的响应体是一个Status类型的对象，可以很清晰地看到这次被删除的对象所对应的group、kind、name、uid等详细信息
+
+# 查看某个api资源是否区分命名空间
+$ kubectl apiversion --namespace=true
 ```
 
 ### 2. 通过 Kubectl Raw 访问 API

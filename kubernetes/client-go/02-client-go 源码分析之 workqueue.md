@@ -12,13 +12,13 @@ client-go项目 是与 kube-apiserver 通信的 clients 的具体实现，其中
 
 所以接下来我们以自定义控制器的底层实现原理为线索，来分析client-go中相关模块的源码实现。
 
-如图所示，我们在编写自定义控制器的过程中大致依赖于如下组件，其中圆形的是自定义控制器中需要编码的部分，其他椭圆和圆角矩形的是client-go提供的一些“工具”。
+如图所示，我们在编写自定义控制器的过程中大致依赖于如下组件，其中圆形的是自定义控制器中需要编码的部分，其他椭圆和圆角矩形的是client-go提供的一些"工具"。
 
 ![编写自定义控制器依赖的组件](./images/编写自定义控制器依赖的组件.jpg)
 
 - client-go的源码入口在Kubernetes项目的 `staging/src/k8s.io/client-go` 中，先整体查看上面涉及的相关模块，然后逐个深入分析其实现。
-  + Reflector：Reflector 从apiserver监听（watch）特定类型的资源，拿到变更通知后，将其丢到 DeltaFIFO队列 中。
-  + Informer：Informer 从 DeltaFIFO 中弹出（pop）相应对象，然后通过 Indexer 将对象和索引丢到 本地cache中，再触发相应的事件处理函数（Resource Event Handlers）。
+  + Reflector：Reflector 从apiserver监听(watch)特定类型的资源，拿到变更通知后，将其丢到 DeltaFIFO队列 中。
+  + Informer：Informer 从 DeltaFIFO 中弹出(pop)相应对象，然后通过 Indexer 将对象和索引丢到 本地cache中，再触发相应的事件处理函数(Resource Event Handlers)。
   + Indexer：Indexer 主要提供一个对象根据一定条件检索的能力，典型的实现是通过 namespace/name 来构造key，通过 Thread Safe Store 来存储对象。
   + WorkQueue：WorkQueue 一般使用的是延时队列实现，在Resource Event Handlers中会完成将对象的key放入WorkQueue的过程，然后在自己的逻辑代码里从WorkQueue中消费这些key。
   + ClientSet：ClientSet 提供的是资源的CURD能力，与apiserver交互。
@@ -54,7 +54,7 @@ client-go 的 `util/workqueue`包 里主要有三个队列，分别是普通队�
 	}
 ```
 
-- Interface的实现类型是Type，这个名字延续了用Interface表示interface的风格，里面的三个属性queue、dirty、processing都保存有元素（items），但是含义有所不同
+- Interface的实现类型是Type，这个名字延续了用Interface表示interface的风格，里面的三个属性queue、dirty、processing都保存有元素(items)，但是含义有所不同
 	+ queue：这是一个[ ]t类型，也就是一个切片，因为其有序，所以这里当作一个列表来存储元素的处理顺序。
 	+ dirty：属于set类型，dirty就是一个集合，其中存储的是所有需要处理的元素，这些元素也会保存在queue中，但是集合中的元素是无序的，且集合的特性是其里面的元素具有唯一性。
 	+ processing：也是一个集合，存放的是当前正在处理的元素，也就是说这个元素来自queue出队的元素，同时这个元素会被从dirty中删除。

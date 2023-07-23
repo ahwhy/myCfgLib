@@ -4,6 +4,8 @@
 
 ### 1. client-go 项目结构
 
+- [client-go 项目](https://github.com/kubernetes/client-go)
+
 - client-go的包结构
   + kubernetes：这个包中放的是用client-gen自动生成的用来访问Kubernetes API的ClientSet，后面会经常看到ClientSet这个工具。
   + discovery：这个包提供了一种机制用来发现API Server支持的API资源。
