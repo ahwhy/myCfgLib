@@ -541,3 +541,140 @@ client-go 的 `util/workqueue`包 里主要有三个队列，分别是普通队�
 ```
 
 ### 3. 限速队列 RateLimitingQueue 的实现
+
+**1.表示RateLimitingQueue的接口和相应的实现结构体**
+
+- RateLimitingQueue 对应的接口叫作 RateLimitingInterface，源码是在 rate_limiting_queue.go 中
+	- 实现RateLimitingInterface的结构体是rateLimitingType
+```golang
+	// RateLimitingInterface is an interface that rate limits items being added to the queue.
+	type RateLimitingInterface interface {
+		// 和延时队列中内嵌了普通队列一样，限速队列中内嵌了延时队列
+		DelayingInterface
+
+		// AddRateLimited adds an item to the workqueue after the rate limiter says it's ok
+		AddRateLimited(item interface{})
+
+		// Forget indicates that an item is finished being retried.  Doesn't matter whether it's for perm failing
+		// or for success, we'll stop the rate limiter from tracking it.  This only clears the `rateLimiter`, you
+		// still have to call `Done` on the queue.
+		Forget(item interface{})
+
+		// NumRequeues returns back how many times the item was requeued
+		NumRequeues(item interface{}) int
+	}
+
+	type RateLimitingQueueConfig struct {
+		// Name for the queue. If unnamed, the metrics will not be registered.
+		Name string
+
+		// MetricsProvider optionally allows specifying a metrics provider to use for the queue
+		// instead of the global provider.
+		MetricsProvider MetricsProvider
+
+		// Clock optionally allows injecting a real or fake clock for testing purposes.
+		Clock clock.WithTicker
+
+		// DelayingQueue optionally allows injecting custom delaying queue DelayingInterface instead of the default one.
+		DelayingQueue DelayingInterface
+	}
+
+	// rateLimitingType wraps an Interface and provides rateLimited re-enquing
+	type rateLimitingType struct {
+		DelayingInterface
+
+		rateLimiter RateLimiter
+	}
+```
+
+**2.RateLimitingQueue的New函数**
+
+- RateLimitingQueue 的 New 函数 `NewRateLimitingQueue`
+```golang
+	// NewRateLimitingQueue constructs a new workqueue with rateLimited queuing ability
+	// Remember to call Forget!  If you don't, you may end up tracking failures forever.
+	// NewRateLimitingQueue does not emit metrics. For use with a MetricsProvider, please use
+	// NewRateLimitingQueueWithConfig instead and specify a name.
+	func NewRateLimitingQueue(rateLimiter RateLimiter) RateLimitingInterface {
+		return NewRateLimitingQueueWithConfig(rateLimiter, RateLimitingQueueConfig{})
+	}
+
+	// NewNamedRateLimitingQueue constructs a new named workqueue with rateLimited queuing ability.
+	// Deprecated: Use NewRateLimitingQueueWithConfig instead.
+	func NewNamedRateLimitingQueue(rateLimiter RateLimiter, name string) RateLimitingInterface {
+		return NewRateLimitingQueueWithConfig(rateLimiter, RateLimitingQueueConfig{
+			Name: name,
+		})
+	}
+
+	// NewRateLimitingQueueWithDelayingInterface constructs a new named workqueue with rateLimited queuing ability
+	// with the option to inject a custom delaying queue instead of the default one.
+	// Deprecated: Use NewRateLimitingQueueWithConfig instead.
+	func NewRateLimitingQueueWithDelayingInterface(di DelayingInterface, rateLimiter RateLimiter) RateLimitingInterface {
+		return NewRateLimitingQueueWithConfig(rateLimiter, RateLimitingQueueConfig{
+			DelayingQueue: di,
+		})
+	}
+
+	// NewRateLimitingQueueWithConfig constructs a new workqueue with rateLimited queuing ability
+	// with options to customize different properties.
+	// Remember to call Forget!  If you don't, you may end up tracking failures forever.
+	func NewRateLimitingQueueWithConfig(rateLimiter RateLimiter, config RateLimitingQueueConfig) RateLimitingInterface {
+		if config.Clock == nil {
+			config.Clock = clock.RealClock{}
+		}
+
+		if config.DelayingQueue == nil {
+			config.DelayingQueue = NewDelayingQueueWithConfig(DelayingQueueConfig{
+				Name:            config.Name,
+				MetricsProvider: config.MetricsProvider,
+				Clock:           config.Clock,
+			})
+		}
+
+		return &rateLimitingType{
+			DelayingInterface: config.DelayingQueue,
+			rateLimiter:       rateLimiter,
+		}
+	}
+```
+
+**3.RateLimiter**
+
+- RateLimiter 表示一个限速器，定义在同一个包的 default_rate_limiters.go 源文件中
+```golang
+	type RateLimiter interface {
+		// When gets an item and gets to decide how long that item should wait
+		When(item interface{}) time.Duration
+		// Forget indicates that an item is finished being retried.  Doesn't matter whether it's for failing
+		// or for success, we'll stop tracking it
+		Forget(item interface{})
+		// NumRequeues returns back how many failures the item has had
+		NumRequeues(item interface{}) int
+	}
+```
+
+- `RateLimiter` 接口有5个实现，分别是
+	+ `BucketRateLimiter`
+	+ `ItemExponentialFailureRateLimiter`
+	+ `ItemFastSlowRateLimiter`
+	+ `MaxOfRateLimiter`
+	+ `WithMaxWaitRateLimiter`
+
+**4.RateLimitingQueue的限速实现**
+
+- 可以看到限速队列的实现基本由内部的延时队列提供的功能和包装的限速器提供的功能组合而来
+```golang
+	// AddRateLimited AddAfter's the item based on the time when the rate limiter says it's ok
+	func (q *rateLimitingType) AddRateLimited(item interface{}) {
+		q.DelayingInterface.AddAfter(item, q.rateLimiter.When(item))
+	}
+
+	func (q *rateLimitingType) NumRequeues(item interface{}) int {
+		return q.rateLimiter.NumRequeues(item)
+	}
+
+	func (q *rateLimitingType) Forget(item interface{}) {
+		q.rateLimiter.Forget(item)
+	}
+```
