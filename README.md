@@ -23,11 +23,11 @@
 - [Hpa yaml](./kubernetes/14-monitor/hpa/)
 
 ## Kubernetes Doc
-- [Kubernetes API 简介](./kubernetes/doc/Kubernetes%20API%20简介.md)
+- [Kubernetes API 简介](./kubernetes/doc/Kubernetes-API简介.md)
 - [Kubernetes Client-go 源码分析](./kubernetes/client-go/)
 
 ## Jenkins
 - [Jenkinsfile](./jenkins/pipe/Jenkinsfile)
 
 ## Mysql
-- [Mysql Maser-Slave On K8s](./mysql/Mysql%20Maser-Slave%20On%20K8s.md)
+- [Mysql Maser-Slave On K8s](./mysql/Mysql_Matser-Slave_On_K8s.md)
