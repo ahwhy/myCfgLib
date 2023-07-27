@@ -115,6 +115,9 @@ DeltaFIFO也是一个重要组件，其相关代码在 `k8s.io/client-go/tools/c
 		// additional behavior (e.g., DeltaFIFO).
 		Resync() error
 	}
+
+	// KeyFunc knows how to make a key from an object. Implementations should be deterministic.
+	type KeyFunc func(obj interface{}) (string, error)
 ```
 
 **b. DeltaFIFO结构体**
@@ -285,4 +288,162 @@ DeltaFIFO也是一个重要组件，其相关代码在 `k8s.io/client-go/tools/c
 		}
 		return objName.String(), nil
 	}
+
+	// ObjectToName returns the structured name for the given object,
+	// if indeed it can be viewed as a metav1.Object.
+	func ObjectToName(obj interface{}) (ObjectName, error) {
+		meta, err := meta.Accessor(obj)
+		if err != nil {
+			return ObjectName{}, fmt.Errorf("object has no meta: %v", err)
+		}
+		return MetaObjectToName(meta), nil
+	}
+
+	// MetaObjectToName returns the structured name for the given object
+	func MetaObjectToName(obj metav1.Object) ObjectName {
+		if len(obj.GetNamespace()) > 0 {
+			return ObjectName{Namespace: obj.GetNamespace(), Name: obj.GetName()}
+		}
+		return ObjectName{Namespace: "", Name: obj.GetName()}
+	}
+
+	// ObjectName is a reference to an object of some implicit kind
+	type ObjectName struct {
+		Namespace string
+		Name      string
+	}
 ```
+
+### 2. queueActionLocked()方法的逻辑
+
+- 在DeltaFIFO的实现中，有Add()、Update()、Delete()等方法
+	- 它们的逻辑都落在了queueActionLocked()方法中，只是传递的参数不一样，将对应变化类型的obj添加到队列中
+```golang
+	// Add inserts an item, and puts it in the queue. The item is only enqueued
+	// if it doesn't already exist in the set.
+	func (f *DeltaFIFO) Add(obj interface{}) error {
+		f.lock.Lock()
+		defer f.lock.Unlock()
+		f.populated = true
+		return f.queueActionLocked(Added, obj)
+	}
+
+	// Update is just like Add, but makes an Updated Delta.
+	func (f *DeltaFIFO) Update(obj interface{}) error {
+		f.lock.Lock()
+		defer f.lock.Unlock()
+		f.populated = true
+		return f.queueActionLocked(Updated, obj)
+	}
+
+	// Delete is just like Add, but makes a Deleted Delta. If the given
+	// object does not already exist, it will be ignored. (It may have
+	// already been deleted by a Replace (re-list), for example.)  In this
+	// method `f.knownObjects`, if not nil, provides (via GetByKey)
+	// _additional_ objects that are considered to already exist.
+	func (f *DeltaFIFO) Delete(obj interface{}) error {
+		id, err := f.KeyOf(obj)
+		if err != nil {
+			return KeyError{obj, err}
+		}
+		f.lock.Lock()
+		defer f.lock.Unlock()
+		f.populated = true
+		if f.knownObjects == nil {
+			if _, exists := f.items[id]; !exists {
+				// Presumably, this was deleted when a relist happened.
+				// Don't provide a second report of the same deletion.
+				return nil
+			}
+		} else {
+			// We only want to skip the "deletion" action if the object doesn't
+			// exist in knownObjects and it doesn't have corresponding item in items.
+			// Note that even if there is a "deletion" action in items, we can ignore it,
+			// because it will be deduped automatically in "queueActionLocked"
+			_, exists, err := f.knownObjects.GetByKey(id)
+			_, itemsExist := f.items[id]
+			if err == nil && !exists && !itemsExist {
+				// Presumably, this was deleted when a relist happened.
+				// Don't provide a second report of the same deletion.
+				return nil
+			}
+		}
+
+		// exist in items and/or KnownObjects
+		return f.queueActionLocked(Deleted, obj)
+	}
+
+	// KeyOf exposes f's keyFunc, but also detects the key of a Deltas object or
+	// DeletedFinalStateUnknown objects.
+	func (f *DeltaFIFO) KeyOf(obj interface{}) (string, error) {
+		if d, ok := obj.(Deltas); ok {
+			if len(d) == 0 {
+				return "", KeyError{obj, ErrZeroLengthDeltasObject}
+			}
+			obj = d.Newest().Object
+		}
+		if d, ok := obj.(DeletedFinalStateUnknown); ok {
+			return d.Key, nil
+		}
+		return f.keyFunc(obj)
+	}
+
+	// DeletedFinalStateUnknown is placed into a DeltaFIFO in the case where an object
+	// was deleted but the watch deletion event was missed while disconnected from
+	// apiserver. In this case we don't know the final "resting" state of the object, so
+	// there's a chance the included `Obj` is stale.
+	type DeletedFinalStateUnknown struct {
+		Key string
+		Obj interface{}
+	}
+
+	// Add()、Update()、Delete()，最后都会调用queueActionLocked()方法，只是传递的参数不一样，将对应变化类型的obj添加到队列中
+	// queueActionLocked appends to the delta list for the object.
+	// Caller must lock first.
+	func (f *DeltaFIFO) queueActionLocked(actionType DeltaType, obj interface{}) error {
+		id, err := f.KeyOf(obj)
+		if err != nil {
+			return KeyError{obj, err}
+		}
+
+		// Every object comes through this code path once, so this is a good
+		// place to call the transform func.  If obj is a
+		// DeletedFinalStateUnknown tombstone, then the containted inner object
+		// will already have gone through the transformer, but we document that
+		// this can happen. In cases involving Replace(), such an object can
+		// come through multiple times.
+		if f.transformer != nil {
+			var err error
+			obj, err = f.transformer(obj)
+			if err != nil {
+				return err
+			}
+		}
+
+		oldDeltas := f.items[id]
+		newDeltas := append(oldDeltas, Delta{actionType, obj})
+		newDeltas = dedupDeltas(newDeltas)
+
+		if len(newDeltas) > 0 {
+			if _, exists := f.items[id]; !exists {
+				f.queue = append(f.queue, id)
+			}
+			f.items[id] = newDeltas
+			f.cond.Broadcast()
+		} else {
+			// This never happens, because dedupDeltas never returns an empty list
+			// when given a non-empty list (as it is here).
+			// If somehow it happens anyway, deal with it but complain.
+			if oldDeltas == nil {
+				klog.Errorf("Impossible dedupDeltas for id=%q: oldDeltas=%#+v, obj=%#+v; ignoring", id, oldDeltas, obj)
+				return nil
+			}
+			klog.Errorf("Impossible dedupDeltas for id=%q: oldDeltas=%#+v, obj=%#+v; breaking invariant by storing empty Deltas", id, oldDeltas, obj)
+			f.items[id] = newDeltas
+			return fmt.Errorf("Impossible dedupDeltas for id=%q: oldDeltas=%#+v, obj=%#+v; broke DeltaFIFO invariant by storing empty Deltas", id, oldDeltas, obj)
+		}
+		return nil
+	}
+```
+
+### 3. Pop()方法和Replace()方法的逻辑
