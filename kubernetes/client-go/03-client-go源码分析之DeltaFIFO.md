@@ -194,6 +194,10 @@ DeltaFIFO也是一个重要组件，其相关代码在 `k8s.io/client-go/tools/c
 	- `Type`属性对应的是 `DeltaType`类型
 	- `DeltaType`是一个字符串，对应的是用Added、Updated这种单词描述一个 `Delta`的类型
 ```golang
+	// Deltas is a list of one or more 'Delta's to an individual object.
+	// The oldest delta is at index 0, the newest delta is the last one.
+	type Deltas []Delta
+
 	// Delta is a member of Deltas (a list of Delta objects) which
 	// in its turn is the type stored by a DeltaFIFO. It tells you what
 	// change happened, and the object's state after* that change.
@@ -204,10 +208,6 @@ DeltaFIFO也是一个重要组件，其相关代码在 `k8s.io/client-go/tools/c
 		Type   DeltaType
 		Object interface{}
 	}
-
-	// Deltas is a list of one or more 'Delta's to an individual object.
-	// The oldest delta is at index 0, the newest delta is the last one.
-	type Deltas []Delta
 
 	// DeltaType is the type of a change (addition, deletion, etc)
 	type DeltaType string
@@ -529,24 +529,31 @@ DeltaFIFO也是一个重要组件，其相关代码在 `k8s.io/client-go/tools/c
 				f.cond.Wait()
 			}
 			isInInitialList := !f.hasSynced_locked()
+			// 取队列中首个元素
 			id := f.queue[0]
+			// 队列首个元素出队列
 			f.queue = f.queue[1:]
 			depth := len(f.queue)
+			// 首次调用 Replace() 时，插入的元素数量大于0
 			if f.initialPopulationCount > 0 {
 				f.initialPopulationCount--
 			}
+			// 从 items( map[string]Deltas )中，获取一个Deltas
 			item, ok := f.items[id]
 			if !ok {
-				// This should never happen
+				// This should never happen 理论上不会发生
 				klog.Errorf("Inconceivable! %q was in f.queue but not f.items; ignoring.", id)
 				continue
 			}
+			// 获取到该 Deltas 后，从删除 items 中删除
 			delete(f.items, id)
 			// Only log traces if the queue depth is greater than 10 and it takes more than
 			// 100 milliseconds to process one item from the queue.
 			// Queue depth never goes high because processing an item is locking the queue,
 			// and new items can't be added until processing finish.
 			// https://github.com/kubernetes/kubernetes/issues/103789
+			// 当队列长度超过10，并且处理一个元素的时间超过0.1秒时，打印日志
+			// 队列长度理论上不会变长，因为处理一个元素时，队列是阻塞的，直到处理结束之前 新元素无法添加
 			if depth > 10 {
 				trace := utiltrace.New("DeltaFIFO Pop Process",
 					utiltrace.Field{Key: "ID", Value: id},
@@ -554,7 +561,9 @@ DeltaFIFO也是一个重要组件，其相关代码在 `k8s.io/client-go/tools/c
 					utiltrace.Field{Key: "Reason", Value: "slow event handlers blocking the queue"})
 				defer trace.LogIfLong(100 * time.Millisecond)
 			}
+			// 交给 Pop ProcessFunc处理
 			err := process(item, isInInitialList)
+			// 如果需要 requeue 则加回到队列中
 			if e, ok := err.(ErrRequeue); ok {
 				f.addIfNotPresent(id, item)
 				err = e.Err
@@ -563,6 +572,43 @@ DeltaFIFO也是一个重要组件，其相关代码在 `k8s.io/client-go/tools/c
 			// ownership to the caller.
 			return item, err
 		}
+	}
+
+	// AddIfNotPresent inserts an item, and puts it in the queue. If the item is already
+	// present in the set, it is neither enqueued nor added to the set.
+	//
+	// This is useful in a single producer/consumer scenario so that the consumer can
+	// safely retry items without contending with the producer and potentially enqueueing
+	// stale items.
+	//
+	// Important: obj must be a Deltas (the output of the Pop() function). Yes, this is
+	// different from the Add/Update/Delete functions.
+	func (f *DeltaFIFO) AddIfNotPresent(obj interface{}) error {
+		deltas, ok := obj.(Deltas)
+		if !ok {
+			return fmt.Errorf("object must be of type deltas, but got: %#v", obj)
+		}
+		id, err := f.KeyOf(deltas)
+		if err != nil {
+			return KeyError{obj, err}
+		}
+		f.lock.Lock()
+		defer f.lock.Unlock()
+		f.addIfNotPresent(id, deltas)
+		return nil
+	}
+
+	// addIfNotPresent inserts deltas under id if it does not exist, and assumes the caller
+	// already holds the fifo lock.
+	func (f *DeltaFIFO) addIfNotPresent(id string, deltas Deltas) {
+		f.populated = true
+		if _, exists := f.items[id]; exists {
+			return
+		}
+
+		f.queue = append(f.queue, id)
+		f.items[id] = deltas
+		f.cond.Broadcast()
 	}
 
 	// 在当前包的controller.go中，可以查看Pop()方法是如何被调用的
@@ -583,6 +629,7 @@ DeltaFIFO也是一个重要组件，其相关代码在 `k8s.io/client-go/tools/c
 					return
 				}
 				if c.config.RetryOnError {
+					// 其实 Pop() 内部已经调用了 AddIfNotPresent
 					// This is the safe way to re-enqueue.
 					c.config.Queue.AddIfNotPresent(obj)
 				}
@@ -592,3 +639,109 @@ DeltaFIFO也是一个重要组件，其相关代码在 `k8s.io/client-go/tools/c
 ```
 
 **b. Replace()方法的实现**
+
+- Replace()方法简单地做了两件事
+	- 给传入的对象列表添加一个 `Sync/Replace DeltaType` 的Delta。
+	- 执行一些与删除相关的程序逻辑。
+
+- Replace()过程可以简单理解成
+	- 传递一个新的 `[]Deltas` 过来
+	- 如果当前 `DeltaFIFO` 中已经有这些元素，则追加一个 `Sync/Replace` 动作
+	- 反之 `DeltaFIFO` 中多出来的 `Deltas` 可能与 apiserver 失联导致实际被删除掉，但是删除事件并没有被监听(watch)到，所以直接追加一个类型为 Deleted 的 `Delta`
+```golang
+	// Replace atomically does two things: (1) it adds the given objects
+	// using the Sync or Replace DeltaType and then (2) it does some deletions.
+	// In particular: for every pre-existing key K that is not the key of
+	// an object in `list` there is the effect of
+	// `Delete(DeletedFinalStateUnknown{K, O})` where O is the latest known
+	// object of K. The pre-existing keys are those in the union set of the keys in
+	// `f.items` and `f.knownObjects` (if not nil). The last known object for key K is
+	// the one present in the last delta in `f.items`. If there is no delta for K
+	// in `f.items`, it is the object in `f.knownObjects`
+	func (f *DeltaFIFO) Replace(list []interface{}, _ string) error {
+		f.lock.Lock()
+		defer f.lock.Unlock()
+		// 用来保存列表(list)中每个元素的key(键)
+		keys := make(sets.String, len(list))
+
+		// keep backwards compat for old clients
+		action := Sync
+		if f.emitDeltaTypeReplaced {
+			action = Replaced
+		}
+
+		// Add Sync/Replaced action for each new item.
+		for _, item := range list {
+			key, err := f.KeyOf(item)
+			if err != nil {
+				return KeyError{item, err}
+			}
+			keys.Insert(key)
+			if err := f.queueActionLocked(action, item); err != nil {
+				return fmt.Errorf("couldn't enqueue object: %v", err)
+			}
+		}
+
+		// Do deletion detection against objects in the queue
+		queuedDeletions := 0
+		for k, oldItem := range f.items {
+			if keys.Has(k) {
+				continue
+			}
+			// Delete pre-existing items not in the new list.
+			// This could happen if watch deletion event was missed while
+			// disconnected from apiserver.
+			var deletedObj interface{}
+			if n := oldItem.Newest(); n != nil {
+				deletedObj = n.Object
+
+				// if the previous object is a DeletedFinalStateUnknown, we have to extract the actual Object
+				// 如果前面的对象是DeletedFinalStateUnknown，我们必须提取实际的对象
+				if d, ok := deletedObj.(DeletedFinalStateUnknown); ok {
+					deletedObj = d.Obj
+				}
+			}
+			queuedDeletions++
+			// 标记删除，因为和 apiserver 失联引起的删除状态没有及时获取到，所以这里是 DeletedFinalStateUnknown 类型
+			if err := f.queueActionLocked(Deleted, DeletedFinalStateUnknown{k, deletedObj}); err != nil {
+				return err
+			}
+		}
+
+		if f.knownObjects != nil {
+			// Detect deletions for objects not present in the queue, but present in KnownObjects
+			// 检测不在队列中，但存在于 KnownObjects 中的对象的删除；key就是如 "default/pod_1" 这种字符串
+			knownKeys := f.knownObjects.ListKeys()
+			for _, k := range knownKeys {
+				if keys.Has(k) {
+					continue
+				}
+				if len(f.items[k]) > 0 {
+					continue
+				}
+
+				// 新列表中不存在的旧元素，标记为将要删除
+				deletedObj, exists, err := f.knownObjects.GetByKey(k)
+				if err != nil {
+					deletedObj = nil
+					klog.Errorf("Unexpected error %v during lookup of key %v, placing DeleteFinalStateUnknown marker without object", err, k)
+				} else if !exists {
+					deletedObj = nil
+					klog.Infof("Key %v does not exist in known objects store, placing DeleteFinalStateUnknown marker without object", k)
+				}
+				queuedDeletions++
+				// 添加一个删除动作，因为与apiserver失联等场景会引起删除事件没有监听到，所以是 DeletedFinalStateUnknown
+				if err := f.queueActionLocked(Deleted, DeletedFinalStateUnknown{k, deletedObj}); err != nil {
+					return err
+				}
+			}
+		}
+
+		if !f.populated {
+			f.populated = true
+			f.initialPopulationCount = keys.Len() + queuedDeletions
+		}
+
+		return nil
+	}
+```
