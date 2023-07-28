@@ -401,6 +401,7 @@ DeltaFIFO也是一个重要组件，其相关代码在 `k8s.io/client-go/tools/c
 	// queueActionLocked appends to the delta list for the object.
 	// Caller must lock first.
 	func (f *DeltaFIFO) queueActionLocked(actionType DeltaType, obj interface{}) error {
+		// 	计算 obj对象的 key
 		id, err := f.KeyOf(obj)
 		if err != nil {
 			return KeyError{obj, err}
@@ -420,14 +421,19 @@ DeltaFIFO也是一个重要组件，其相关代码在 `k8s.io/client-go/tools/c
 			}
 		}
 
+		// 从 items map 中获取当前的 Deltas
 		oldDeltas := f.items[id]
+		// 构造一个 Delta，添加到 Deltas 中，也就是 []Delta 中
 		newDeltas := append(oldDeltas, Delta{actionType, obj})
+		// 如果最近一个 Delta 是重复的，则保留后一个，目前版本只处理 Deleted 的重复场景
 		newDeltas = dedupDeltas(newDeltas)
 
 		if len(newDeltas) > 0 {
 			if _, exists := f.items[id]; !exists {
+				// 如果 id 不存在，则在队列中添加
 				f.queue = append(f.queue, id)
 			}
+			// 如果 id 已经存在，则只更新 items map 中对应这个 key 的 Deltas
 			f.items[id] = newDeltas
 			f.cond.Broadcast()
 		} else {
@@ -444,6 +450,145 @@ DeltaFIFO也是一个重要组件，其相关代码在 `k8s.io/client-go/tools/c
 		}
 		return nil
 	}
+
+	// re-listing and watching can deliver the same update multiple times in any
+	// order. This will combine the most recent two deltas if they are the same.
+	func dedupDeltas(deltas Deltas) Deltas {
+		n := len(deltas)
+		if n < 2 {
+			return deltas
+		}
+		a := &deltas[n-1]
+		b := &deltas[n-2]
+		if out := isDup(a, b); out != nil {
+			deltas[n-2] = *out
+			return deltas[:n-1]
+		}
+		return deltas
+	}
+
+	// If a & b represent the same event, returns the delta that ought to be kept.
+	// Otherwise, returns nil.
+	// TODO: is there anything other than deletions that need deduping?
+	func isDup(a, b *Delta) *Delta {
+		if out := isDeletionDup(a, b); out != nil {
+			return out
+		}
+		// TODO: Detect other duplicate situations? Are there any?
+		return nil
+	}
+
+	// keep the one with the most information if both are deletions.
+	func isDeletionDup(a, b *Delta) *Delta {
+		if b.Type != Deleted || a.Type != Deleted {
+			return nil
+		}
+		// Do more sophisticated checks, or is this sufficient?
+		if _, ok := b.Object.(DeletedFinalStateUnknown); ok {
+			return a
+		}
+		return b
+	}
 ```
 
 ### 3. Pop()方法和Replace()方法的逻辑
+
+**a. Pop()方法的实现**
+
+- Pop()会按照元素的添加或更新顺序有序地返回一个元素 `Deltas`，在队列为空时会阻塞
+	- Pop过程会先从队列中删除一个元素后返回，所以如果处理失败了，则需要通过 `AddIfNotPresent()` 方法将这个元素加回到队列中
+	- Pop()的参数是 `type PopProcessFunc func(interface{}) error` 类型的process
+	- 在 `Pop()` 函数中，直接将队列中的第一个元素出队，然后丢给process处理，如果处理失败会重新入队，但是这个Deltas和对应的错误信息会被返回
+```golang
+	// Pop blocks until the queue has some items, and then returns one.  If
+	// multiple items are ready, they are returned in the order in which they were
+	// added/updated. The item is removed from the queue (and the store) before it
+	// is returned, so if you don't successfully process it, you need to add it back
+	// with AddIfNotPresent().
+	// process function is called under lock, so it is safe to update data structures
+	// in it that need to be in sync with the queue (e.g. knownKeys). The PopProcessFunc
+	// may return an instance of ErrRequeue with a nested error to indicate the current
+	// item should be requeued (equivalent to calling AddIfNotPresent under the lock).
+	// process should avoid expensive I/O operation so that other queue operations, i.e.
+	// Add() and Get(), won't be blocked for too long.
+	//
+	// Pop returns a 'Deltas', which has a complete list of all the things
+	// that happened to the object (deltas) while it was sitting in the queue.
+	func (f *DeltaFIFO) Pop(process PopProcessFunc) (interface{}, error) {
+		f.lock.Lock()
+		defer f.lock.Unlock()
+		for {
+			for len(f.queue) == 0 {
+				// When the queue is empty, invocation of Pop() is blocked until new item is enqueued.
+				// When Close() is called, the f.closed is set and the condition is broadcasted.
+				// Which causes this loop to continue and return from the Pop().
+				if f.closed {
+					return nil, ErrFIFOClosed
+				}
+
+				f.cond.Wait()
+			}
+			isInInitialList := !f.hasSynced_locked()
+			id := f.queue[0]
+			f.queue = f.queue[1:]
+			depth := len(f.queue)
+			if f.initialPopulationCount > 0 {
+				f.initialPopulationCount--
+			}
+			item, ok := f.items[id]
+			if !ok {
+				// This should never happen
+				klog.Errorf("Inconceivable! %q was in f.queue but not f.items; ignoring.", id)
+				continue
+			}
+			delete(f.items, id)
+			// Only log traces if the queue depth is greater than 10 and it takes more than
+			// 100 milliseconds to process one item from the queue.
+			// Queue depth never goes high because processing an item is locking the queue,
+			// and new items can't be added until processing finish.
+			// https://github.com/kubernetes/kubernetes/issues/103789
+			if depth > 10 {
+				trace := utiltrace.New("DeltaFIFO Pop Process",
+					utiltrace.Field{Key: "ID", Value: id},
+					utiltrace.Field{Key: "Depth", Value: depth},
+					utiltrace.Field{Key: "Reason", Value: "slow event handlers blocking the queue"})
+				defer trace.LogIfLong(100 * time.Millisecond)
+			}
+			err := process(item, isInInitialList)
+			if e, ok := err.(ErrRequeue); ok {
+				f.addIfNotPresent(id, item)
+				err = e.Err
+			}
+			// Don't need to copyDeltas here, because we're transferring
+			// ownership to the caller.
+			return item, err
+		}
+	}
+
+	// 在当前包的controller.go中，可以查看Pop()方法是如何被调用的
+	// processLoop drains the work queue.
+	// TODO: Consider doing the processing in parallel. This will require a little thought
+	// to make sure that we don't end up processing the same object multiple times
+	// concurrently.
+	//
+	// TODO: Plumb through the stopCh here (and down to the queue) so that this can
+	// actually exit when the controller is stopped. Or just give up on this stuff
+	// ever being stoppable. Converting this whole package to use Context would
+	// also be helpful.
+	func (c *controller) processLoop() {
+		for {
+			obj, err := c.config.Queue.Pop(PopProcessFunc(c.config.Process))
+			if err != nil {
+				if err == ErrFIFOClosed {
+					return
+				}
+				if c.config.RetryOnError {
+					// This is the safe way to re-enqueue.
+					c.config.Queue.AddIfNotPresent(obj)
+				}
+			}
+		}
+	}
+```
+
+**b. Replace()方法的实现**
