@@ -356,13 +356,16 @@ Indexer主要为对象提供根据一定条件进行检索的能力，典型的�
 	- 更复杂的逻辑在 `updateIndices()` 方法
 ```golang
 	func (c *threadSafeMap) Add(key string, obj interface{}) {
+		// Add 的实现就是直接调用Update
 		c.Update(key, obj)
 	}
 
 	func (c *threadSafeMap) Update(key string, obj interface{}) {
 		c.lock.Lock()
 		defer c.lock.Unlock()
+		// c.items 是 map[string]interface{} 类型
 		oldObject := c.items[key]
+		// 在items map中添加这个对象
 		c.items[key] = obj
 		c.index.updateIndices(oldObject, obj, key)
 	}
@@ -381,46 +384,76 @@ Indexer主要为对象提供根据一定条件进行检索的能力，典型的�
 	// - for update you must provide both the oldObj and the newObj
 	// - for delete you must provide only the oldObj
 	// updateIndices must be called from a function that already has a lock on the cache
+	// 创建、更新、删除的入口都是这个方法，差异点在于 create 场景下的参数只传递 newObj，delete 场景下的参数需要传递 oldObj 和 newObj，而 delete 场景下的参数只传递 oldObj
 	func (i *storeIndex) updateIndices(oldObj interface{}, newObj interface{}, key string) {
 		var oldIndexValues, indexValues []string
 		var err error
+		// 所有逻辑都在 for 循环中
 		for name, indexFunc := range i.indexers {
-			if oldObj != nil {
+			if oldObj != nil {                           // oldObj 是否存在
 				oldIndexValues, err = indexFunc(oldObj)
-			} else {
+			} else {                                     // 不存在，则置空 oldIndexValues
 				oldIndexValues = oldIndexValues[:0]
 			}
 			if err != nil {
 				panic(fmt.Errorf("unable to calculate an index entry for key %q on index %q: %v", key, name, err))
 			}
 
-			if newObj != nil {
+			if newObj != nil {                           // oldnewObjObj 是否存在
 				indexValues, err = indexFunc(newObj)
-			} else {
+			} else {                                     // 不存在，则置空 indexValues
 				indexValues = indexValues[:0]
 			}
 			if err != nil {
 				panic(fmt.Errorf("unable to calculate an index entry for key %q on index %q: %v", key, name, err))
 			}
 
+			// 拿到一个 Index，对应类型 map[string]sets.String
 			index := i.indices[name]
 			if index == nil {
+				// 如果 map 不存在，则初始化一个
 				index = Index{}
 				i.indices[name] = index
 			}
 
+			// 优化逻辑，当 oldObj 和 newObj 都只有一个值，且相等时，continue
 			if len(indexValues) == 1 && len(oldIndexValues) == 1 && indexValues[0] == oldIndexValues[0] {
 				// We optimize for the most common case where indexFunc returns a single value which has not been changed
 				continue
 			}
 
+			// 处理 oldIndexValues，也就是需要删除的索引的值，这里保留了一个索引对应一个值的场景
 			for _, value := range oldIndexValues {
 				i.deleteKeyFromIndex(key, value, index)
 			}
+			// 处理 indexValues，也就是需要添加的索引值，这里同样保留了一个索引对应一个值的场景
 			for _, value := range indexValues {
 				i.addKeyToIndex(key, value, index)
 			}
 		}
+	}
+
+	func (i *storeIndex) deleteKeyFromIndex(key, indexValue string, index Index) {
+		set := index[indexValue]
+		if set == nil {
+			return
+		}
+		set.Delete(key)
+		// If we don't delete the set when zero, indices with high cardinality
+		// short lived resources can cause memory to increase over time from
+		// unused empty sets. See `kubernetes/kubernetes/issues/84959`.
+		if len(set) == 0 {
+			delete(index, indexValue)
+		}
+	}
+
+	func (i *storeIndex) addKeyToIndex(key, indexValue string, index Index) {
+		set := index[indexValue]
+		if set == nil {
+			set = sets.String{}
+			index[indexValue] = set
+		}
+		set.Insert(key)
 	}
 ```
 
@@ -443,17 +476,51 @@ Indexer主要为对象提供根据一定条件进行检索的能力，典型的�
 		}
 
 		list := make([]interface{}, 0, storeKeySet.Len())
+		// storeKey 也就是 default/pod_1 这种字符串，通过其就可以到 items map 中提取需要的 obj
 		for storeKey := range storeKeySet {
 			list = append(list, c.items[storeKey])
 		}
 		return list, nil
 	}
+
+	func (i *storeIndex) getKeysFromIndex(indexName string, obj interface{}) (sets.String, error) {
+		// 提取索引函数，比如通过 namespace 提取到 MetaNamespaceIndexFunc
+		indexFunc := i.indexers[indexName]
+		if indexFunc == nil {
+			return nil, fmt.Errorf("Index with name %s does not exist", indexName)
+		}
+
+		// 对象丢进去拿到索引值，比如 default
+		indexedValues, err := indexFunc(obj)
+		if err != nil {
+			return nil, err
+		}
+		index := i.indices[indexName]
+
+		var storeKeySet sets.String
+		if len(indexedValues) == 1 {  		// 多数情况对应索引值为1的场景，比如用namespace时，值就是唯一的
+			// In majority of cases, there is exactly one value matching.
+			// Optimize the most common path - deduping is not needed here.
+			storeKeySet = index[indexedValues[0]]
+		} else {                            // 对应索引值不为1的场景
+			// Need to de-dupe the return list.
+			// Since multiple keys are allowed, this can happen.
+			storeKeySet = sets.String{}
+			for _, indexedValue := range indexedValues {
+				for key := range index[indexedValue] {
+					storeKeySet.Insert(key)
+				}
+			}
+		}
+
+		return storeKeySet, nil
+	}
 ```
 
 **b. ByIndex()方法**
 
-- `ByIndex()` 方法的实现，直接传递indexedValue，就不需要通过obj去计算key了
-	- 例如 indexName==namespace&indexValue==default 就是直接检索default下的资源对象
+- `ByIndex()` 方法的实现，直接传递 `indexedValue` ，就不需要通过obj去计算key了
+	- 例如 `indexName==namespace&indexValue==default` 就是直接检索default下的资源对象
 ```golang
 	// ByIndex returns a list of the items whose indexed values in the given index include the given indexed value
 	func (c *threadSafeMap) ByIndex(indexName, indexedValue string) ([]interface{}, error) {
@@ -470,6 +537,16 @@ Indexer主要为对象提供根据一定条件进行检索的能力，典型的�
 		}
 
 		return list, nil
+	}
+
+	func (i *storeIndex) getKeysByIndex(indexName, indexedValue string) (sets.String, error) {
+		indexFunc := i.indexers[indexName]
+		if indexFunc == nil {
+			return nil, fmt.Errorf("Index with name %s does not exist", indexName)
+		}
+
+		index := i.indices[indexName]
+		return index[indexedValue], nil
 	}
 ```
 
@@ -488,5 +565,59 @@ Indexer主要为对象提供根据一定条件进行检索的能力，典型的�
 			return nil, err
 		}
 		return set.List(), nil
+	}
+```
+
+**d. 其他方法**
+
+- `ListIndexFuncValues`、`GetIndexers`、`AddIndexers`方法
+```golang
+	// ListIndexFuncValues 
+	func (c *threadSafeMap) ListIndexFuncValues(indexName string) []string {
+		c.lock.RLock()
+		defer c.lock.RUnlock()
+
+		return c.index.getIndexValues(indexName)
+	}
+
+	func (i *storeIndex) getIndexValues(indexName string) []string {
+		index := i.indices[indexName]
+		names := make([]string, 0, len(index))
+		for key := range index {
+			names = append(names, key)
+		}
+		return names
+	}
+
+	// GetIndexers
+	func (c *threadSafeMap) GetIndexers() Indexers {
+		return c.index.indexers
+	}
+
+	// AddIndexers
+	func (c *threadSafeMap) AddIndexers(newIndexers Indexers) error {
+		c.lock.Lock()
+		defer c.lock.Unlock()
+
+		if len(c.items) > 0 {
+			return fmt.Errorf("cannot add indexers to running index")
+		}
+
+		return c.index.addIndexers(newIndexers)
+	}
+
+	func (i *storeIndex) addIndexers(newIndexers Indexers) error {
+		oldKeys := sets.StringKeySet(i.indexers)
+		newKeys := sets.StringKeySet(newIndexers)
+
+		// 判断 newIndexers 是否存在
+		if oldKeys.HasAny(newKeys.List()...) {
+			return fmt.Errorf("indexer conflict: %v", oldKeys.Intersection(newKeys))
+		}
+
+		for k, v := range newIndexers {
+			i.indexers[k] = v
+		}
+		return nil
 	}
 ```
