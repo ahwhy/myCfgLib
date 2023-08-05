@@ -236,3 +236,112 @@ ListerWatcher是Reflector的一个主要能力提供者，本节展示一下 Lis
 		return lw.WatchFunc(options)
 	}
 ```
+
+### 3. List-Watch 与 HTTP chunked
+
+**a. HTTP中的chunked**
+
+Kubernetes中主要通过List-Watch机制实现组件间的异步消息通信，下面继续从HTTP层面来分析watch的实现机制，后面抓包试一下调用watch接口时数据包流向是怎样的。
+
+Kubernetes中的监听（watch）长链接是通过HTTP的chunked机制实现的，在响应头中加一个 `Transfer-Encoding: chunked` 就可以实现分段响应。
+
+
+		分块传输编码（Chunked transfer encoding）是超⽂本传输协议（HTTP）中的⼀种数据传输机制，它允许HTTP由⽹⻚服务器发送给客户端应⽤的数据可以分成多个部分。
+
+		使⽤限制：分块传输编码只在HTTP协议1.1版本（HTTP/1.1）中提供。
+
+		分块传输编码的使⽤场景：
+		当客户端向服务器请求⼀个静态⻚⾯或者⼀张图⽚时，服务器可以很清楚的知道内容⼤⼩，然后通过Content-Length消息⾸部字段告诉客户端需要接收多少数据。但是如果是动态⻚⾯等时，服务器是不可能预先知道内容⼤⼩，这时就可以使⽤Transfer-Encoding：chunk模式来传输数据了。即如果要⼀边产⽣数据，⼀边发给客户端，服务器就需要使⽤"Transfer-Encoding: chunked"这样的⽅式来代替Content-Length。
+
+		在进⾏chunked编码传输时，在回复消息的头部有 Transfer-Encoding: chunked
+
+		分块传输编码的编码格式：
+		编码使⽤若⼲个chunk组成，由⼀个标明⻓度为0的chunk结束。每个chunk有两部分组成，第⼀部分是该chunk的⻓度，第⼆部分就是指定⻓度的内容，每个部分⽤CRLF隔开。在最后⼀个⻓度为0的chunk中的内容是称为footer的内容，是⼀些没有写的头部内容。
+
+		chunk编码格式如下：
+		[chunk size][\r\n][chunk data][\r\n][chunk size][\r\n][chunk data][\r\n][chunk size = 0][\r\n][\r\n]
+
+		chunk size是以⼗六进制的ASCII码表示，⽐如：头部是3134这两个字节，表示的是1和4这两个ascii字符，被http协议解释为⼗六进制数14，也就是⼗进制的20，后⾯紧跟[\r\n](0d 0a)，再接着是连续的20个字节的chunk正⽂。chunk数据以0⻓度的chunk块结束，也就是（30 0d 0a 0d 0a）。
+
+用Go语言来模拟一下这个过程，从而理解chunked是什么。这里的逻辑是当客户端请求 `127.0.0.1:5656/trunked` 的时候，服务器端响应三行："This is Trunked"。
+```golang
+	// TrunkedHandler 模拟http trunked过程
+	func TrunkedHandler(w http.ResponseWriter, r *http.Request) {
+		flusher := w.(http.Flusher)
+		// 两段消息，会自动触发 http trunked
+		for i := 0; i < 2; i++ {
+			fmt.Fprint(w, "This is Trunked\n")
+			flusher.Flush()
+			<-time.Tick(1 * time.Second)
+		}
+	}
+
+	http.HandleFunc("/trunked", TrunkedHandler)
+	if err := http.ListenAndServe(":5656", nil); err != nil {
+		panic(err)
+	}
+
+	// TruckedClient 接收http trunked数据
+	func TruckedClient() {
+		resp, err := http.Get("http://127.0.0.1:5656/trunked")
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer resp.Body.Close()
+
+		fmt.Println(resp.TransferEncoding)
+
+		reader := bufio.NewReader(resp.Body)
+		for {
+			line, err := reader.ReadString('\n')
+			if len(line) > 0 {
+				fmt.Println(line)
+			}
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				log.Fatal(err)
+			}
+		}
+	}
+	// Output:
+	// [chunked]
+	// Hello Trunked
+	// Hello Trunked
+```
+
+运行程序后，再用一个工具进行访问，比如 `curl 127.0.0.1:5656/trunked`，接着抓包可以看到如下图所示的响应体。
+
+![抓包得到的http_trunked响应体](./images/http_trunked.png)
+
+chunked类型的response由一个个chunk（块）组成，每个chunk的格式都 `Chunk size+Chunk data+Chunk boundary`，也就是 块大小+数据+边界标识。chunk的结尾是一个大小为0的块，也就是"0\r\n"。
+
+串在一起整体格式类似这样：`[Chunk size][Chunk data][Chunk boundary][Chunk size][Chunk data][Chunk boundary][Chunk size = 0][Chunk boundary]]`
+
+上面的例子中，服务器端响应的内容是两个相同的字符串 "Hello Trunked\n"，客户端拿到的响应也就是 "10Hello Trunked\n\r\n10Hello Trunked\n\r\n0\r\n"。
+
+
+**b. watch API中的chunked**
+
+现在多数Kubernetes集群都是以HTTPS方式暴露API，而且开启了双向TLS，下面通过kubectl代理kube-apiserver提供HTTP的API，进行调用和抓包
+```shell
+# 打开连接 kube-apiserver 的 proxy
+$ kubectl proxy
+Starting to serve on 127.0.0.1:8001
+
+# 开始watch一个资源，比如这里选择coredns的configmap，这时可以马上拿到一个响应
+$ curl 127.0.0.1:8001/api/v1/watch/namespaces/kube-system/configmaps/coredns
+"{"type":"ADDED","object":{"kind":"ConfigMap","apiVersion":"v1","metadata":{"name":"coredns","namespace":"kube-system","uid":"dacdcfbf-31b7-46a8-bd14-77c1fef696d7","resourceVersion":"478","creationTimestamp":"2023-07-11T07:47:51Z","managedFields":[{"manager":"rc","operation":"Update","apiVersion":"v1","time":"2023-07-11T07:47:51Z","fieldsType":"FieldsV1","fieldsV1":{"f:data":{".":{},"f:Corefile":{}}}}]},"data":{"Corefile":".:53 {\n    errors\n    health {\n       lameduck 15s\n    }\n    ready\n    kubeapi\n    k8s_event {\n      level info error warning\n    }\n\n    kubernetes cluster.local in-addr.arpa ip6.arpa {\n\n      pods verified\n      ttl 30\n      fallthrough in-addr.arpa ip6.arpa\n    }\n    prometheus :9153\n    forward . /etc/resolv.conf {\n      prefer_udp\n    }\n    cache 30\n    log\n    loop\n    reload\n    loadbalance\n}\n"}}}"
+
+# 通过kubectl命令去编辑一下这个 configmap
+$ kubectl -n kube-system edit configmap coredns
+configmap/coredns edited
+
+# 可以看到监听端继续收到一条消息，所以apiserver就是通过这样的方式将资源变更通知到各个watcher（监听器）的
+"{"type":"MODIFIED","object":{"kind":"ConfigMap","apiVersion":"v1","metadata":{"name":"coredns","namespace":"kube-system","uid":"dacdcfbf-31b7-46a8-bd14-77c1fef696d7","resourceVersion":"8909113","creationTimestamp":"2023-07-11T07:47:51Z","managedFields":[{"manager":"rc","operation":"Update","apiVersion":"v1","time":"2023-07-11T07:47:51Z","fieldsType":"FieldsV1","fieldsV1":{"f:data":{}}},{"manager":"kubectl-edit","operation":"Update","apiVersion":"v1","time":"2023-08-05T04:32:10Z","fieldsType":"FieldsV1","fieldsV1":{"f:data":{"f:Corefile":{}}}}]},"data":{"Corefile":".:53 {\n    errors\n    health {\n       lameduck 15s\n    }\n    ready\n    kubeapi\n    k8s_event {\n      level info error warning\n    }\n\n    kubernetes cluster.local in-addr.arpa ip6.arpa {\n\n      pods verified\n      ttl 31\n      fallthrough in-addr.arpa ip6.arpa\n    }\n    prometheus :9153\n    forward . /etc/resolv.conf {\n      prefer_udp\n    }\n    cache 30\n    log\n    loop\n    reload\n    loadbalance\n}\n"}}}"
+```
+
+这时去抓包，依旧可以看到这两个响应信息的具体数据包格式，可以看到这里的HTTP头有一个 `Transfer-Encoding:chunked`
+
+![抓包看到的响应体](./images/apiserver_trunked.png)
