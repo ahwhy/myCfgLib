@@ -174,7 +174,7 @@ nonvoluntary_ctxt_switches:	33
 $ ps -eo pid,comm,cpu,mem,vsz,rss
 
 # 统计前20内存占用
-$ ps -eo pid,comm,rss | awk '{m=$3/1e6;s["*"]+=m;s[$2]+=m} END{for (n in s) printf"%10.3f GB %s\n",s[n],n}' | sort -nr | head -20
+$ ps -eo pid,comm,rss | awk '{m=$3/1e6;s["*"]+=m;s[$2]+=m} END{for (n in s) printf"%10.3f GB %s\n",s[n],n}' | sort -nr | head -20ps
 
 # 进程内存统计
 $ process_name="${process_name}"
@@ -190,6 +190,8 @@ $ strings /tmp/xxx.dump | less
 
 
 ### 3、容器内存
+
+#### 容易陷入误区的容器内存观察
 
 接下来，我们查看⼀下容器中的内存使⽤状况。容器由 系统内核所具有 Namespace 与 Cgroup 机制一起，达成了一种进程级的虚拟化机制，实现了各个进程间的资源隔离。
 
@@ -317,6 +319,9 @@ voluntary_ctxt_switches:	1552
 nonvoluntary_ctxt_switches:	9
 ```
 
+
+#### 通过cgroup观察容器内存
+
 在遵循one docker one process的原⽣容器中，主进程基本反应了容器的内存使⽤状况，但这毕竟不完整，在目前的环境下⼀个容器中运⾏多个进程的情况也是很常见的。所以，下面我们采用一种更优雅的容器内存查看⽅式，即 cgroup。
 
 前面也提到过，cgroup是组成容器的基石，它被用来制造容器的边界，是约束容器资源的主要手段。​Linux Cgroups 的全称是 Linux Control Group ，是 Linux 内核中用来为进程设置资源限制的一个重要功能。它最主要的作用，就是限制一个进程 组能够使用的资源上限，包括 CPU、内存、磁盘、网络带宽等等。此外，还能够对进程进行优先级设置，以及将进程挂起和恢复等操作。
@@ -400,20 +405,46 @@ memory.memsw.ailcnt          # 申请内存和swap失败次数计数
 memory.stat                  # 内存相关状态
 ```
 
-- Linux 中 关于cgroup中memory的文档
-	- [Linux kernel memory](https://www.kernel.org/doc/Documentation/cgroup-v1/memory.txt)
-	- [CGroup的原理和使用](https://blog.csdn.net/m0_72502585/article/details/128013318)
+在Linux内核中，对于进程的内存使⽤与Cgroup的内存使⽤统计有⼀些相同和不同的地⽅
+  - 进程的RSS为进程使⽤的所有物理内存，不包含Swap，包含共享内存
+  - cgroup RSS 包含 Swap，不包含共享内存；所以，没有swap的情况下，cgroup的RSS更像是进程的USS
+  - 两者都不包含⽂件cache
+  - cgroup cache包含⽂件cache和共享内存
 
-- `kubectl top pod` 命令展示的是cgroup中的内存使用量
+就像进程的USS最准确的反映了进程⾃身使⽤的内存，cgroup 的 rss 也最真实的反映了容器所占⽤的内存空间。而我们一遍查看整体容器的cgroup 情况，就是查看查看 `/sys/fs/cgroup/memory/memory.stat` 中的 rss + cache 的值
 
-- 容器内top查看，是不准的，因为容器的cgroup和namespace隔离技术原因
-	- 在pod中通过 `cat /sys/fs/cgroup/memory/memory.stat` 查看整体容器的cgoup 情况，查看其中的 rss + cache 的值
+Linux 中 关于cgroup中memory的文档
+  - [Linux kernel memory](https://www.kernel.org/doc/Documentation/cgroup-v1/memory.txt)
+  - [CGroup的原理和使用](https://blog.csdn.net/m0_72502585/article/details/128013318)
 
-- kubectl top pod的内存计算公式
-	- kubectl top pod 得到的内存使用量，并不是cadvisor 中的container_memory_usage_bytes，而是container_memory_working_set_bytes，计算方式为：
-	- `container_memory_usage_bytes == container_memory_rss + container_memory_cache + kernel memory`
-	- `container_memory_working_set_bytes = container_memory_usage_bytes - total_inactive_file(未激活的匿名缓存页)`
-	- `container_memory_working_set_bytes = container_memory_rss + container_memory_cache + kernel memory(一般可忽略) - total_inactive_file`
 
-- 查看容器内进程实际资源占用情况
-	- 需要在node宿主机上，看对应进程的资源消耗
+#### 容器内存常用的监控工具以及指标
+
+我们常用的容器内存监控⼯具 cAdvisor 就是通过读取 cgroup 信息来获取容器的内存使⽤信息。其中有⼀个监控指标 container_memory_usage_bytes(Current memory usage in bytes, including allmemory regardless of when it was accessed)，如果只看名字和注解，很⾃然就认为它是容器所使⽤的内存。但是这⾥所谓的 usage 和通过free指令输出的 used memory 的含义是不同的，前者实际上是cgroup的rss和cache的和，⽽后者不包含 cache。
+
+另一个我们常用的命令，`kubectl top pod` 展示的也是cgroup中的内存使用量，这个命令是通过 metrics-server 工具拉取的数据，具体指标为 container_memory_working_set_bytes。
+
+他们的内存计算公式为
+  - `container_memory_usage_bytes == container_memory_rss + container_memory_cache + kernel memory`
+  - `container_memory_working_set_bytes = container_memory_usage_bytes - total_inactive_file(未激活的匿名缓存页)`
+  - `container_memory_working_set_bytes = container_memory_rss + container_memory_cache + kernel memory(一般可忽略) - total_inactive_file`
+
+最后，查看容器内进程实际资源占用情况，需要我们在node宿主机上，看对应进程的资源消耗情况。
+
+- K8s代码：
+https://github.com/kubernetes/kubernetes/blob/d0814fa476c72201dcc599297171fe65fb657908/pkg/kubelet/cadvisor/cadvisor_linux.go#L84
+
+- cadvisor的计算可以参考
+https://github.com/google/cadvisor/blob/master/docs/storage/prometheus.md
+https://github.com/google/cadvisor/blob/248756c00d29c5524dc986d4a3b048640f69a53f/info/v1/container.go#L365
+
+- K8s 官方文档也说明了 kubelet 将 active_file 内存区域视为不可回收。
+https://kubernetes.io/zh-cn/docs/concepts/scheduling-eviction/node-pressure-eviction/
+
+
+E230721DT1YLZ6
+
+cat memory.stat  |grep total_active_file
+total_active_file 61095936
+
+61095936/1024/1024/1024 = 0.056G 
