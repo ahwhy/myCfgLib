@@ -26,9 +26,9 @@ client-go项目 是与 kube-apiserver 通信的 clients 的具体实现，其中
 
 Reflector 的任务就是从 apiserver 监听(watch)特定类型的资源，拿到变更通知后，将其传入到 DeltaFIFO 队列中；Reflector定义在 `k8s.io/client-go/tools/cache` 包下。
 
-### 1. Reflector的启动过程
+### 1. Reflector 的启动过程
 
-代表 `Reflector` 的结构体属性比较多，如果不知道其工作原理的情况下去逐个看这些属性意义不大，所以这里先不去具体看这个结构体的定义，而是直接找到Run()方法，从 Reflector 的启动切入，源码在 reflector.go中
+代表 `Reflector` 的结构体属性比较多，如果不知道其工作原理的情况下去逐个看这些属性意义不大，所以这里先不去具体看这个结构体的定义，而是直接找到 `Run()` 方法，从 Reflector 的启动切入，源码在 reflector.go 中
 ```golang
 	// Reflector watches a specified resource and causes all changes to be reflected in the given store.
 	type Reflector struct {
@@ -149,12 +149,12 @@ Reflector 的任务就是从 apiserver 监听(watch)特定类型的资源，拿�
 	}
 ```
   
-### 2. 核心方法：Reflector.ListAndWatch()
+### 2. 核心方法 Reflector.ListAndWatch()
 
 - `Reflector.ListAndWatch()` 方法有将近200行，是Reflector的核心逻辑之一
 	- `ListAndWatch()` 方法是先列出特定资源的所有对象，然后获取其资源版本，接着使用这个资源版本来开始监听流程
-	- 监听到新版本资源后，将其加入 `DeltaFIFO` 的动作是在 `watchHandler()` 方法中具体实现的
-	- 在此之前list（列选）到的最新元素会通过 `syncWith()` 方法添加一个 `Sync`类型的 `DeltaType` 到 `DeltaFIFO` 中，所以 list操作本身也会触发后面的调谐逻辑
+	- 监听到新版本资源后，将其加入 DeltaFIFO 的动作是在 `watchHandler()` 方法中具体实现的
+	- 在此之前list(列选)到的最新元素会通过 `syncWith()` 方法添加一个 `Sync`类型的 `DeltaType` 到 `DeltaFIFO` 中，所以 list操作本身也会触发后面的调谐逻辑
 ```golang
 	// ListAndWatch first lists all items and get the resource version at the moment of call,
 	// and then use the resource version to watch.
@@ -304,6 +304,12 @@ Reflector 的任务就是从 apiserver 监听(watch)特定类型的资源，拿�
 		return w, nil
 	}
 
+	var (
+		// We try to spread the load on apiserver by setting timeouts for
+		// watch requests - it is random in [minWatchTimeout, 2*minWatchTimeout].
+		minWatchTimeout = 5 * time.Minute
+	)
+
 	// list simply lists all items and records a resource version obtained from the server at the moment of the call.
 	// the resource version can be used for further progress notification (aka. watch).
 	func (r *Reflector) list(stopCh <-chan struct{}) error {
@@ -421,6 +427,15 @@ Reflector 的任务就是从 apiserver 监听(watch)特定类型的资源，拿�
 		return r.store.Replace(found, resourceVersion)
 	}
 
+	// ResourceVersionUpdater is an interface that allows store implementation to
+	// track the current resource version of the reflector. This is especially
+	// important if storage bookmarks are enabled.
+	type ResourceVersionUpdater interface {
+		// UpdateResourceVersion is called each time current resource version of the reflector
+		// is updated.
+		UpdateResourceVersion(resourceVersion string)
+	}
+
 	// watch simply starts a watch request with the server.
 	func (r *Reflector) watch(w watch.Interface, stopCh <-chan struct{}, resyncerrc chan error) error {
 		var err error
@@ -525,5 +540,413 @@ Reflector 的任务就是从 apiserver 监听(watch)特定类型的资源，拿�
 			resyncCh, cleanup = r.resyncChan()
 		}
 	}
+
+	// LastSyncResourceVersion is the resource version observed when last sync with the underlying store
+	// The value returned is not synchronized with access to the underlying store and is not thread-safe
+	func (r *Reflector) LastSyncResourceVersion() string {
+		r.lastSyncResourceVersionMutex.RLock()
+		defer r.lastSyncResourceVersionMutex.RUnlock()
+		return r.lastSyncResourceVersion
+	}
+
+	func (r *Reflector) setLastSyncResourceVersion(v string) {
+		r.lastSyncResourceVersionMutex.Lock()
+		defer r.lastSyncResourceVersionMutex.Unlock()
+		r.lastSyncResourceVersion = v
+	}
+
+	// relistResourceVersion determines the resource version the reflector should list or relist from.
+	// Returns either the lastSyncResourceVersion so that this reflector will relist with a resource
+	// versions no older than has already been observed in relist results or watch events, or, if the last relist resulted
+	// in an HTTP 410 (Gone) status code, returns "" so that the relist will use the latest resource version available in
+	// etcd via a quorum read.
+	func (r *Reflector) relistResourceVersion() string {
+		r.lastSyncResourceVersionMutex.RLock()
+		defer r.lastSyncResourceVersionMutex.RUnlock()
+
+		if r.isLastSyncResourceVersionUnavailable {
+			// Since this reflector makes paginated list requests, and all paginated list requests skip the watch cache
+			// if the lastSyncResourceVersion is unavailable, we set ResourceVersion="" and list again to re-establish reflector
+			// to the latest available ResourceVersion, using a consistent read from etcd.
+			return ""
+		}
+		if r.lastSyncResourceVersion == "" {
+			// For performance reasons, initial list performed by reflector uses "0" as resource version to allow it to
+			// be served from the watch cache if it is enabled.
+			return "0"
+		}
+		return r.lastSyncResourceVersion
+	}
+
+	// rewatchResourceVersion determines the resource version the reflector should start streaming from.
+	func (r *Reflector) rewatchResourceVersion() string {
+		r.lastSyncResourceVersionMutex.RLock()
+		defer r.lastSyncResourceVersionMutex.RUnlock()
+		if r.isLastSyncResourceVersionUnavailable {
+			// initial stream should return data at the most recent resource version.
+			// the returned data must be consistent i.e. as if served from etcd via a quorum read
+			return ""
+		}
+		return r.lastSyncResourceVersion
+	}
+
+	// setIsLastSyncResourceVersionUnavailable sets if the last list or watch request with lastSyncResourceVersion returned
+	// "expired" or "too large resource version" error.
+	func (r *Reflector) setIsLastSyncResourceVersionUnavailable(isUnavailable bool) {
+		r.lastSyncResourceVersionMutex.Lock()
+		defer r.lastSyncResourceVersionMutex.Unlock()
+		r.isLastSyncResourceVersionUnavailable = isUnavailable
+	}
+
+	func isExpiredError(err error) bool {
+		// In Kubernetes 1.17 and earlier, the api server returns both apierrors.StatusReasonExpired and
+		// apierrors.StatusReasonGone for HTTP 410 (Gone) status code responses. In 1.18 the kube server is more consistent
+		// and always returns apierrors.StatusReasonExpired. For backward compatibility we can only remove the apierrors.IsGone
+		// check when we fully drop support for Kubernetes 1.17 servers from reflectors.
+		return apierrors.IsResourceExpired(err) || apierrors.IsGone(err)
+	}
+
+	func isTooLargeResourceVersionError(err error) bool {
+		if apierrors.HasStatusCause(err, metav1.CauseTypeResourceVersionTooLarge) {
+			return true
+		}
+		// In Kubernetes 1.17.0-1.18.5, the api server doesn't set the error status cause to
+		// metav1.CauseTypeResourceVersionTooLarge to indicate that the requested minimum resource
+		// version is larger than the largest currently available resource version. To ensure backward
+		// compatibility with these server versions we also need to detect the error based on the content
+		// of the error message field.
+		if !apierrors.IsTimeout(err) {
+			return false
+		}
+		apierr, ok := err.(apierrors.APIStatus)
+		if !ok || apierr == nil || apierr.Status().Details == nil {
+			return false
+		}
+		for _, cause := range apierr.Status().Details.Causes {
+			// Matches the message returned by api server 1.17.0-1.18.5 for this error condition
+			if cause.Message == "Too large resource version" {
+				return true
+			}
+		}
+
+		// Matches the message returned by api server before 1.17.0
+		if strings.Contains(apierr.Status().Message, "Too large resource version") {
+			return true
+		}
+
+		return false
+	}
+
+	// isWatchErrorRetriable determines if it is safe to retry
+	// a watch error retrieved from the server.
+	func isWatchErrorRetriable(err error) bool {
+		// If this is "connection refused" error, it means that most likely apiserver is not responsive.
+		// It doesn't make sense to re-list all objects because most likely we will be able to restart
+		// watch where we ended.
+		// If that's the case begin exponentially backing off and resend watch request.
+		// Do the same for "429" errors.
+		if utilnet.IsConnectionRefused(err) || apierrors.IsTooManyRequests(err) {
+			return true
+		}
+		return false
+	}
 ```
 
+### 3. 核心方法 Reflector.watchHandler()
+
+- 下面是 `watchHander()` 方法的实现，同样在reflector.go中
+	- 在`watchHandler()`方法中完成了将监听到的 Event(事件)根据其 EventType(事件类型)分别调用 `DeltaFIFO` 的 `Add()/Update()/Delete()`等方法，完成对象追加到 `DeltaFIFO` 队列的过程
+	- `watchHandler()` 方法的调用在一个for循环中，所以一轮调用 `watchHandler()`工作流程完成后函数退出，新一轮的调用会传递进来新的 `watch.Interface` 和 `resourceVersion` 等
+```golang
+	// syncWith replaces the store's items with the given list.
+	func (r *Reflector) syncWith(items []runtime.Object, resourceVersion string) error {
+		found := make([]interface{}, 0, len(items))
+		for _, item := range items {
+			found = append(found, item)
+		}
+		return r.store.Replace(found, resourceVersion)
+	}
+
+	// watchHandler watches w and sets setLastSyncResourceVersion
+	func watchHandler(start time.Time,
+		w watch.Interface,
+		store Store,
+		expectedType reflect.Type,
+		expectedGVK *schema.GroupVersionKind,
+		name string,
+		expectedTypeName string,
+		setLastSyncResourceVersion func(string),
+		exitOnInitialEventsEndBookmark *bool,
+		clock clock.Clock,
+		errc chan error,
+		stopCh <-chan struct{},
+	) error {
+		eventCount := 0
+		if exitOnInitialEventsEndBookmark != nil {
+			// set it to false just in case somebody
+			// made it positive
+			*exitOnInitialEventsEndBookmark = false
+		}
+
+	loop:
+		for {
+			select {
+			case <-stopCh:
+				return errorStopRequested
+			case err := <-errc:
+				return err
+			case event, ok := <-w.ResultChan():
+				if !ok {
+					break loop
+				}
+				if event.Type == watch.Error {
+					return apierrors.FromObject(event.Object)
+				}
+				if expectedType != nil {
+					if e, a := expectedType, reflect.TypeOf(event.Object); e != a {
+						utilruntime.HandleError(fmt.Errorf("%s: expected type %v, but watch event object had type %v", name, e, a))
+						continue
+					}
+				}
+				if expectedGVK != nil {
+					if e, a := *expectedGVK, event.Object.GetObjectKind().GroupVersionKind(); e != a {
+						utilruntime.HandleError(fmt.Errorf("%s: expected gvk %v, but watch event object had gvk %v", name, e, a))
+						continue
+					}
+				}
+				meta, err := meta.Accessor(event.Object)
+				if err != nil {
+					utilruntime.HandleError(fmt.Errorf("%s: unable to understand watch event %#v", name, event))
+					continue
+				}
+				resourceVersion := meta.GetResourceVersion()
+				switch event.Type {
+				case watch.Added:
+					err := store.Add(event.Object)
+					if err != nil {
+						utilruntime.HandleError(fmt.Errorf("%s: unable to add watch event object (%#v) to store: %v", name, event.Object, err))
+					}
+				case watch.Modified:
+					err := store.Update(event.Object)
+					if err != nil {
+						utilruntime.HandleError(fmt.Errorf("%s: unable to update watch event object (%#v) to store: %v", name, event.Object, err))
+					}
+				case watch.Deleted:
+					// TODO: Will any consumers need access to the "last known
+					// state", which is passed in event.Object? If so, may need
+					// to change this.
+					err := store.Delete(event.Object)
+					if err != nil {
+						utilruntime.HandleError(fmt.Errorf("%s: unable to delete watch event object (%#v) from store: %v", name, event.Object, err))
+					}
+				case watch.Bookmark:
+					// A `Bookmark` means watch has synced here, just update the resourceVersion
+					if _, ok := meta.GetAnnotations()["k8s.io/initial-events-end"]; ok {
+						if exitOnInitialEventsEndBookmark != nil {
+							*exitOnInitialEventsEndBookmark = true
+						}
+					}
+				default:
+					utilruntime.HandleError(fmt.Errorf("%s: unable to understand watch event %#v", name, event))
+				}
+				setLastSyncResourceVersion(resourceVersion)
+				if rvu, ok := store.(ResourceVersionUpdater); ok {
+					rvu.UpdateResourceVersion(resourceVersion)
+				}
+				eventCount++
+				if exitOnInitialEventsEndBookmark != nil && *exitOnInitialEventsEndBookmark {
+					watchDuration := clock.Since(start)
+					klog.V(4).Infof("exiting %v Watch because received the bookmark that marks the end of initial events stream, total %v items received in %v", name, eventCount, watchDuration)
+					return nil
+				}
+			}
+		}
+
+		watchDuration := clock.Since(start)
+		if watchDuration < 1*time.Second && eventCount == 0 {
+			return fmt.Errorf("very short watch: %s: Unexpected watch close - watch lasted less than a second and no items received", name)
+		}
+		klog.V(4).Infof("%s: Watch close - %v total %v items received", name, expectedTypeName, eventCount)
+		return nil
+	}
+```
+
+### 4. Reflector的初始化
+
+`NewReflector()` 的参数中有一个 `ListerWatcher`类型的 lw，还有一个 `expectedType` 和 `store`，lw 就是在 `ListerWatcher`，`expectedType` 指定期望关注的类型，而 `store` 是一个 `DeltaFIFO` ，加在一起大致可以预想到 `Reflector` 通过 `ListWatcher` 提供的能力去list-watch apiserver，然后完成将 `Event` 加到 `DeltaFIFO` 中
+```golang
+	// NewNamespaceKeyedIndexerAndReflector creates an Indexer and a Reflector
+	// The indexer is configured to key on namespace
+	func NewNamespaceKeyedIndexerAndReflector(lw ListerWatcher, expectedType interface{}, resyncPeriod time.Duration) (indexer Indexer, reflector *Reflector) {
+		indexer = NewIndexer(MetaNamespaceKeyFunc, Indexers{NamespaceIndex: MetaNamespaceIndexFunc})
+		reflector = NewReflector(lw, expectedType, indexer, resyncPeriod)
+		return indexer, reflector
+	}
+
+	// NewReflector creates a new Reflector with its name defaulted to the closest source_file.go:line in the call stack
+	// that is outside this package. See NewReflectorWithOptions for further information.
+	func NewReflector(lw ListerWatcher, expectedType interface{}, store Store, resyncPeriod time.Duration) *Reflector {
+		return NewReflectorWithOptions(lw, expectedType, store, ReflectorOptions{ResyncPeriod: resyncPeriod})
+	}
+
+	// NewNamedReflector creates a new Reflector with the specified name. See NewReflectorWithOptions for further
+	// information.
+	func NewNamedReflector(name string, lw ListerWatcher, expectedType interface{}, store Store, resyncPeriod time.Duration) *Reflector {
+		return NewReflectorWithOptions(lw, expectedType, store, ReflectorOptions{Name: name, ResyncPeriod: resyncPeriod})
+	}
+
+	// ReflectorOptions configures a Reflector.
+	type ReflectorOptions struct {
+		// Name is the Reflector's name. If unset/unspecified, the name defaults to the closest source_file.go:line
+		// in the call stack that is outside this package.
+		Name string
+
+		// TypeDescription is the Reflector's type description. If unset/unspecified, the type description is defaulted
+		// using the following rules: if the expectedType passed to NewReflectorWithOptions was nil, the type description is
+		// "<unspecified>". If the expectedType is an instance of *unstructured.Unstructured and its apiVersion and kind fields
+		// are set, the type description is the string encoding of those. Otherwise, the type description is set to the
+		// go type of expectedType..
+		TypeDescription string
+
+		// ResyncPeriod is the Reflector's resync period. If unset/unspecified, the resync period defaults to 0
+		// (do not resync).
+		ResyncPeriod time.Duration
+
+		// Clock allows tests to control time. If unset defaults to clock.RealClock{}
+		Clock clock.Clock
+	}
+
+
+	// NewReflectorWithOptions creates a new Reflector object which will keep the
+	// given store up to date with the server's contents for the given
+	// resource. Reflector promises to only put things in the store that
+	// have the type of expectedType, unless expectedType is nil. If
+	// resyncPeriod is non-zero, then the reflector will periodically
+	// consult its ShouldResync function to determine whether to invoke
+	// the Store's Resync operation; `ShouldResync==nil` means always
+	// "yes".  This enables you to use reflectors to periodically process
+	// everything as well as incrementally processing the things that
+	// change.
+	func NewReflectorWithOptions(lw ListerWatcher, expectedType interface{}, store Store, options ReflectorOptions) *Reflector {
+		reflectorClock := options.Clock
+		if reflectorClock == nil {
+			reflectorClock = clock.RealClock{}
+		}
+		r := &Reflector{
+			name:            options.Name,
+			resyncPeriod:    options.ResyncPeriod,
+			typeDescription: options.TypeDescription,
+			listerWatcher:   lw,
+			store:           store,
+			// We used to make the call every 1sec (1 QPS), the goal here is to achieve ~98% traffic reduction when
+			// API server is not healthy. With these parameters, backoff will stop at [30,60) sec interval which is
+			// 0.22 QPS. If we don't backoff for 2min, assume API server is healthy and we reset the backoff.
+			backoffManager:    wait.NewExponentialBackoffManager(800*time.Millisecond, 30*time.Second, 2*time.Minute, 2.0, 1.0, reflectorClock),
+			clock:             reflectorClock,
+			watchErrorHandler: WatchErrorHandler(DefaultWatchErrorHandler),
+			expectedType:      reflect.TypeOf(expectedType),
+		}
+
+		if r.name == "" {
+			r.name = naming.GetNameFromCallsite(internalPackages...)
+		}
+
+		if r.typeDescription == "" {
+			r.typeDescription = getTypeDescriptionFromObject(expectedType)
+		}
+
+		if r.expectedGVK == nil {
+			r.expectedGVK = getExpectedGVKFromObject(expectedType)
+		}
+
+		if s := os.Getenv("ENABLE_CLIENT_GO_WATCH_LIST_ALPHA"); len(s) > 0 {
+			r.UseWatchList = true
+		}
+
+		return r
+	}
+
+	func getTypeDescriptionFromObject(expectedType interface{}) string {
+		if expectedType == nil {
+			return defaultExpectedTypeName
+		}
+
+		reflectDescription := reflect.TypeOf(expectedType).String()
+
+		obj, ok := expectedType.(*unstructured.Unstructured)
+		if !ok {
+			return reflectDescription
+		}
+
+		gvk := obj.GroupVersionKind()
+		if gvk.Empty() {
+			return reflectDescription
+		}
+
+		return gvk.String()
+	}
+
+	func getExpectedGVKFromObject(expectedType interface{}) *schema.GroupVersionKind {
+		obj, ok := expectedType.(*unstructured.Unstructured)
+		if !ok {
+			return nil
+		}
+
+		gvk := obj.GroupVersionKind()
+		if gvk.Empty() {
+			return nil
+		}
+
+		return &gvk
+	}
+
+	// internalPackages are packages that ignored when creating a default reflector name. These packages are in the common
+	// call chains to NewReflector, so they'd be low entropy names for reflectors
+	var internalPackages = []string{"client-go/tools/cache/"}
+
+	// ResourceVersionUpdater is an interface that allows store implementation to
+	// track the current resource version of the reflector. This is especially
+	// important if storage bookmarks are enabled.
+	type ResourceVersionUpdater interface {
+		// UpdateResourceVersion is called each time current resource version of the reflector
+		// is updated.
+		UpdateResourceVersion(resourceVersion string)
+	}
+
+	// The WatchErrorHandler is called whenever ListAndWatch drops the
+	// connection with an error. After calling this handler, the informer
+	// will backoff and retry.
+	//
+	// The default implementation looks at the error type and tries to log
+	// the error message at an appropriate level.
+	//
+	// Implementations of this handler may display the error message in other
+	// ways. Implementations should return quickly - any expensive processing
+	// should be offloaded.
+	type WatchErrorHandler func(r *Reflector, err error)
+
+	// DefaultWatchErrorHandler is the default implementation of WatchErrorHandler
+	func DefaultWatchErrorHandler(r *Reflector, err error) {
+		switch {
+		case isExpiredError(err):
+			// Don't set LastSyncResourceVersionUnavailable - LIST call with ResourceVersion=RV already
+			// has a semantic that it returns data at least as fresh as provided RV.
+			// So first try to LIST with setting RV to resource version of last observed object.
+			klog.V(4).Infof("%s: watch of %v closed with: %v", r.name, r.typeDescription, err)
+		case err == io.EOF:
+			// watch closed normally
+		case err == io.ErrUnexpectedEOF:
+			klog.V(1).Infof("%s: Watch for %v closed with unexpected EOF: %v", r.name, r.typeDescription, err)
+		default:
+			utilruntime.HandleError(fmt.Errorf("%s: Failed to watch %v: %v", r.name, r.typeDescription, err))
+		}
+	}
+```
+
+### 5. 小结
+
+`Reflector` 的职责很清晰，要做的事情是保持 `DeltaFIFO` 中的 `items` 持续更新，具体实现是通过 `ListerWatcher` 提供的 list-watch(列选-监听)能力来列选指定类型的资源，这时会产生一系列Sync事件，然后通过列选到的 `ResourceVersion` 来开启监听过程，而监听到新的事件后，会和前面提到的Sync事件一样，都通过 `DeltaFIFO` 提供的方法构造相应的 `DeltaType` 添加到 `DeltaFIFO` 中。
+
+当然，前面提到的更新也并不是直接修改 `DeltaFIFO` 中已经存在的元素，而是添加一个新的 `DeltaType` `到队列中。另外，DeltaFIFO` 中添加新 `DeltaType` 时也会有一定的去重机制。
+
+这里还有一个细节就是监听过程不是一劳永逸的，监听到新的事件后，会拿着对象的新 `ResourceVersion` 重新开启一轮新的监听过程。当然，这里的watch调用也有超时机制，一系列的健壮性措施，所以脱离 `Reflector`(Informer) 直接使用list-watch还是很难直接写出一套健壮的代码逻辑。
