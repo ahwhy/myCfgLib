@@ -1,4 +1,4 @@
-# Linux 内存分析
+# Linux 内存观测
 
 ## 一、内存定义
 
@@ -102,6 +102,8 @@ $ vmstat 2
 |PSS|Proportional Set Size|与RSS类似，唯⼀的区别是在计算共享库内存是是按⽐例分配。⽐如某个共享库占用了3M内存，同时被3个进程共享，那么在计算这3个进程的PSS时，该共享库这会贡献1兆内存。|
 |USS|Unique Set Size|进程独⾃占⽤的物理内存，不包含Swap和共享库。|
 
+![进程内存的关系](./images/进程内存的关系.jpg)
+
 这四者的⼤⼩关系是：VSS >= RSS >= PSS >= USS
 
 进程的内存使⽤情况可以从 `/proc/PID/status` 中读取，⽐如
@@ -187,7 +189,6 @@ $ gdb --pid=$pid
 $ (gdb) dump memory /tmp/xxx.dump 起始地址 结束地址
 $ strings /tmp/xxx.dump | less
 ```
-
 
 ### 3、容器内存
 
@@ -319,7 +320,6 @@ voluntary_ctxt_switches:	1552
 nonvoluntary_ctxt_switches:	9
 ```
 
-
 #### 通过cgroup观察容器内存
 
 在遵循one docker one process的原⽣容器中，主进程基本反应了容器的内存使⽤状况，但这毕竟不完整，在目前的环境下⼀个容器中运⾏多个进程的情况也是很常见的。所以，下面我们采用一种更优雅的容器内存查看⽅式，即 cgroup。
@@ -338,7 +338,7 @@ nonvoluntary_ctxt_switches:	9
 		ns，命名空间子系统；
 		perf_event，增加了对每 group 的监测跟踪的能力，可以检测属于某个特定的group的所有线程以及运行在特定CPU上的线程。
 
-⼀个容器的某类资源(例如：内存)对应系统中⼀个cgroup⼦系统(subsystem)hierachy中的节点。当系统运行时为docker时，该目录即为 `/sys/fs/cgroup/memory/docker/` 下的子目录和文件。在这个⽬录中有很多⽂件，都提供了容器对系统资源使⽤状况的信息。
+⼀个容器的某类资源(例如：内存)对应系统中⼀个cgroup⼦系统(subsystem)hierachy中的节点。当节点容器运行时为 docker 时，该目录即为 `/sys/fs/cgroup/memory/docker/` 下的子目录和文件。在这个⽬录中有很多⽂件，都提供了容器对系统资源使⽤状况的信息。
 
 而在容器内部，我们这直接在 `/sys/fs/cgroup/memory/memory.stat` 文件中，查看容器的内存状况:
 ```shell
@@ -417,34 +417,32 @@ Linux 中 关于cgroup中memory的文档
   - [Linux kernel memory](https://www.kernel.org/doc/Documentation/cgroup-v1/memory.txt)
   - [CGroup的原理和使用](https://blog.csdn.net/m0_72502585/article/details/128013318)
 
-
 #### 容器内存常用的监控工具以及指标
 
-我们常用的容器内存监控⼯具 cAdvisor 就是通过读取 cgroup 信息来获取容器的内存使⽤信息。其中有⼀个监控指标 container_memory_usage_bytes(Current memory usage in bytes, including allmemory regardless of when it was accessed)，如果只看名字和注解，很⾃然就认为它是容器所使⽤的内存。但是这⾥所谓的 usage 和通过free指令输出的 used memory 的含义是不同的，前者实际上是cgroup的rss和cache的和，⽽后者不包含 cache。
+我们常用的容器内存监控⼯具 cAdvisor 就是通过读取 cgroup 信息来获取容器的内存使⽤信息。其中有⼀个监控指标 container_memory_usage_bytes(Current memory usage in bytes, including allmemory regardless of when it was accessed)，如果只看名字和注解，很⾃然就认为它是容器所使⽤的内存。但是这⾥所谓的 usage 和通过free指令输出的 used memory 的含义是不同的，前者实际上是cgroup的 rss、cache的和，⽽后者不包含 cache。
 
-另一个我们常用的命令，`kubectl top pod` 展示的也是cgroup中的内存使用量，这个命令是通过 metrics-server 工具拉取的数据，具体指标为 container_memory_working_set_bytes。
+另一个我们常用的命令，`kubectl top pod` 展示的也是cgroup中的内存使用量，这个命令是通过 metrics-server 工具拉取的数据，具体指标为container_memory_working_set_bytes。
 
 他们的内存计算公式为
-  - `container_memory_usage_bytes == container_memory_rss + container_memory_cache + kernel memory`
-  - `container_memory_working_set_bytes = container_memory_usage_bytes - total_inactive_file(未激活的匿名缓存页)`
-  - `container_memory_working_set_bytes = container_memory_rss + container_memory_cache + kernel memory(一般可忽略) - total_inactive_file`
+  - `container_memory_usage_bytes = container_memory_rss + container_memory_cache + kernel memory`
+  - `container_memory_working_set_bytes = container_memory_usage_bytes - total_inactive_file（未激活的匿名缓存页）`
+  - container_memory_working_set_bytes 是容器真实使用的内存量，也是资源限制limit时的重启判断依据，超过limit会导致oom
+
+![Java容器内存](./images/Java容器内存.jpg)
 
 最后，查看容器内进程实际资源占用情况，需要我们在node宿主机上，看对应进程的资源消耗情况。
 
-- K8s代码：
-https://github.com/kubernetes/kubernetes/blob/d0814fa476c72201dcc599297171fe65fb657908/pkg/kubelet/cadvisor/cadvisor_linux.go#L84
+#### 源码文档
 
-- cadvisor的计算可以参考
-https://github.com/google/cadvisor/blob/master/docs/storage/prometheus.md
-https://github.com/google/cadvisor/blob/248756c00d29c5524dc986d4a3b048640f69a53f/info/v1/container.go#L365
+- K8s代码
+	- https://github.com/kubernetes/kubernetes/blob/d0814fa476c72201dcc599297171fe65fb657908/pkg/kubelet/cadvisor/cadvisor_linux.go#L84
 
-- K8s 官方文档也说明了 kubelet 将 active_file 内存区域视为不可回收。
-https://kubernetes.io/zh-cn/docs/concepts/scheduling-eviction/node-pressure-eviction/
+- cadvisor的计算
+	- https://github.com/google/cadvisor/blob/master/docs/storage/prometheus.md
+	- https://github.com/google/cadvisor/blob/248756c00d29c5524dc986d4a3b048640f69a53f/info/v1/container.go#L365
+
+- K8s 官方文档也说明了 kubelet 将 active_file 内存区域视为不可回收
+	- https://kubernetes.io/zh-cn/docs/concepts/scheduling-eviction/node-pressure-eviction/
 
 
-E230721DT1YLZ6
 
-cat memory.stat  |grep total_active_file
-total_active_file 61095936
-
-61095936/1024/1024/1024 = 0.056G 
