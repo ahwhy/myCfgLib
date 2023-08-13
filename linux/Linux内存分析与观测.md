@@ -1,8 +1,8 @@
-# Linux 内存观测
+# Linux 内存分析与观测
 
-## 一、内存定义
+## 一、Linux 内存的观测
 
-### 1、系统内存
+### 1. 系统内存
 
 我们在查看系统内存使⽤状况时，经常会常⽤free命令，具体可见如下输出
 ```shell
@@ -91,7 +91,7 @@ $ sar -R
 $ vmstat 2
 ```
 
-### 2、进程内存
+### 2. 进程内存
 
 通过free命令，我们可以看到系统总体的内存使⽤状况。但很多时需要查看特定进程(process)所消耗的内存，这时我们最常⽤的命令是 `ps`，这个命令的输出中有两列与内存相关，分别是VSZ和RSS。此外还有另外两个类似的指标——PSS和USS，这⾥将这四个⼀并讨论：
 
@@ -173,10 +173,10 @@ nonvoluntary_ctxt_switches:	33
 - 相关命令
 ```shell
 # 使用ps命令，直接查看 vsz、rss
-$ ps -eo pid,comm,cpu,mem,vsz,rss
+$ ps -eo pid,comm,cpu,vsz,rss
 
 # 统计前20内存占用
-$ ps -eo pid,comm,rss | awk '{m=$3/1e6;s["*"]+=m;s[$2]+=m} END{for (n in s) printf"%10.3f GB %s\n",s[n],n}' | sort -nr | head -20ps
+$ ps -eo pid,comm,rss | awk '{m=$3/1e6;s["*"]+=m;s[$2]+=m} END{for (n in s) printf"%10.3f GB %s\n",s[n],n}' | sort -nr | head -20
 
 # 进程内存统计
 $ process_name="${process_name}"
@@ -190,7 +190,7 @@ $ (gdb) dump memory /tmp/xxx.dump 起始地址 结束地址
 $ strings /tmp/xxx.dump | less
 ```
 
-### 3、容器内存
+### 3. 容器内存
 
 #### 容易陷入误区的容器内存观察
 
@@ -424,13 +424,11 @@ Linux 中 关于cgroup中memory的文档
 另一个我们常用的命令，`kubectl top pod` 展示的也是cgroup中的内存使用量，这个命令是通过 metrics-server 工具拉取的数据，具体指标为container_memory_working_set_bytes。
 
 他们的内存计算公式为
-  - `container_memory_usage_bytes = container_memory_rss + container_memory_cache + kernel memory`
-  - `container_memory_working_set_bytes = container_memory_usage_bytes - total_inactive_file（未激活的匿名缓存页）`
+  - `container_memory_usage_bytes = container_memory_rss + container_memory_cache + kernel memory(kernel可以忽略)`
+  - `container_memory_working_set_bytes = container_memory_usage_bytes - total_inactive_file(未激活的匿名缓存页)`
   - container_memory_working_set_bytes 是容器真实使用的内存量，也是资源限制limit时的重启判断依据，超过limit会导致oom
 
-![Java容器内存](./images/Java容器内存.jpg)
-
-最后，查看容器内进程实际资源占用情况，需要我们在node宿主机上，看对应进程的资源消耗情况。
+而查看容器内进程实际资源占用情况，需要我们在node宿主机上，看对应进程的资源消耗情况。
 
 #### 源码文档
 
@@ -445,4 +443,375 @@ Linux 中 关于cgroup中memory的文档
 	- https://kubernetes.io/zh-cn/docs/concepts/scheduling-eviction/node-pressure-eviction/
 
 
+## 二、案例分析  
 
+### 1. total_active_file数量级高
+- 重点排查步骤
+```shell
+# 节点系统 centos_7_06_64_20G_alibase_20190619.vhd 3.10.0-957.21.3.el7.x86_64
+# /sys/fs/cgroup/memory/kubepods.slice/kubepods-burstable.slice/kubepods-burstable-pod<pod ID>.slice/
+$ cat /sys/fs/cgroup/memory/kubepods.slice/kubepods-burstable.slice/kubepods-burstable-pod9c785710_32ec_4baa_a967_3183025768fa.slice/memory.stat
+cache 0
+rss 0
+rss_huge 0
+mapped_file 0
+swap 0
+pgpgin 0
+pgpgout 0
+pgfault 0
+pgmajfault 0
+inactive_anon 0
+active_anon 0
+inactive_file 0
+active_file 0
+unevictable 0
+hierarchical_memory_limit 3221225472
+hierarchical_memsw_limit 9223372036854771712
+total_cache 1928810496
+total_rss 1292386304
+total_rss_huge 14680064
+total_mapped_file 32768
+total_swap 0
+total_pgpgin 4825542
+total_pgpgout 4042694
+total_pgfault 3627216
+total_pgmajfault 262
+total_inactive_anon 0
+total_active_anon 1292386304
+total_inactive_file 580984832
+total_active_file 1347825664   # 数量级很高
+total_unevictable 0
+
+# 集群中每个node节点上容器的total_active_file缓存，占用都有20-30G
+$ cat /sys/fs/cgroup/memory/kubepods.slice/kubepods-burstable.slice/kubepods-burstable-pod*.slice/memory.stat |grep total_active_file |awk '{a+=$2}END{print a}'
+35410173952
+
+# 高内核版本的系统
+$ cat /sys/fs/cgroup/memory/kubepods/burstable/poda3726f29-0381-11ee-a39b-5254001450b7/memory.stat
+cache 0
+rss 0
+rss_huge 0
+shmem 0
+mapped_file 0
+dirty 0
+writeback 0
+swap 0
+pgpgin 0
+pgpgout 0
+pgfault 0
+pgmajfault 0
+inactive_anon 0
+active_anon 0
+inactive_file 0
+active_file 0
+unevictable 0
+hierarchical_memory_limit 4294967296
+hierarchical_memsw_limit 9223372036854771712
+total_cache 1852940288
+total_rss 2250285056
+total_rss_huge 0
+total_shmem 0
+total_mapped_file 401408
+total_dirty 520192
+total_writeback 0
+total_swap 0
+total_pgpgin 53762041
+total_pgpgout 52760277
+total_pgfault 11727726
+total_pgmajfault 18
+total_inactive_anon 0
+total_active_anon 2250285056
+total_inactive_file 1812811776
+total_active_file 40095744      # 明显下降
+total_unevictable 0
+```
+
+- 临时方案
+	- 清理缓存 `echo 1 > /proc/sys/vm/drop_caches`
+	- 升级node节点的系统内核版本，进行验证
+```shell
+# 升级内核版本
+# 1、确定当前内核版本
+$ uname -r
+3.10.0-514.26.2.el7.x86_64  # 需要升级到 kernel-3.10.0-1160.45.1.el7.x86_64.rpm 版本(用于安装GPU驱动)
+
+# 2、下载指定内核版本
+# 下载地址：http://ftp.scientificlinux.org/linux/scientific/7.0/x86_64/updates/security/
+$ wget http://ftp.scientificlinux.org/linux/scientific/7.0/x86_64/updates/security/kernel-3.10.0-1160.45.1.el7.x86_64.rpm
+
+# 3、安装内核版本
+# 直接使用yum安装下载到本地的内核版本 
+$ yum -y install kernel-3.10.0-1160.45.1.el7.x86_64.rpm  # 安装过程中没有报错，表示安装成功
+
+# 4、列出当前系统所有内核版本
+$ awk -F\' '$1=="menuentry " {print i++ " : " $2}' $(find /boot -name grub.cfg)
+
+# 5、列出系统引导入口
+$ grub2-editenv list
+
+# 6、修改默认引导入口
+$ grub2-set-default 0
+
+# 7、重新构建一下grub菜单配置文件
+$ grub2-mkconfig -o /boot/grub2/grub.cfg
+
+# 验证 total_active_file 正常 
+$ cat memory.stat  |grep total_active_file
+total_active_file 61095936                  # 61095936/1024/1024/1024 = 0.056GB
+```
+
+- 最终方案
+	- 集群新增使用高内核版本系统的节点
+	- 服务迁移，逐渐替换老节点
+
+### 2. java容器内存过大
+- 信息收集
+```shell
+$ kubectl -n app-ns get pod app-java-86348df32-rs8ne -oyaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: app-86348df32-rs8ne
+  namespace: app-ns
+spec:
+  containers:
+  - env:
+    - name: JAVA_OPTS
+      value: java -jar -XX:+UseContainerSupport -XX:InitialRAMPercentage=70.0 -XX:MaxRAMPercentage=70.0
+        -Dspring.profiles.active=prod -XX:-UseAdaptiveSizePolicy  -XX:NewRatio=2  -XX:SurvivorRatio=8  app.jar
+    - name: K8S_ENV
+      value: prod
+    - name: k8s_logs_console
+      value: stdout
+    - name: k8s_logs_console_tags
+      value: topic=k8s-app_java-console-log
+    image: hub/app-java:0.0.2-v9926675b
+    imagePullPolicy: Always
+    lifecycle:
+      preStop:
+        exec:
+          command:
+          - /bin/sh
+          - -c
+          - echo stop > /tmp/prestop;wget http://127.0.0.1:54199/offline 2>/tmp/null;sleep
+            30;exit 0
+    livenessProbe:
+      failureThreshold: 10
+      httpGet:
+        path: /app-java/keepalive
+        port: http
+        scheme: HTTP
+      periodSeconds: 10
+      successThreshold: 1
+      timeoutSeconds: 5
+    name: app-java
+    ports:
+    - containerPort: 11192
+      name: http
+      protocol: TCP
+    readinessProbe:
+      failureThreshold: 10
+      httpGet:
+        path: /app-java/keepalive
+        port: http
+        scheme: HTTP
+      periodSeconds: 10
+      successThreshold: 1
+      timeoutSeconds: 5
+    resources:
+      limits:
+        cpu: 2048m
+        memory: 6Gi
+      requests:
+        cpu: 200m
+        memory: 2Gi
+...
+
+$ kubectl -n app-ns top pod  app-java-86348df32-rs8ne
+NAME                       CPU(cores)   MEMORY(bytes)   
+app-java-86348df32-rs8ne   229m         5006Mi    
+
+# 以下为java容器内的执行结果
+$ cat /sys/fs/cgroup/memory/memory.stat
+cache 1146900480
+rss 5227409408
+rss_huge 1799356416
+shmem 0
+mapped_file 3784704
+dirty 0
+writeback 0
+swap 0
+workingset_refault_anon 0
+workingset_refault_file 67313664
+workingset_activate_anon 0
+workingset_activate_file 36360192
+workingset_restore_anon 0
+workingset_restore_file 0
+workingset_nodereclaim 0
+pgpgin 11128953
+pgpgout 10215508
+pgfault 89880285
+pgmajfault 66
+inactive_anon 5226868736
+active_anon 0
+inactive_file 1128783872
+active_file 18247680
+unevictable 0
+hierarchical_memory_limit 6442450944
+hierarchical_memsw_limit 6442450944
+total_cache 1146900480
+total_rss 5227409408
+total_rss_huge 1799356416
+total_shmem 0
+total_mapped_file 3784704
+total_dirty 0
+total_writeback 0
+total_swap 0
+total_workingset_refault_anon 0
+total_workingset_refault_file 67313664
+total_workingset_activate_anon 0
+total_workingset_activate_file 36360192
+total_workingset_restore_anon 0
+total_workingset_restore_file 0
+total_workingset_nodereclaim 0
+total_pgpgin 11128953
+total_pgpgout 10215508
+total_pgfault 89880285
+total_pgmajfault 66
+total_inactive_anon 5226868736
+total_active_anon 0
+total_inactive_file 1128783872
+total_active_file 18247680
+total_unevictable 0
+
+$ ps -ef
+UID          PID    PPID  C STIME TTY          TIME CMD
+root           1       0  0 Aug08 ?        00:00:00 /pause
+root          64       0  0 Aug08 ?        00:00:00 /bin/sh -c ${JAVA_OPTS}
+root          69      64 23 Aug08 ?        19:31:54 java -jar -XX:+UseContainerSupport -XX:InitialRAMPercentage=70.0 -XX:MaxRAMPercentage=70.0 -Dspring.profiles.active=prod -XX:-UseAdaptiveSizePolicy -XX:NewRatio=2
+root      145074       0  0 Aug11 pts/0    00:00:00 /bin/sh -c TERM=xterm-256color; export TERM; LANG=C.UTF-8; export LANG; [ -x /bin/bash ] && ([ -x /usr/bin/script ] && /usr/bin/script -q -c "/bin/bash" /dev/null
+root      145079  145074  0 Aug11 pts/0    00:00:00 /bin/sh -c TERM=xterm-256color; export TERM; LANG=C.UTF-8; export LANG; [ -x /bin/bash ] && ([ -x /usr/bin/script ] && /usr/bin/script -q -c "/bin/bash" /dev/null
+root      145080  145079  0 Aug11 pts/0    00:00:00 /usr/bin/script -q -c /bin/bash /dev/null
+root      145081  145080  0 Aug11 pts/1    00:00:00 sh -c /bin/bash
+root      145082  145081  0 Aug11 pts/1    00:00:00 /bin/bash
+root      145251  145082  0 Aug11 pts/1    00:00:17 top
+root      189604       0  0 11:03 pts/2    00:00:00 /bin/sh -c TERM=xterm-256color; export TERM; [ -x /bin/bash ] && ([ -x /usr/bin/script ] && /usr/bin/script -q -c "/bin/bash" /dev/null || exec /bin/bash) || exec
+root      189609  189604  0 11:03 pts/2    00:00:00 /bin/sh -c TERM=xterm-256color; export TERM; [ -x /bin/bash ] && ([ -x /usr/bin/script ] && /usr/bin/script -q -c "/bin/bash" /dev/null || exec /bin/bash) || exec
+root      189610  189609  0 11:03 pts/2    00:00:00 /usr/bin/script -q -c /bin/bash /dev/null
+root      189611  189610  0 11:03 pts/3    00:00:00 sh -c /bin/bash
+root      189612  189611  0 11:03 pts/3    00:00:00 /bin/bash
+root      189696       0  0 11:05 pts/4    00:00:00 /bin/sh -c TERM=xterm-256color; export TERM; [ -x /bin/bash ] && ([ -x /usr/bin/script ] && /usr/bin/script -q -c "/bin/bash" /dev/null || exec /bin/bash) || exec
+root      189701  189696  0 11:05 pts/4    00:00:00 /bin/sh -c TERM=xterm-256color; export TERM; [ -x /bin/bash ] && ([ -x /usr/bin/script ] && /usr/bin/script -q -c "/bin/bash" /dev/null || exec /bin/bash) || exec
+root      189702  189701  0 11:05 pts/4    00:00:00 /usr/bin/script -q -c /bin/bash /dev/null
+root      189703  189702  0 11:05 pts/5    00:00:00 sh -c /bin/bash
+root      189704  189703  0 11:05 pts/5    00:00:00 /bin/bash
+root      189831  189704  0 11:08 pts/5    00:00:00 ps -ef
+
+$ cat /proc/69/status
+Name:   java
+Umask:  0022
+State:  S (sleeping)
+Tgid:   69
+Ngid:   0
+Pid:    69
+PPid:   64
+TracerPid:      0
+Uid:    0       0       0       0
+Gid:    0       0       0       0
+FDSize: 1024
+Groups:  
+NStgid: 69
+NSpid:  69
+NSpgid: 64
+NSsid:  64
+VmPeak: 21901288 kB
+VmSize: 21835752 kB
+VmLck:         0 kB
+VmPin:         0 kB
+VmHWM:   5127832 kB
+VmRSS:   5120108 kB
+RssAnon:         5095276 kB
+RssFile:           24832 kB
+RssShmem:              0 kB
+VmData:  5758564 kB
+VmStk:       168 kB
+VmExe:         4 kB
+VmLib:     17776 kB
+VmPTE:     11688 kB
+VmSwap:        0 kB
+HugetlbPages:          0 kB
+CoreDumping:    0
+THP_enabled:    1
+Threads:        225
+SigQ:   0/506295
+SigPnd: 0000000000000000
+ShdPnd: 0000000000000000
+SigBlk: 0000000000000000
+SigIgn: 0000000000000000
+SigCgt: 2000000191005cdf
+CapInh: 00000000a80425fb
+CapPrm: 00000000a80425fb
+CapEff: 00000000a80425fb
+CapBnd: 00000000a80425fb
+CapAmb: 0000000000000000
+NoNewPrivs:     0
+Seccomp:        0
+Speculation_Store_Bypass:       vulnerable
+Cpus_allowed:   ffffffff
+Cpus_allowed_list:      0-31
+Mems_allowed:   00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000001
+Mems_allowed_list:      0
+voluntary_ctxt_switches:        5
+nonvoluntary_ctxt_switches:     5
+```
+
+![Java容器内存](./images/Java容器内存.jpg)
+
+- 数据分析
+```
+从之前收集的信息看：
+
+1、Java容器内存
+container_memory_usage_bytes = container_memory_rss + container_memory_cache + kernel memory(kernel可以忽略)
+container_memory_working_set_bytes = container_memory_usage_bytes - total_inactive_file(未激活的匿名缓存页)
+                                   = container_memory_rss + container_memory_cache + kernel memory(kernel可以忽略) - total_inactive_file
+                                   = 5227409408 + 1146900480 - 1128783872
+                                   = 5245526061/1024/1024/1024
+                                   = 4.885 GB
+其中 container_memory_cache - total_inactive_file(未激活的匿名缓存页)= 1146900480 - 1128783872
+total_inactive_file 本身就包含在cache里面，所以这里的4.88GB中，包含的cache可以忽略不计了
+
+2、Java信息
+Jvm堆栈内存为 1.5GB
+Java启动参数为
+java -jar -XX:+UseContainerSupport -XX:InitialRAMPercentage=70.0 -XX:MaxRAMPercentage=70.0
+        -Dspring.profiles.active=prod -XX:-UseAdaptiveSizePolicy  -XX:NewRatio=2  -XX:SurvivorRatio=8  app.jar
+
+3、Java进程信息
+pod中 cat /proc/69/status 这个java进程的信息
+Name:   java
+VmRSS:   5120108 kB/1024 = 5000mB /1024 = 4.88gB
+
+4、服务pod资源限制为
+    resources:
+      limits:
+        cpu: 2048m
+        memory: 6Gi
+      requests:
+        cpu: 200m
+        memory: 2Gi
+```
+
+- 最终结论
+	- 根据计算得出，Java容器内存为 4.885GB，cache可以忽略不计
+	- Java容器内java进程，VmRSS 为 4.88gB，说明该java进程的内存使用量基本占用了，Java容器全部的已使用内存
+	- 而此时jvm只有1.5GB，需要根据代码分析，其余内存是如何消耗的，是否有泄漏现象
+
+### 3. 参考文档
+
+- [关于Linux性能调优之内存负载调优 ](https://blog.51cto.com/liruilong/5930543)
+- [Linux中进程内存RSS与cgroup内存的RSS统计 - 差异](https://developer.aliyun.com/article/54407)
+- [Metrics-Server指标获取链路分析](https://developer.aliyun.com/article/1076518)
+- [k8s之容器内存与JVM内存](https://blog.csdn.net/qq_34562093/article/details/126754502)
+- [Java进程内存分析](https://www.nxest.com/bits-pieces/java/jvm/)
+- [FullGC实战](https://mp.weixin.qq.com/s?__biz=MzU5ODUwNzY1Nw==&mid=2247484533&idx=1&sn=6f6adbccadb3742934dc49901dac76af&chksm=fe426d93c935e4851021c49e5a9eb5a2a9d3c564623e7667e1ef3a8f35cb98717041d0bbccff&scene=0&xtrack=1#rd)
