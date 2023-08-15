@@ -363,9 +363,9 @@ pgpgout 649508                        # 从内存中读取的页数
 pgfault 955251
 pgmajfault 0
 inactive_anon 197267456               # 不活跃的 LRU 列表中的中的匿名和 swap 缓存，包括 tmpfs(shmem)，单位为字节
-active_anon 135168                    # 在活跃的最近最少使用(LRU)列表中的匿名和 swap 缓存，包括 tmpfs(shmem)，单位为字节
+active_anon 135168                    # 在活跃的最近最少使用(LRU)列表中的匿名和 swap 缓存，包括 tmpfs(shmem)，单位为字节；匿名内存，指没有关联到文件的内存，例如进程的堆、栈、数据段等
 inactive_file 117055488               # 不活跃的 LRU 列表中的 file-backed 内存，单位为字节
-active_file 1216512                   # 在活跃的 LRU 列表中的 file-backed 内存，单位为字节
+active_file 1216512                   # 在活跃的 LRU 列表中的 file-backed 内存，单位为字节。程序读写文件会产生文件缓存(file cache)，其中最近多次使用的缓存称为active file cache，通常不容易被系统回收。
 unevictable 0                         # 无法再生的内存，单位为字节
 hierarchical_memory_limit 524288000   # 包含 memory cgroup 的层级的内存限制，单位为字节
 hierarchical_memsw_limit 524288000    # 包含 memory cgroup 的层级的内存加 swap 限制，单位为字节
@@ -419,16 +419,22 @@ Linux 中 关于cgroup中memory的文档
 
 #### 容器内存常用的监控工具以及指标
 
-我们常用的容器内存监控⼯具 cAdvisor 就是通过读取 cgroup 信息来获取容器的内存使⽤信息。其中有⼀个监控指标 container_memory_usage_bytes(Current memory usage in bytes, including allmemory regardless of when it was accessed)，如果只看名字和注解，很⾃然就认为它是容器所使⽤的内存。但是这⾥所谓的 usage 和通过free指令输出的 used memory 的含义是不同的，前者实际上是cgroup的 rss、cache的和，⽽后者不包含 cache。
+容器的内存监控⼯具 cAdvisor 就是通过读取 cgroup 信息来获取容器的内存使⽤信息。其中有⼀个监控指标 container_memory_usage_bytes(Current memory usage in bytes, including allmemory regardless of when it was accessed)，如果只看名字和注解，很⾃然就认为它是容器所使⽤的内存。但是这⾥所谓的 usage 和通过free指令输出的 used memory 的含义是不同的，前者实际上是cgroup的 rss、cache的和，⽽后者不包含 cache。
 
-另一个我们常用的命令，`kubectl top pod` 展示的也是cgroup中的内存使用量，这个命令是通过 metrics-server 工具拉取的数据，具体指标为container_memory_working_set_bytes。
+我们常用的命令，`kubectl top pod` 命令展示的就是 通过使用 `/metrics.k8s.io/` 的api，访问 Metrics-Server 服务，从而获取 cAdvisor 提供的 cgroup指标，这里内存的指标名为 container_memory_working_set_bytes。
 
-他们的内存计算公式为
+![Metrics-Server](./images/Metrics-Server.jpg)
+
+    需要注意的是 Metrics-Server 并不是 kube-apiserver 的一部分，而是通过 Aggregator 这种插件机制，在独立部署的情况下同 kube-apiserver 一起统一对外服务的。 
+
+    当 Kubernetes 的 API Server 开启了 Aggregator 模式之后，再访问 `/apis/metrics.k8s.io/v1beta1` 的时候，实际上访问到的是一个叫作 kube-aggregator 的代理。而 kube-apiserver，正是这个代理的一个后端， Metrics-Server 则是另一个后端。 
+
+上面提到监控指标的计算公式为
   - `container_memory_usage_bytes = container_memory_rss + container_memory_cache + kernel memory(kernel可以忽略)`
   - `container_memory_working_set_bytes = container_memory_usage_bytes - total_inactive_file(未激活的匿名缓存页)`
   - container_memory_working_set_bytes 是容器真实使用的内存量，也是资源限制limit时的重启判断依据，超过limit会导致oom
 
-而查看容器内进程实际资源占用情况，需要我们在node宿主机上，看对应进程的资源消耗情况。
+有时候查看容器本身的内存使用量是一方面，而容器内进程实际资源占用的情况，也需要我们在node宿主机上，看对应进程的资源消耗情况。
 
 #### 源码文档
 
@@ -446,6 +452,9 @@ Linux 中 关于cgroup中memory的文档
 ## 二、案例分析  
 
 ### 1. total_active_file数量级高
+- 问题描述
+	- 某集群中的Pod，监控显示 Pod内存使用为 5.5G，但是 Pod中服务本身只使用了1.6G
+
 - 重点排查步骤
 ```shell
 # 节点系统 centos_7_06_64_20G_alibase_20190619.vhd 3.10.0-957.21.3.el7.x86_64
@@ -565,6 +574,11 @@ total_active_file 61095936                  # 61095936/1024/1024/1024 = 0.056GB
 	- 服务迁移，逐渐替换老节点
 
 ### 2. java容器内存过大
+- 问题描述
+	- 某生产集群中的Java Pod，监控显示 Jvm只使用了 1.3G，但是Pod内存监控却有 4.88G
+
+![java容器内存过大](./images/内存使用高.jpg)
+
 - 信息收集
 ```shell
 $ kubectl -n app-ns get pod app-java-86348df32-rs8ne -oyaml
@@ -782,7 +796,7 @@ container_memory_working_set_bytes = container_memory_usage_bytes - total_inacti
 total_inactive_file 本身就包含在cache里面，所以这里的4.88GB中，包含的cache可以忽略不计了
 
 2、Java信息
-Jvm堆栈内存为 1.5GB
+Jvm堆栈内存为 1.3GB
 Java启动参数为
 java -jar -XX:+UseContainerSupport -XX:InitialRAMPercentage=70.0 -XX:MaxRAMPercentage=70.0
         -Dspring.profiles.active=prod -XX:-UseAdaptiveSizePolicy  -XX:NewRatio=2  -XX:SurvivorRatio=8  app.jar
@@ -805,13 +819,15 @@ VmRSS:   5120108 kB/1024 = 5000mB /1024 = 4.88gB
 - 最终结论
 	- 根据计算得出，Java容器内存为 4.885GB，cache可以忽略不计
 	- Java容器内java进程，VmRSS 为 4.88gB，说明该java进程的内存使用量基本占用了，Java容器全部的已使用内存
-	- 而此时jvm只有1.5GB，需要根据代码分析，其余内存是如何消耗的，是否有泄漏现象
+	- 而此时jvm只有1.3GB，需要根据代码分析，其余内存是如何消耗的，是否有泄漏现象
 
 ### 3. 参考文档
 
 - [关于Linux性能调优之内存负载调优 ](https://blog.51cto.com/liruilong/5930543)
 - [Linux中进程内存RSS与cgroup内存的RSS统计 - 差异](https://developer.aliyun.com/article/54407)
+- [Linux cache参数调优](https://www.zhihu.com/column/p/136237953)
 - [Metrics-Server指标获取链路分析](https://developer.aliyun.com/article/1076518)
 - [k8s之容器内存与JVM内存](https://blog.csdn.net/qq_34562093/article/details/126754502)
 - [Java进程内存分析](https://www.nxest.com/bits-pieces/java/jvm/)
 - [FullGC实战](https://mp.weixin.qq.com/s?__biz=MzU5ODUwNzY1Nw==&mid=2247484533&idx=1&sn=6f6adbccadb3742934dc49901dac76af&chksm=fe426d93c935e4851021c49e5a9eb5a2a9d3c564623e7667e1ef3a8f35cb98717041d0bbccff&scene=0&xtrack=1#rd)
+- [JVM调优系列----NewRatio与SurvivorRatio](https://it.cha138.com/php/show-47569.html)
