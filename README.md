@@ -5,6 +5,7 @@
 ## Linux
 - [Linux 各目录及作用](./linux/Linux各目录及作用.md)
 - [Linux 常用工具](./linux/Linux常用工具简介.md)
+- [Linux 内存分析与观测](./linux/Linux内存分析与观测.md)
 
 ## Docker && Containerd
 - [容器基础](./docker/doc/docker容器.md)
