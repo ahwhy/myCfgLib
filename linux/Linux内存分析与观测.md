@@ -21,7 +21,7 @@ Swap表示交换分区(类似windows中的虚拟内存)，是硬盘中⼀个独�
 其中 buff 和 cache 分别表示存放了将要写到磁盘中的数据和从磁盘的读取的数据的内存。也就是说内存除了存储进程运⾏所需的运⾏时数据之外，还为了提⾼性能，缓存了⼀部分I/O数据。由于系统的cache和buffer可以被回收，所以可⽤的(available)内存⽐空闲的(free)要⼤。在部署了某些⾼I/O应⽤的主机中，available会⽐free看起来⼤很多，这是由于⼤量的内存空间⽤于缓存对磁盘的I/O数据。
 
 - free命令的所有输出值都是从 `/proc/meminfo` 中读出的
-	- [Linux：/proc/meminfo参数详细解释](https://blog.csdn.net/whbing1471/article/details/105468139/)
+  - [Linux：/proc/meminfo参数详细解释](https://blog.csdn.net/whbing1471/article/details/105468139/)
 ```shell
 $ cat /proc/meminfo
 MemTotal:       15085684 kB
@@ -107,9 +107,9 @@ $ vmstat 2
 这四者的⼤⼩关系是：VSS >= RSS >= PSS >= USS
 
 进程的内存使⽤情况可以从 `/proc/PID/status` 中读取，⽐如
-	- VmSize: 当前的Virtual Memory Size
-	- VmRSS: Resident Set Size
-	- VmLib: 进程所加载的动态库所占⽤的内存⼤⼩
+  - VmSize: 当前的Virtual Memory Size
+  - VmRSS: Resident Set Size
+  - VmLib: 进程所加载的动态库所占⽤的内存⼤⼩
 ```shell
 # 以 kubelet进程为例
 $ cat /proc/377598/status
@@ -326,17 +326,17 @@ nonvoluntary_ctxt_switches:	9
 
 前面也提到过，cgroup是组成容器的基石，它被用来制造容器的边界，是约束容器资源的主要手段。​Linux Cgroups 的全称是 Linux Control Group ，是 Linux 内核中用来为进程设置资源限制的一个重要功能。它最主要的作用，就是限制一个进程 组能够使用的资源上限，包括 CPU、内存、磁盘、网络带宽等等。此外，还能够对进程进行优先级设置，以及将进程挂起和恢复等操作。
 
-		cgroups 具体实现
-		blkio，为块设备设定 I/O 限制，一般用于磁盘等设备；
-		cpu，使用调度程序为 cgroup 任务提供 cpu 的访问；
-		cpuacct， 产生 cgroup 任务的 cpu 资源报告；
-		cpuset，为进程分配单独的 CPU 核和对应的内存节点；
-		memory，设置每个 cgroup 的内存限制以及产生内存资源报告；
-		devices，允许或拒绝 cgroup 任务对设备的访问；
-		freezer，暂停和恢复 cgroup 任务；
-		net_cls，标记每个网络包以供 cgroup 方便使用；
-		ns，命名空间子系统；
-		perf_event，增加了对每 group 的监测跟踪的能力，可以检测属于某个特定的group的所有线程以及运行在特定CPU上的线程。
+    cgroups 具体实现
+    blkio，为块设备设定 I/O 限制，一般用于磁盘等设备；
+    cpu，使用调度程序为 cgroup 任务提供 cpu 的访问；
+    cpuacct， 产生 cgroup 任务的 cpu 资源报告；
+    cpuset，为进程分配单独的 CPU 核和对应的内存节点；
+    memory，设置每个 cgroup 的内存限制以及产生内存资源报告；
+    devices，允许或拒绝 cgroup 任务对设备的访问；
+    freezer，暂停和恢复 cgroup 任务；
+    net_cls，标记每个网络包以供 cgroup 方便使用；
+    ns，命名空间子系统；
+    perf_event，增加了对每 group 的监测跟踪的能力，可以检测属于某个特定的group的所有线程以及运行在特定CPU上的线程。
 
 ⼀个容器的某类资源(例如：内存)对应系统中⼀个cgroup⼦系统(subsystem)hierachy中的节点。当节点容器运行时为 docker 时，该目录即为 `/sys/fs/cgroup/memory/docker/` 下的子目录和文件。在这个⽬录中有很多⽂件，都提供了容器对系统资源使⽤状况的信息。
 
@@ -436,26 +436,221 @@ Linux 中 关于cgroup中memory的文档
 
 有时候查看容器本身的内存使用量是一方面，而容器内进程实际资源占用的情况，也需要我们在node宿主机上，看对应进程的资源消耗情况。
 
-#### 源码文档
+指标源码
+  - [cadvisor的指标说明](https://github.com/google/cadvisor/blob/master/docs/storage/prometheus.md)
+```golang
+  // https://github.com/kubernetes/kubernetes/blob/d0814fa476c72201dcc599297171fe65fb657908/pkg/kubelet/cadvisor/cadvisor_linux.go#L84
+  // New creates a new cAdvisor Interface for linux systems.
+  func New(imageFsInfoProvider ImageFsInfoProvider, rootPath string, cgroupRoots []string, usingLegacyStats, localStorageCapacityIsolation bool) (Interface, error) {
+    ...
+    includedMetrics := cadvisormetrics.MetricSet{
+      cadvisormetrics.CpuUsageMetrics:     struct{}{},
+      cadvisormetrics.MemoryUsageMetrics:  struct{}{},
+      cadvisormetrics.CpuLoadMetrics:      struct{}{},
+      cadvisormetrics.DiskIOMetrics:       struct{}{},
+      cadvisormetrics.NetworkUsageMetrics: struct{}{},
+      cadvisormetrics.AppMetrics:          struct{}{},
+      cadvisormetrics.ProcessMetrics:      struct{}{},
+      cadvisormetrics.OOMMetrics:          struct{}{},
+    }
+    ...
+  }
 
-- K8s代码
-	- https://github.com/kubernetes/kubernetes/blob/d0814fa476c72201dcc599297171fe65fb657908/pkg/kubelet/cadvisor/cadvisor_linux.go#L84
+  type ContainerStats struct {
+    // The time of this stat point.
+    Timestamp time.Time               `json:"timestamp"`
+    Cpu       CpuStats                `json:"cpu,omitempty"`
+    DiskIo    DiskIoStats             `json:"diskio,omitempty"`
+    Memory    MemoryStats             `json:"memory,omitempty"`
+    Hugetlb   map[string]HugetlbStats `json:"hugetlb,omitempty"`
+    Network   NetworkStats            `json:"network,omitempty"`
+    // Filesystem statistics
+    Filesystem []FsStats `json:"filesystem,omitempty"`
 
-- cadvisor的计算
-	- https://github.com/google/cadvisor/blob/master/docs/storage/prometheus.md
-	- https://github.com/google/cadvisor/blob/248756c00d29c5524dc986d4a3b048640f69a53f/info/v1/container.go#L365
+    // Task load stats
+    TaskStats LoadStats `json:"task_stats,omitempty"`
 
-- K8s 官方文档也说明了 kubelet 将 active_file 内存区域视为不可回收
-	- https://kubernetes.io/zh-cn/docs/concepts/scheduling-eviction/node-pressure-eviction/
+    // Metrics for Accelerators. Each Accelerator corresponds to one element in the array.
+    Accelerators []AcceleratorStats `json:"accelerators,omitempty"`
+
+    // ProcessStats for Containers
+    Processes ProcessStats `json:"processes,omitempty"`
+
+    // Custom metrics from all collectors
+    CustomMetrics map[string][]MetricVal `json:"custom_metrics,omitempty"`
+
+    // Statistics originating from perf events
+    PerfStats []PerfStat `json:"perf_stats,omitempty"`
+
+    // Statistics originating from perf uncore events.
+    // Applies only for root container.
+    PerfUncoreStats []PerfUncoreStat `json:"perf_uncore_stats,omitempty"`
+
+    // Referenced memory
+    ReferencedMemory uint64 `json:"referenced_memory,omitempty"`
+
+    // Resource Control (resctrl) statistics
+    Resctrl ResctrlStats `json:"resctrl,omitempty"`
+
+    CpuSet CPUSetStats `json:"cpuset,omitempty"`
+
+    OOMEvents uint64 `json:"oom_events,omitempty"`
+  }
+
+  // https://github.com/google/cadvisor/blob/248756c00d29c5524dc986d4a3b048640f69a53f/info/v1/container.go#L365
+  type MemoryStats struct {
+    // Current memory usage, this includes all memory regardless of when it was
+    // accessed.
+    // Units: Bytes.
+    Usage uint64 `json:"usage"`
+
+    // Maximum memory usage recorded.
+    // Units: Bytes.
+    MaxUsage uint64 `json:"max_usage"`
+
+    // Number of bytes of page cache memory.
+    // Units: Bytes.
+    Cache uint64 `json:"cache"`
+
+    // The amount of anonymous and swap cache memory (includes transparent
+    // hugepages).
+    // Units: Bytes.
+    RSS uint64 `json:"rss"`
+
+    // The amount of swap currently used by the processes in this cgroup
+    // Units: Bytes.
+    Swap uint64 `json:"swap"`
+
+    // The amount of memory used for mapped files (includes tmpfs/shmem)
+    MappedFile uint64 `json:"mapped_file"`
+
+    // The amount of working set memory, this includes recently accessed memory,
+    // dirty memory, and kernel memory. Working set is <= "usage".
+    // Units: Bytes.
+    WorkingSet uint64 `json:"working_set"`
+
+    Failcnt uint64 `json:"failcnt"`
+
+    ContainerData    MemoryStatsMemoryData `json:"container_data,omitempty"`
+    HierarchicalData MemoryStatsMemoryData `json:"hierarchical_data,omitempty"`
+  }
+
+  // NewPrometheusCollector returns a new PrometheusCollector. The passed
+  // ContainerLabelsFunc specifies which base labels will be attached to all
+  // exported metrics. If left to nil, the DefaultContainerLabels function
+  // will be used instead.
+  func NewPrometheusCollector(i infoProvider, f ContainerLabelsFunc, includedMetrics container.MetricSet, now clock.Clock, opts v2.RequestOptions) *PrometheusCollector {
+    ...
+    if includedMetrics.Has(container.MemoryUsageMetrics) {
+      c.containerMetrics = append(c.containerMetrics, []containerMetric{
+        {
+          name:      "container_memory_cache",
+          help:      "Number of bytes of page cache memory.",
+          valueType: prometheus.GaugeValue,
+          getValues: func(s *info.ContainerStats) metricValues {
+            return metricValues{{value: float64(s.Memory.Cache), timestamp: s.Timestamp}}
+          },
+        }, {
+          name:      "container_memory_rss",
+          help:      "Size of RSS in bytes.",
+          valueType: prometheus.GaugeValue,
+          getValues: func(s *info.ContainerStats) metricValues {
+            return metricValues{{value: float64(s.Memory.RSS), timestamp: s.Timestamp}}
+          },
+        }, {
+          name:      "container_memory_mapped_file",
+          help:      "Size of memory mapped files in bytes.",
+          valueType: prometheus.GaugeValue,
+          getValues: func(s *info.ContainerStats) metricValues {
+            return metricValues{{value: float64(s.Memory.MappedFile), timestamp: s.Timestamp}}
+          },
+        }, {
+          name:      "container_memory_swap",
+          help:      "Container swap usage in bytes.",
+          valueType: prometheus.GaugeValue,
+          getValues: func(s *info.ContainerStats) metricValues {
+            return metricValues{{value: float64(s.Memory.Swap), timestamp: s.Timestamp}}
+          },
+        }, {
+          name:      "container_memory_failcnt",
+          help:      "Number of memory usage hits limits",
+          valueType: prometheus.CounterValue,
+          getValues: func(s *info.ContainerStats) metricValues {
+            return metricValues{{
+              value:     float64(s.Memory.Failcnt),
+              timestamp: s.Timestamp,
+            }}
+          },
+        }, {
+          name:      "container_memory_usage_bytes",
+          help:      "Current memory usage in bytes, including all memory regardless of when it was accessed",
+          valueType: prometheus.GaugeValue,
+          getValues: func(s *info.ContainerStats) metricValues {
+            return metricValues{{value: float64(s.Memory.Usage), timestamp: s.Timestamp}}
+          },
+        },
+        {
+          name:      "container_memory_max_usage_bytes",
+          help:      "Maximum memory usage recorded in bytes",
+          valueType: prometheus.GaugeValue,
+          getValues: func(s *info.ContainerStats) metricValues {
+            return metricValues{{value: float64(s.Memory.MaxUsage), timestamp: s.Timestamp}}
+          },
+        }, {
+          name:      "container_memory_working_set_bytes",
+          help:      "Current working set in bytes.",
+          valueType: prometheus.GaugeValue,
+          getValues: func(s *info.ContainerStats) metricValues {
+            return metricValues{{value: float64(s.Memory.WorkingSet), timestamp: s.Timestamp}}
+          },
+        },
+        {
+          name:        "container_memory_failures_total",
+          help:        "Cumulative count of memory allocation failures.",
+          valueType:   prometheus.CounterValue,
+          extraLabels: []string{"failure_type", "scope"},
+          getValues: func(s *info.ContainerStats) metricValues {
+            return metricValues{
+              {
+                value:     float64(s.Memory.ContainerData.Pgfault),
+                labels:    []string{"pgfault", "container"},
+                timestamp: s.Timestamp,
+              },
+              {
+                value:     float64(s.Memory.ContainerData.Pgmajfault),
+                labels:    []string{"pgmajfault", "container"},
+                timestamp: s.Timestamp,
+              },
+              {
+                value:     float64(s.Memory.HierarchicalData.Pgfault),
+                labels:    []string{"pgfault", "hierarchy"},
+                timestamp: s.Timestamp,
+              },
+              {
+                value:     float64(s.Memory.HierarchicalData.Pgmajfault),
+                labels:    []string{"pgmajfault", "hierarchy"},
+                timestamp: s.Timestamp,
+              },
+            }
+          },
+        },
+      }...)
+    }
+```
+
+- 
+  - https://kubernetes.io/zh-cn/docs/concepts/scheduling-eviction/node-pressure-eviction/
 
 
 ## 二、案例分析  
 
 ### 1. total_active_file数量级高
 - 问题描述
-	- 某集群中的Pod，监控显示 Pod内存使用为 5.5G，但是 Pod中服务本身只使用了1.6G
+  - 某集群中的Pod，监控显示 Pod内存使用为 5.5G，但是 Pod中服务本身只使用了1.6G
 
 - 重点排查步骤
+  - kubernetes 官方文档也说明了 kubelet 将 active_file 内存区域视为不可回收
+  - [active_file 内存未被视为可用内存](https://kubernetes.io/zh-cn/docs/concepts/scheduling-eviction/node-pressure-eviction/#active-file-%E5%86%85%E5%AD%98%E6%9C%AA%E8%A2%AB%E8%A7%86%E4%B8%BA%E5%8F%AF%E7%94%A8%E5%86%85%E5%AD%98)
 ```shell
 # 节点系统 centos_7_06_64_20G_alibase_20190619.vhd 3.10.0-957.21.3.el7.x86_64
 # /sys/fs/cgroup/memory/kubepods.slice/kubepods-burstable.slice/kubepods-burstable-pod<pod ID>.slice/
@@ -536,8 +731,8 @@ total_unevictable 0
 ```
 
 - 临时方案
-	- 清理缓存 `echo 1 > /proc/sys/vm/drop_caches`
-	- 升级node节点的系统内核版本，进行验证
+  - 清理缓存 `echo 1 > /proc/sys/vm/drop_caches`
+  - 升级node节点的系统内核版本，进行验证
 ```shell
 # 升级内核版本
 # 1、确定当前内核版本
@@ -570,12 +765,12 @@ total_active_file 61095936                  # 61095936/1024/1024/1024 = 0.056GB
 ```
 
 - 最终方案
-	- 集群新增使用高内核版本系统的节点
-	- 服务迁移，逐渐替换老节点
+  - 集群新增使用高内核版本系统的节点
+  - 服务迁移，逐渐替换老节点
 
 ### 2. java容器内存过大
 - 问题描述
-	- 某生产集群中的Java Pod，监控显示 Jvm只使用了 1.3G，但是Pod内存监控却有 4.88G
+  - 某生产集群中的Java Pod，监控显示 Jvm只使用了 1.3G，但是Pod内存监控却有 4.88G
 
 ![java容器内存过大](./images/内存使用高.jpg)
 
@@ -816,10 +1011,12 @@ VmRSS:   5120108 kB/1024 = 5000mB /1024 = 4.88gB
         memory: 2Gi
 ```
 
+![容器内java进程rss过大](./images/内存使用高2.jpg)
+
 - 最终结论
-	- 根据计算得出，Java容器内存为 4.885GB，cache可以忽略不计
-	- Java容器内java进程，VmRSS 为 4.88gB，说明该java进程的内存使用量基本占用了，Java容器全部的已使用内存
-	- 而此时jvm只有1.3GB，需要根据代码分析，其余内存是如何消耗的，是否有泄漏现象
+  - 根据计算得出，Java容器内存为 4.885GB，cache可以忽略不计
+  - Java容器内java进程，VmRSS 为 4.88gB，说明该java进程的内存使用量基本占用了，Java容器全部的已使用内存
+  - 而此时jvm只有1.3GB，需要根据代码分析，其余内存是如何消耗的，是否有泄漏现象
 
 ### 3. 参考文档
 
