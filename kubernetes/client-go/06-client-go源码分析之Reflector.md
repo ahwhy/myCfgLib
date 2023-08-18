@@ -151,13 +151,14 @@ Reflector 的任务就是从 apiserver 监听(watch)特定类型的资源，拿�
   
 ### 2. 核心方法 Reflector.ListAndWatch()
 
-- `Reflector.ListAndWatch()` 方法有将近200行，是Reflector的核心逻辑之一
+- `Reflector.ListAndWatch()` 方法，是Reflector的核心逻辑之一
 	- `ListAndWatch()` 方法是先列出特定资源的所有对象，然后获取其资源版本，接着使用这个资源版本来开始监听流程
+		- `watchList()` 方法建立一个流，来获得一致性的数据快照
+		- `list()` 方法 lists 所有的 items，并且记录并调用 resource version
 	- 监听到新版本资源后，将其加入 DeltaFIFO 的动作是在 `watchHandler()` 方法中具体实现的
 	- 在此之前list(列选)到的最新元素会通过 `syncWith()` 方法添加一个 `Sync`类型的 `DeltaType` 到 `DeltaFIFO` 中，所以 list操作本身也会触发后面的调谐逻辑
 ```golang
-	// ListAndWatch first lists all items and get the resource version at the moment of call,
-	// and then use the resource version to watch.
+	// ListAndWatch first lists all items and get the resource version at the moment of call, and then use the resource version to watch.
 	// It returns error if ListAndWatch didn't even try to initialize watch.
 	func (r *Reflector) ListAndWatch(stopCh <-chan struct{}) error {
 		klog.V(3).Infof("Listing and watching %v from %s", r.typeDescription, r.name)
@@ -220,51 +221,58 @@ Reflector 的任务就是从 apiserver 监听(watch)特定类型的资源，拿�
 		var err error
 		var temporaryStore Store
 		var resourceVersion string
-		// TODO(#115478): see if this function could be turned
-		//  into a method and see if error handling
-		//  could be unified with the r.watch method
+		// TODO(#115478): see if this function could be turned into a method and see if error handling could be unified with the r.watch method
+		// 错误处理，划分各类场景
 		isErrorRetriableWithSideEffectsFn := func(err error) bool {
+			// Watch Error
 			if canRetry := isWatchErrorRetriable(err); canRetry {
 				klog.V(2).Infof("%s: watch-list of %v returned %v - backing off", r.name, r.typeDescription, err)
 				<-r.backoffManager.Backoff().C()
 				return true
 			}
 			if isExpiredError(err) || isTooLargeResourceVersionError(err) {
-				// we tried to re-establish a watch request but the provided RV
-				// has either expired or it is greater than the server knows about.
-				// In that case we reset the RV and
-				// try to get a consistent snapshot from the watch cache (case 1)
+				// we tried to re-establish a watch request but the provided RV has either expired or it is greater than the server knows about.
+				// In that case we reset the RV and try to get a consistent snapshot from the watch cache (case 1)
+				// 我们试图重新建立一个 watch 请求，但是提供的 RV 已经过期或者比服务器知道的要大。在这种情况下，我们重置 RV 并尝试从 watch 缓存中获取一致的快照
+				// 设置了这个属性后，下一次 list 会从 etcd 中获取
 				r.setIsLastSyncResourceVersionUnavailable(true)
 				return true
 			}
 			return false
 		}
 
+		// trace 用于记录操作耗时，这里的逻辑是把超过10秒的步骤打印出来
 		initTrace := trace.New("Reflector WatchList", trace.Field{Key: "name", Value: r.name})
 		defer initTrace.LogIfLong(10 * time.Second)
 		for {
 			select {
+			// stopCh 收到消息，则直接返回
 			case <-stopCh:
 				return nil, nil
 			default:
 			}
 
 			resourceVersion = ""
+			// 查询 lastSyncResourceVersion，如果 isLastSyncResourceVersionUnavailable 为 true 则返回 ""
 			lastKnownRV := r.rewatchResourceVersion()
 			temporaryStore = NewStore(DeletionHandlingMetaNamespaceKeyFunc)
-			// TODO(#115478): large "list", slow clients, slow network, p&f
-			//  might slow down streaming and eventually fail.
-			//  maybe in such a case we should retry with an increased timeout?
+			// TODO(#115478): large "list", slow clients, slow network, p&f might slow down streaming and eventually fail. maybe in such a case we should retry with an increased timeout?
+			// 超时时间为 5-10 分钟
 			timeoutSeconds := int64(minWatchTimeout.Seconds() * (rand.Float64() + 1.0))
 			options := metav1.ListOptions{
 				ResourceVersion:      lastKnownRV,
+				// 用于降低apiserver压力，bookmark类型响应的对象主要只有 RV 信息
 				AllowWatchBookmarks:  true,
 				SendInitialEvents:    pointer.Bool(true),
 				ResourceVersionMatch: metav1.ResourceVersionMatchNotOlderThan,
+				// 如果超时没有接收到任何Event，则需要停止监听，避免阻塞
 				TimeoutSeconds:       &timeoutSeconds,
 			}
 			start := r.clock.Now()
 
+			// 调用 watch 开始监听
+			// client-go源码分析之ListerWatcher 215行
+			// Watch(options metav1.ListOptions) (watch.Interface, error)
 			w, err = r.listerWatcher.Watch(options)
 			if err != nil {
 				if isErrorRetriableWithSideEffectsFn(err) {
@@ -273,6 +281,7 @@ Reflector 的任务就是从 apiserver 监听(watch)特定类型的资源，拿�
 				return nil, err
 			}
 			bookmarkReceived := pointer.Bool(false)
+			// 核心逻辑
 			err = watchHandler(start, w, temporaryStore, r.expectedType, r.expectedGVK, r.name, r.typeDescription,
 				func(rv string) { resourceVersion = rv },
 				bookmarkReceived,
@@ -291,9 +300,12 @@ Reflector 的任务就是从 apiserver 监听(watch)特定类型的资源，拿�
 				break
 			}
 		}
-		// We successfully got initial state from watch-list confirmed by the
-		// "k8s.io/initial-events-end" bookmark.
+		// We successfully got initial state from watch-list confirmed by the "k8s.io/initial-events-end" bookmark.
+		//
+		// Step adds a new step with a specific message. Call this at the end of an execution step to record how long it took.
+		// The Fields add key value pairs to provide additional details about the trace step.
 		initTrace.Step("Objects streamed", trace.Field{Key: "count", Value: len(temporaryStore.List())})
+		// list 成功，设置 isLastSyncResourceVersionUnavailable 为 false
 		r.setIsLastSyncResourceVersionUnavailable(false)
 		if err = r.store.Replace(temporaryStore.List(), resourceVersion); err != nil {
 			return nil, fmt.Errorf("unable to sync watch-list result: %v", err)
@@ -314,8 +326,10 @@ Reflector 的任务就是从 apiserver 监听(watch)特定类型的资源，拿�
 	// the resource version can be used for further progress notification (aka. watch).
 	func (r *Reflector) list(stopCh <-chan struct{}) error {
 		var resourceVersion string
+		// relistResourceVersion 决定了 reflector 应该从哪个resource version 开始 list 或 relist
 		options := metav1.ListOptions{ResourceVersion: r.relistResourceVersion()}
 
+		// trace 用于记录操作耗时，这里的逻辑是把超过10秒的步骤打印出来
 		initTrace := trace.New("Reflector ListAndWatch", trace.Field{Key: "name", Value: r.name})
 		defer initTrace.LogIfLong(10 * time.Second)
 		var list runtime.Object
@@ -331,13 +345,17 @@ Reflector 的任务就是从 apiserver 监听(watch)特定类型的资源，拿�
 			}()
 			// Attempt to gather list in chunks, if supported by listerWatcher, if not, the first
 			// list request will return the full response.
+			// 开始尝试收集 list 的 chunks
 			pager := pager.New(pager.SimplePageFunc(func(opts metav1.ListOptions) (runtime.Object, error) {
+				// client-go源码分析之ListerWatcher 208行
+				// List(options metav1.ListOptions) (runtime.Object, error)
 				return r.listerWatcher.List(opts)
 			}))
 			switch {
 			case r.WatchListPageSize != 0:
 				pager.PageSize = r.WatchListPageSize
 			case r.paginatedResult:
+				// 我们最初得到一个分页的结果。假设该资源和服务器支持分页请求(即观察缓存可能被禁用)，并保留默认的分页大小设置。
 				// We got a paginated result initially. Assume this resource and server honor
 				// paging requests (i.e. watch cache is probably disabled) and leave the default
 				// pager size set.
@@ -366,6 +384,7 @@ Reflector 的任务就是从 apiserver 监听(watch)特定类型的资源，拿�
 				// resource version it is listing at is expired or the cache may not yet be synced to the provided
 				// resource version. So we need to fallback to resourceVersion="" in all to recover and ensure
 				// the reflector makes forward progress.
+				// ListWithAlloc的工作方式类似于List，但避免保留对p.PageFn返回的items slice的引用
 				list, paginatedResult, err = pager.ListWithAlloc(context.Background(), metav1.ListOptions{ResourceVersion: r.relistResourceVersion()})
 			}
 			close(listCh)
@@ -375,7 +394,7 @@ Reflector 的任务就是从 apiserver 监听(watch)特定类型的资源，拿�
 			return nil
 		case r := <-panicCh:
 			panic(r)
-		case <-listCh:
+		case <-listCh: // 等待上个 goroutine 跑完？
 		}
 		initTrace.Step("Objects listed", trace.Field{Key: "error", Value: err})
 		if err != nil {
@@ -404,6 +423,7 @@ Reflector 的任务就是从 apiserver 监听(watch)特定类型的资源，拿�
 		}
 		resourceVersion = listMetaInterface.GetResourceVersion()
 		initTrace.Step("Resource version extracted")
+		// 将 list 到的 item 添加到 store 中，这里的 store 也就是 DeltaFIFO，也即 添加一个 SyncDeltaType，不过这里的 resourceVersion 值并没有实际用到。
 		items, err := meta.ExtractListWithAlloc(list)
 		if err != nil {
 			return fmt.Errorf("unable to understand list result %#v (%v)", list, err)
@@ -427,13 +447,45 @@ Reflector 的任务就是从 apiserver 监听(watch)特定类型的资源，拿�
 		return r.store.Replace(found, resourceVersion)
 	}
 
-	// ResourceVersionUpdater is an interface that allows store implementation to
-	// track the current resource version of the reflector. This is especially
-	// important if storage bookmarks are enabled.
-	type ResourceVersionUpdater interface {
-		// UpdateResourceVersion is called each time current resource version of the reflector
-		// is updated.
-		UpdateResourceVersion(resourceVersion string)
+	// startResync periodically calls r.store.Resync() method.
+	// Note that this method is blocking and should be
+	// called in a separate goroutine.
+	func (r *Reflector) startResync(stopCh <-chan struct{}, cancelCh <-chan struct{}, resyncerrc chan error) {
+		resyncCh, cleanup := r.resyncChan()
+		defer func() {
+			cleanup() // Call the last one written into cleanup
+		}()
+		for {
+			select {
+			case <-resyncCh:
+			case <-stopCh:
+				return
+			case <-cancelCh:
+				return
+			}
+			if r.ShouldResync == nil || r.ShouldResync() {
+				klog.V(4).Infof("%s: forcing resync", r.name)
+				if err := r.store.Resync(); err != nil {
+					resyncerrc <- err
+					return
+				}
+			}
+			cleanup()
+			resyncCh, cleanup = r.resyncChan()
+		}
+	}
+
+	// resyncChan returns a channel which will receive something when a resync is required, and a cleanup function.
+	func (r *Reflector) resyncChan() (<-chan time.Time, func() bool) {
+		if r.resyncPeriod == 0 {
+			return neverExitWatch, func() bool { return false }
+		}
+		// The cleanup function is required: imagine the scenario where watches
+		// always fail so we end up listing frequently. Then, if we don't
+		// manually stop the timer, we could end up with many timers active
+		// concurrently.
+		t := r.clock.NewTimer(r.resyncPeriod)
+		return t.C(), t.Stop
 	}
 
 	// watch simply starts a watch request with the server.
@@ -513,34 +565,6 @@ Reflector 的任务就是从 apiserver 监听(watch)特定类型的资源，拿�
 		}
 	}
 
-	// startResync periodically calls r.store.Resync() method.
-	// Note that this method is blocking and should be
-	// called in a separate goroutine.
-	func (r *Reflector) startResync(stopCh <-chan struct{}, cancelCh <-chan struct{}, resyncerrc chan error) {
-		resyncCh, cleanup := r.resyncChan()
-		defer func() {
-			cleanup() // Call the last one written into cleanup
-		}()
-		for {
-			select {
-			case <-resyncCh:
-			case <-stopCh:
-				return
-			case <-cancelCh:
-				return
-			}
-			if r.ShouldResync == nil || r.ShouldResync() {
-				klog.V(4).Infof("%s: forcing resync", r.name)
-				if err := r.store.Resync(); err != nil {
-					resyncerrc <- err
-					return
-				}
-			}
-			cleanup()
-			resyncCh, cleanup = r.resyncChan()
-		}
-	}
-
 	// LastSyncResourceVersion is the resource version observed when last sync with the underlying store
 	// The value returned is not synchronized with access to the underlying store and is not thread-safe
 	func (r *Reflector) LastSyncResourceVersion() string {
@@ -560,6 +584,8 @@ Reflector 的任务就是从 apiserver 监听(watch)特定类型的资源，拿�
 	// versions no older than has already been observed in relist results or watch events, or, if the last relist resulted
 	// in an HTTP 410 (Gone) status code, returns "" so that the relist will use the latest resource version available in
 	// etcd via a quorum read.
+	// 当 r.isLastSyncResourceVersionUnavailable 为 true时，返回 ""；当 r.lastSyncResourceVersion 为 "" 时，返回 "0"
+	// 区别是 relistResourceVersion 为 "" 会直接请求到 etcd，获取一个新的版本；而 relistResourceVersion 为 "0"，则访问 cache
 	func (r *Reflector) relistResourceVersion() string {
 		r.lastSyncResourceVersionMutex.RLock()
 		defer r.lastSyncResourceVersionMutex.RUnlock()
@@ -588,6 +614,14 @@ Reflector 的任务就是从 apiserver 监听(watch)特定类型的资源，拿�
 			return ""
 		}
 		return r.lastSyncResourceVersion
+	}
+
+	// setIsLastSyncResourceVersionUnavailable sets if the last list or watch request with lastSyncResourceVersion returned
+	// "expired" or "too large resource version" error.
+	func (r *Reflector) setIsLastSyncResourceVersionUnavailable(isUnavailable bool) {
+		r.lastSyncResourceVersionMutex.Lock()
+		defer r.lastSyncResourceVersionMutex.Unlock()
+		r.isLastSyncResourceVersionUnavailable = isUnavailable
 	}
 
 	// setIsLastSyncResourceVersionUnavailable sets if the last list or watch request with lastSyncResourceVersion returned
@@ -637,14 +671,14 @@ Reflector 的任务就是从 apiserver 监听(watch)特定类型的资源，拿�
 		return false
 	}
 
-	// isWatchErrorRetriable determines if it is safe to retry
-	// a watch error retrieved from the server.
+	// isWatchErrorRetriable determines if it is safe to retry a watch error retrieved from the server.
 	func isWatchErrorRetriable(err error) bool {
 		// If this is "connection refused" error, it means that most likely apiserver is not responsive.
 		// It doesn't make sense to re-list all objects because most likely we will be able to restart
 		// watch where we ended.
 		// If that's the case begin exponentially backing off and resend watch request.
 		// Do the same for "429" errors.
+		// 此时直接 re-list 已经没有用了，apiserver 暂时拒绝服务
 		if utilnet.IsConnectionRefused(err) || apierrors.IsTooManyRequests(err) {
 			return true
 		}
@@ -654,19 +688,10 @@ Reflector 的任务就是从 apiserver 监听(watch)特定类型的资源，拿�
 
 ### 3. 核心方法 Reflector.watchHandler()
 
-- 下面是 `watchHander()` 方法的实现，同样在reflector.go中
+- 下面是 `watchHander()` 方法的实现，同样在 reflector.go 中
 	- 在`watchHandler()`方法中完成了将监听到的 Event(事件)根据其 EventType(事件类型)分别调用 `DeltaFIFO` 的 `Add()/Update()/Delete()`等方法，完成对象追加到 `DeltaFIFO` 队列的过程
 	- `watchHandler()` 方法的调用在一个for循环中，所以一轮调用 `watchHandler()`工作流程完成后函数退出，新一轮的调用会传递进来新的 `watch.Interface` 和 `resourceVersion` 等
 ```golang
-	// syncWith replaces the store's items with the given list.
-	func (r *Reflector) syncWith(items []runtime.Object, resourceVersion string) error {
-		found := make([]interface{}, 0, len(items))
-		for _, item := range items {
-			found = append(found, item)
-		}
-		return r.store.Replace(found, resourceVersion)
-	}
-
 	// watchHandler watches w and sets setLastSyncResourceVersion
 	func watchHandler(start time.Time,
 		w watch.Interface,
@@ -768,6 +793,15 @@ Reflector 的任务就是从 apiserver 监听(watch)特定类型的资源，拿�
 		}
 		klog.V(4).Infof("%s: Watch close - %v total %v items received", name, expectedTypeName, eventCount)
 		return nil
+	}
+
+	// ResourceVersionUpdater is an interface that allows store implementation to
+	// track the current resource version of the reflector. This is especially
+	// important if storage bookmarks are enabled.
+	type ResourceVersionUpdater interface {
+		// UpdateResourceVersion is called each time current resource version of the reflector
+		// is updated.
+		UpdateResourceVersion(resourceVersion string)
 	}
 ```
 
