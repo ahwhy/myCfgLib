@@ -152,11 +152,11 @@ Reflector 的任务就是从 apiserver 监听(watch)特定类型的资源，拿�
 ### 2. 核心方法 Reflector.ListAndWatch()
 
 - `Reflector.ListAndWatch()` 方法，是Reflector的核心逻辑之一
-	- `ListAndWatch()` 方法是先列出特定资源的所有对象，然后获取其资源版本，接着使用这个资源版本来开始监听流程
-		- `watchList()` 方法建立一个流，来获得一致性的数据快照
-		- `list()` 方法 lists 所有的 items，并且记录并调用 resource version
-	- 监听到新版本资源后，将其加入 DeltaFIFO 的动作是在 `watchHandler()` 方法中具体实现的
-	- 在此之前list(列选)到的最新元素会通过 `syncWith()` 方法添加一个 `Sync`类型的 `DeltaType` 到 `DeltaFIFO` 中，所以 list操作本身也会触发后面的调谐逻辑
+	- `ListAndWatch()` 方法是先列出特定资源的所有对象，然后获取其资源版本，接着使用这个资源版本来开始监听流程，监听到新版本资源后，通过`watchHandler()` 方法将其加入 DeltaFIFO中；具体的实现，细化分为了几个方法
+		- `watchList()` 方法，通过 `ENABLE_CLIENT_GO_WATCH_LIST_ALPHA` 变量，判断是否调用`watchList()` 方法，会与apiserver建立一个数据流，来获得一致性的数据，即向 apiserver 发起一个 watch请求，并 调用`watchHandler()` 方法
+		- `list()` 方法，如果没有 调用`watchList()` 方法，则调用 `list()` 方法，会 lists 所有的 items，并且记录并调用 resource version；而list(列选)到的最新元素会通过 `syncWith()` 方法添加一个 `Sync`类型的 `DeltaType` 到 `DeltaFIFO` 中，所以 list操作本身也会触发后面的调谐逻辑
+		- `startResync` 方法，会调用 `DeltaFIFO` 的 Replace 方法，即 `store.Replace`
+		- `watch()` 方法向 apiserver 发起一个 watch请求，并 调用`watchHandler()` 方法
 ```golang
 	// ListAndWatch first lists all items and get the resource version at the moment of call, and then use the resource version to watch.
 	// It returns error if ListAndWatch didn't even try to initialize watch.
@@ -534,6 +534,7 @@ Reflector 的任务就是从 apiserver 监听(watch)特定类型的资源，拿�
 
 			err = watchHandler(start, w, r.store, r.expectedType, r.expectedGVK, r.name, r.typeDescription, r.setLastSyncResourceVersion, nil, r.clock, resyncerrc, stopCh)
 			// Ensure that watch will not be reused across iterations.
+			// 确保监视不会在迭代中重用，新一轮的调用会传递新的 watch.Interface
 			w.Stop()
 			w = nil
 			retry.After(err)
@@ -720,19 +721,25 @@ Reflector 的任务就是从 apiserver 监听(watch)特定类型的资源，拿�
 				return errorStopRequested
 			case err := <-errc:
 				return err
+			// 接收 event 事件
 			case event, ok := <-w.ResultChan():
 				if !ok {
+					// 失败，则跳回 loop
 					break loop
 				}
+				// 如果是 Error 
 				if event.Type == watch.Error {
 					return apierrors.FromObject(event.Object)
 				}
+				// 创建 Reflector 时，会指定一个 expectedType
 				if expectedType != nil {
+					// 类型不匹配
 					if e, a := expectedType, reflect.TypeOf(event.Object); e != a {
 						utilruntime.HandleError(fmt.Errorf("%s: expected type %v, but watch event object had type %v", name, e, a))
 						continue
 					}
 				}
+				// 没有对应GO语言结构体的对象，可以通过这种方式来指定期望类型
 				if expectedGVK != nil {
 					if e, a := *expectedGVK, event.Object.GetObjectKind().GroupVersionKind(); e != a {
 						utilruntime.HandleError(fmt.Errorf("%s: expected gvk %v, but watch event object had gvk %v", name, e, a))
@@ -744,7 +751,9 @@ Reflector 的任务就是从 apiserver 监听(watch)特定类型的资源，拿�
 					utilruntime.HandleError(fmt.Errorf("%s: unable to understand watch event %#v", name, event))
 					continue
 				}
+				// 新的 ResourceVersion
 				resourceVersion := meta.GetResourceVersion()
+				// 调用 DeltaFIFO 的 Add/Update/Delete 等方法完成不同类型 Event的处理
 				switch event.Type {
 				case watch.Added:
 					err := store.Add(event.Object)
@@ -774,6 +783,7 @@ Reflector 的任务就是从 apiserver 监听(watch)特定类型的资源，拿�
 				default:
 					utilruntime.HandleError(fmt.Errorf("%s: unable to understand watch event %#v", name, event))
 				}
+				// 更新 resourceVersion
 				setLastSyncResourceVersion(resourceVersion)
 				if rvu, ok := store.(ResourceVersionUpdater); ok {
 					rvu.UpdateResourceVersion(resourceVersion)
@@ -787,7 +797,9 @@ Reflector 的任务就是从 apiserver 监听(watch)特定类型的资源，拿�
 			}
 		}
 
+		// 耗时
 		watchDuration := clock.Since(start)
+		// 耗时小于 1s，并且没有收到 event，异常情况
 		if watchDuration < 1*time.Second && eventCount == 0 {
 			return fmt.Errorf("very short watch: %s: Unexpected watch close - watch lasted less than a second and no items received", name)
 		}
@@ -807,7 +819,7 @@ Reflector 的任务就是从 apiserver 监听(watch)特定类型的资源，拿�
 
 ### 4. Reflector的初始化
 
-`NewReflector()` 的参数中有一个 `ListerWatcher`类型的 lw，还有一个 `expectedType` 和 `store`，lw 就是在 `ListerWatcher`，`expectedType` 指定期望关注的类型，而 `store` 是一个 `DeltaFIFO` ，加在一起大致可以预想到 `Reflector` 通过 `ListWatcher` 提供的能力去list-watch apiserver，然后完成将 `Event` 加到 `DeltaFIFO` 中
+`NewReflector()` 的参数中有一个 `ListerWatcher`类型的 lw，还有一个 `expectedType` 和 `store`，lw 就是在 `ListerWatcher`，`expectedType` 指定期望关注的类型，而 `store` 是一个 `DeltaFIFO`。加在一起就是 `Reflector` 通过 `ListWatcher` 提供的能力去list-watch apiserver，然后完成将 `Event` 加到 `DeltaFIFO` 中
 ```golang
 	// NewNamespaceKeyedIndexerAndReflector creates an Indexer and a Reflector
 	// The indexer is configured to key on namespace
@@ -875,6 +887,7 @@ Reflector 的任务就是从 apiserver 监听(watch)特定类型的资源，拿�
 			// We used to make the call every 1sec (1 QPS), the goal here is to achieve ~98% traffic reduction when
 			// API server is not healthy. With these parameters, backoff will stop at [30,60) sec interval which is
 			// 0.22 QPS. If we don't backoff for 2min, assume API server is healthy and we reset the backoff.
+			// 重试机制，退避算法，可以有效降低 apiserver 的负载，也就是重试间隔会越来越长
 			backoffManager:    wait.NewExponentialBackoffManager(800*time.Millisecond, 30*time.Second, 2*time.Minute, 2.0, 1.0, reflectorClock),
 			clock:             reflectorClock,
 			watchErrorHandler: WatchErrorHandler(DefaultWatchErrorHandler),
@@ -938,15 +951,6 @@ Reflector 的任务就是从 apiserver 监听(watch)特定类型的资源，拿�
 	// call chains to NewReflector, so they'd be low entropy names for reflectors
 	var internalPackages = []string{"client-go/tools/cache/"}
 
-	// ResourceVersionUpdater is an interface that allows store implementation to
-	// track the current resource version of the reflector. This is especially
-	// important if storage bookmarks are enabled.
-	type ResourceVersionUpdater interface {
-		// UpdateResourceVersion is called each time current resource version of the reflector
-		// is updated.
-		UpdateResourceVersion(resourceVersion string)
-	}
-
 	// The WatchErrorHandler is called whenever ListAndWatch drops the
 	// connection with an error. After calling this handler, the informer
 	// will backoff and retry.
@@ -981,6 +985,6 @@ Reflector 的任务就是从 apiserver 监听(watch)特定类型的资源，拿�
 
 `Reflector` 的职责很清晰，要做的事情是保持 `DeltaFIFO` 中的 `items` 持续更新，具体实现是通过 `ListerWatcher` 提供的 list-watch(列选-监听)能力来列选指定类型的资源，这时会产生一系列Sync事件，然后通过列选到的 `ResourceVersion` 来开启监听过程，而监听到新的事件后，会和前面提到的Sync事件一样，都通过 `DeltaFIFO` 提供的方法构造相应的 `DeltaType` 添加到 `DeltaFIFO` 中。
 
-当然，前面提到的更新也并不是直接修改 `DeltaFIFO` 中已经存在的元素，而是添加一个新的 `DeltaType` `到队列中。另外，DeltaFIFO` 中添加新 `DeltaType` 时也会有一定的去重机制。
+当然，前面提到的更新也并不是直接修改 `DeltaFIFO` 中已经存在的元素，而是添加一个新的 `DeltaType` 到队列中。另外，`DeltaFIFO` 中添加新 `DeltaType` 时也会有一定的去重机制。
 
 这里还有一个细节就是监听过程不是一劳永逸的，监听到新的事件后，会拿着对象的新 `ResourceVersion` 重新开启一轮新的监听过程。当然，这里的watch调用也有超时机制，一系列的健壮性措施，所以脱离 `Reflector`(Informer) 直接使用list-watch还是很难直接写出一套健壮的代码逻辑。
