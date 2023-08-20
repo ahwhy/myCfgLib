@@ -1,4 +1,4 @@
-# client-go 源码分析之 workqueue
+# client-go 源码分析之 WorkQueue
 
 ## 一、Client-go 源码分析
 
@@ -25,7 +25,7 @@ client-go项目 是与 kube-apiserver 通信的 clients 的具体实现，其中
   + Resource Event Handlers：一般在 Resource Event Handlers 中添加一些简单的过滤功能，判断哪些对象需要加到WorkQueue中进一步处理，对于需要加到WorkQueue中的对象，就提取其key，然后入队。
   + Worker：Worker指的是我们自己的业务代码处理过程，在这里可以直接收到WorkQueue中的任务，可以通过Indexer从本地缓存检索对象，通过ClientSet实现对象的增、删、改、查逻辑。
 
-## 二、Client-go workqueue
+## 二、Client-go WorkQueue
 
 WorkQueue一般使用延时队列来实现，在 Resource Event Handlers 中会完成将对象的key放入WorkQueue的过程，然后在自己的逻辑代码里从WorkQueue中消费这些key。
 
