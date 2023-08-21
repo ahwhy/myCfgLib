@@ -24,7 +24,7 @@ client-go项目 是与 kube-apiserver 通信的 clients 的具体实现，其中
 
 ## 二、Client-go Informer
 
-Informer 这个词的出镜率很高，与 Reflector、WorkQueue等组件不同，Informer相对来说更加模糊，在很多文章中都可以看到 Informer 的身影，在源码中真的去找一个叫作Informer的对象，却又发现找不到一个单纯的Informer，但是有很多结构体或者接口中包含Informer这个词。
+Informer 这个词的出镜率很高，与 `Reflector`、`WorkQueue` 等组件不同，`Informer` 相对来说更加模糊，在很多文章中都可以看到 Informer 的身影，在源码中真的去找一个叫作Informer的对象，却又发现找不到一个单纯的Informer，但是有很多结构体或者接口中包含Informer这个词。
 
 在一开始提到过Informer从DeltaFIFO中Pop相应的对象，然后通过Indexer将对象和索引丢到本地cache中，再触发相应的事件处理函数（Resource Event Handlers）的运行。接下来通过源码，重新来梳理一下整个过程。
 
@@ -32,71 +32,243 @@ Informer 这个词的出镜率很高，与 Reflector、WorkQueue等组件不同�
 
 **a. Controller结构体与Controller接口**
 
-Informer通过一个Controller对象来定义，本身结构很简单，在k8s.io/client-go/tools/cache包中的controller.go源文件中可以看到
+Informer通过一个Controller对象来定义，本身结构很简单，在 `k8s.io/client-go/tools/cache`包中的 controller.go源文件中可以看到：
+```golang
+	// Controller的定义
+	// `*controller` implements Controller
+	type controller struct {
+		config         Config
+		reflector      *Reflector
+		reflectorMutex sync.RWMutex
+		clock          clock.Clock
+	}
+```
+这里有熟悉的 Reflector ，可以猜到 `Informer` 启动时会去运行 `Reflector` ，从而通过 `Reflector` 实现 list-watch apiserver，更新"事件"到 `DeltaFIFO` 中用于进一步处理
 
-Controller的定义：
-这里有我们熟悉的Reflector，可以猜到Informer启动时会去运行Reflector，从而通过Reflector实现list-watch apiserver，更新“事件”到DeltaFIFO中用于进一步处理。我们继续了解controller对应的Controller接口：
-这里的核心方法很明显是Run(stopCh<-chan struct{})，Run负责两件事情：
-1）构造Reflector利用ListerWatcher的能力将对象事件更新到DeltaFIFO。
-2）从DeltaFIFO中Pop对象后调用ProcessFunc来处理。
+继续看下controller对应的Controller接口：
+```golang
+	// Controller is a low-level controller that is parameterized by a
+	// Config and used in sharedIndexInformer.
+	type Controller interface {
+		// Run does two things.  One is to construct and run a Reflector
+		// to pump objects/notifications from the Config's ListerWatcher
+		// to the Config's Queue and possibly invoke the occasional Resync
+		// on that Queue.  The other is to repeatedly Pop from the Queue
+		// and process with the Config's ProcessFunc.  Both of these
+		// continue until `stopCh` is closed.
+		Run(stopCh <-chan struct{})
 
-2.Controller的初始化
-同样，在controller.go文件中有如下代码：
-这里没有太多的逻辑，主要是传递了一个Config进来，可以猜到核心逻辑是Config从何而来以及后面如何使用。我们先向上跟踪Config从哪里来，New()的调用有几个地方，我们不去看newInformer()分支的代码，因为实际开发中主要是使用SharedIndexInformer，两个入口初始化Controller的逻辑类似，直接跟踪更实用的一个分支，查看func (s *sharedIndexInformer) Run(stopCh<-chan struct{})方法中如何调用New()，代码位于shared_informer.go中：
-这里只保留了主要代码，后面会分析SharedIndexInformer，所以先不纠结SharedIndexInformer的细节，我们从这里可以看到SharedIndexInformer的Run()过程中会构造一个Config，然后创建Controller，最后调用Controller的Run()方法。另外，这里也可以看到前面分析过的DeltaFIFO、ListerWatcher等，其中的Process:s.HandleDeltas这一行也比较重要，Process属性的类型是ProcessFunc，可以看到具体的ProcessFunc是HandleDeltas方法。
+		// HasSynced delegates to the Config's Queue
+		HasSynced() bool
 
-3.Controller的启动
+		// LastSyncResourceVersion delegates to the Reflector when there
+		// is one, otherwise returns the empty string
+		LastSyncResourceVersion() string
+	}
+```
+这里的核心方法很明显是`Run(stopCh<-chan struct{})`，Run负责两件事情
 
-上面提到Controller的初始化本身没有太多的逻辑，主要是构造了一个Config对象传递进来，所以Controller启动时肯定会有这个Config的使用逻辑。我们回到controller.go文件具体查看：
-这里的代码逻辑很简单，构造Reflector后运行起来，然后执行c.processLoop，显然Controller的业务逻辑隐藏在processLoop方法中。我们继续来看processLoop的代码逻辑。4.processLoop
-这里的代码逻辑是从DeltaFIFO中Pop出一个对象丢给PopProcessFunc处理，如果失败了就re-enqueue到DeltaFIFO中。我们前面提到过这里的PopProcessFunc由HandleDeltas()方法来实现，所以这里的主要逻辑就转到了HandleDeltas()是如何实现的。5.HandleDeltas()
-如果大家记不清DeltaFIFO的存储结构，可以回到前面相关章节看一下DeltaFIFO的结构图，然后回到这里查看源码。代码位于shared_informer.go文件中：
-代码逻辑都落在processDeltas()函数的调用上，我们继续看下面的代码：
+  1）构造Reflector利用ListerWatcher的能力将对象事件更新到DeltaFIFO。
+
+  2）从DeltaFIFO中Pop对象后调用ProcessFunc来处理。
+
+
+**b. Controller的初始化**
+
+在controller.go文件中有如下代码：
+```golang
+	// New makes a new Controller from the given Config.
+	func New(c *Config) Controller {
+		ctlr := &controller{
+			config: *c,
+			clock:  &clock.RealClock{},
+		}
+		return ctlr
+	}
+```
+这里主要是传递了一个 `Config` 进来，核心逻辑便是 `Config` 从何而来以及后面要如何使用。
+
+然后，先不关注 `NewInformer()` 的代码，实际开发中主要是使用 `SharedIndexInformer`，这两个入口初始化Controller的逻辑类似。
+直接跟踪更实用的一个分支，查看 `func (s *sharedIndexInformer) Run(stopCh<-chan struct{})` 方法中如何调用 `New()`，代码位于shared_informer.go中：
+```golang
+	func (s *sharedIndexInformer) Run(stopCh <-chan struct{}) {
+		defer utilruntime.HandleCrash()
+
+		if s.HasStarted() {
+			klog.Warningf("The sharedIndexInformer has started, run more than once is not allowed")
+			return
+		}
+
+		func() {
+			s.startedLock.Lock()
+			defer s.startedLock.Unlock()
+
+			fifo := NewDeltaFIFOWithOptions(DeltaFIFOOptions{
+				KnownObjects:          s.indexer,
+				EmitDeltaTypeReplaced: true,
+				Transformer:           s.transform,
+			})
+
+			cfg := &Config{
+				Queue:             fifo,
+				ListerWatcher:     s.listerWatcher,
+				ObjectType:        s.objectType,
+				ObjectDescription: s.objectDescription,
+				FullResyncPeriod:  s.resyncCheckPeriod,
+				RetryOnError:      false,
+				ShouldResync:      s.processor.shouldResync,
+
+				Process:           s.HandleDeltas,
+				WatchErrorHandler: s.watchErrorHandler,
+			}
+
+			s.controller = New(cfg)
+			s.controller.(*controller).clock = s.clock
+			s.started = true
+		}()
+
+		// Separate stop channel because Processor should be stopped strictly after controller
+		processorStopCh := make(chan struct{})
+		var wg wait.Group
+		defer wg.Wait()              // Wait for Processor to stop
+		defer close(processorStopCh) // Tell Processor to stop
+		wg.StartWithChannel(processorStopCh, s.cacheMutationDetector.Run)
+		wg.StartWithChannel(processorStopCh, s.processor.run)
+
+		defer func() {
+			s.startedLock.Lock()
+			defer s.startedLock.Unlock()
+			s.stopped = true // Don't want any new listeners
+		}()
+		s.controller.Run(stopCh)
+	}
+```
+从这里可以看到 `SharedIndexInformer` 的 `Run()` 过程中会构造一个 `Config`，然后创建 `Controller`，最后调用 `Controller` 的 `Run()`方法。
+
+另外，这里也可以看到前面分析过的DeltaFIFO、ListerWatcher等，其中的Process:s.HandleDeltas这一行也比较重要，Process属性的类型是ProcessFunc，可以看到具体的ProcessFunc是HandleDeltas方法。
+
+
+**c. Controller的启动**
+
+上面提到 `Controller` 的初始化本身没有太多的逻辑，主要是构造了一个 `Config` 对象传递进来，所以 `Controller` 启动时肯定会有这个 `Config` 的使用逻，回到controller.go文件继续查看：
+```golang
+	// Run begins processing items, and will continue until a value is sent down stopCh or it is closed.
+	// It's an error to call Run more than once.
+	// Run blocks; call via go.
+	func (c *controller) Run(stopCh <-chan struct{}) {
+		defer utilruntime.HandleCrash()
+		go func() {
+			<-stopCh
+			c.config.Queue.Close()
+		}()
+		r := NewReflectorWithOptions(
+			c.config.ListerWatcher,
+			c.config.ObjectType,
+			c.config.Queue,
+			ReflectorOptions{
+				ResyncPeriod:    c.config.FullResyncPeriod,
+				TypeDescription: c.config.ObjectDescription,
+				Clock:           c.clock,
+			},
+		)
+		r.ShouldResync = c.config.ShouldResync
+		r.WatchListPageSize = c.config.WatchListPageSize
+		if c.config.WatchErrorHandler != nil {
+			r.watchErrorHandler = c.config.WatchErrorHandler
+		}
+
+		c.reflectorMutex.Lock()
+		c.reflector = r
+		c.reflectorMutex.Unlock()
+
+		var wg wait.Group
+
+		wg.StartWithChannel(stopCh, r.Run)
+
+		wait.Until(c.processLoop, time.Second, stopCh)
+		wg.Wait()
+	}
+```
+这里的代码逻辑很简单，构造 `Reflector` 后运行起来，然后执行 `c.processLoop`，显然 `Controller` 的业务逻辑隐藏在 processLoop方法中。
+
+
+**d. processLoop**
+
+这里的代码逻辑是从 `DeltaFIFO` 中Pop出一个对象丢给 `PopProcessFunc` 处理，如果失败了就 re-enqueue 到 `DeltaFIFO` 中。前面提到过这里的 `PopProcessFunc` 由 `HandleDeltas()` 方法来实现，所以这里的主要逻辑就转到了 `HandleDeltas()` 是如何实现的。
+```golang
+	// processLoop drains the work queue.
+	// TODO: Consider doing the processing in parallel. This will require a little thought
+	// to make sure that we don't end up processing the same object multiple times
+	// concurrently.
+	//
+	// TODO: Plumb through the stopCh here (and down to the queue) so that this can
+	// actually exit when the controller is stopped. Or just give up on this stuff
+	// ever being stoppable. Converting this whole package to use Context would
+	// also be helpful.
+	func (c *controller) processLoop() {
+		for {
+			obj, err := c.config.Queue.Pop(PopProcessFunc(c.config.Process))
+			if err != nil {
+				if err == ErrFIFOClosed {
+					return
+				}
+				if c.config.RetryOnError {
+					// This is the safe way to re-enqueue.
+					c.config.Queue.AddIfNotPresent(obj)
+				}
+			}
+		}
+	}
+```
+
+**e. HandleDeltas()**
+
+`HandleDeltas()` 代码逻辑都落在 `processDeltas() `函数的调用上，位于shared_informer.go文件中：
+```golang
+	func (s *sharedIndexInformer) HandleDeltas(obj interface{}, isInInitialList bool) error {
+		s.blockDeltas.Lock()
+		defer s.blockDeltas.Unlock()
+
+		if deltas, ok := obj.(Deltas); ok {
+			return processDeltas(s, s.indexer, deltas, isInInitialList)
+		}
+		return errors.New("object given as Process argument is not Deltas")
+	}
+
+	// Multiplexes updates in the form of a list of Deltas into a Store, and informs
+	// a given handler of events OnUpdate, OnAdd, OnDelete
+	func processDeltas(
+		// Object which receives event notifications from the given deltas
+		handler ResourceEventHandler,
+		clientState Store,
+		deltas Deltas,
+		isInInitialList bool,
+	) error {
+		// from oldest to newest
+		for _, d := range deltas {
+			obj := d.Object
+
+			switch d.Type {
+			case Sync, Replaced, Added, Updated:
+				if old, exists, err := clientState.Get(obj); err == nil && exists {
+					if err := clientState.Update(obj); err != nil {
+						return err
+					}
+					handler.OnUpdate(old, obj)
+				} else {
+					if err := clientState.Add(obj); err != nil {
+						return err
+					}
+					handler.OnAdd(obj, isInInitialList)
+				}
+			case Deleted:
+				if err := clientState.Delete(obj); err != nil {
+					return err
+				}
+				handler.OnDelete(obj)
+			}
+		}
+		return nil
+	}
+```
 这里的代码逻辑主要是遍历一个Deltas中的所有Delta，然后根据Delta的类型来决定如何操作Indexer，也就是更新本地cache，同时分发相应的通知。
-
-### 2. SharedIndexInformer对象
-
-1.SharedIndexInformer是什么
-在Operator开发中，如果不使用controller-runtime库，也就是不通过Kubebuilder等工具来生成脚手架，经常会用到SharedInformerFactory，比如典型的sample-controller中的main()函数：
-这里可以看到我们依赖于kubeInformerFactory.Apps().V1().Deployments()提供一个Informer，其中的Deployments()方法返回的是DeploymentInformer类型，DeploymentInformer又是什么呢？我们继续往下看，在client-go的informers/apps/v1包的deployment.go文件中有相关定义：
-可以看到所谓的DeploymentInformer是由Informer和Lister组成的，也就是说平时编码时用到的Informer本质就是一个SharedIndexInformer。
-
-杨傲
-2.SharedIndexInformer接口的定义
-回到shared_informer.go文件中，可以看到SharedIndexInformer接口的定义：
-这里的Indexer就很熟悉了，SharedInformer又是什么呢？我们继续往下看：3.sharedIndexInformer结构体的定义
-继续来看SharedIndexInformer接口的实现sharedIndexerInformer是如何定义的，同样在shared_informer.go文件中查看代码：
-这里的Indexer、Controller、ListerWatcher等都是熟悉的组件，sharedProcessor在前面已经遇到过，这也是一个需要关注的重点逻辑，5.7.3节专门来分析sharedProcessor的实现逻辑。4.sharedIndexInformer的启动
-继续来看sharedIndexInformer的Run()方法，其代码在shared_informer.go文件中，这里除了将在5.7.3节介绍的sharedProcessor外，几乎已经没有陌生的内容了：
-
-### 3. sharedProcessor对象
-sharedProcessor中维护了processorListener集合，然后分发通知对象到listeners，先研究结构定义，其代码在shared_informer.go中：
-这里可以看到一个processorListener类型，下面看一下这个类型是怎么定义的：
-可以看到processorListener中有一个ResourceEventHandler，这是我们认识的组件。processorListener有三个主要方法：
-·run()。
-·add(notification interface{})。
-·pop()。
-我们逐一来看这三个方法的实现：
-
-
-### 4. 关于SharedInformerFactory
-SharedInformerFactory是在开发Operator的过程中经常会接触到的一个比较高层的抽象对象，接下来开始详细分析这个对象的源码。SharedInformerFactory定义在k8s.io/client-go/tools/cache包下。下文在不做特殊说明的情况下，提到的所有源文件都指的是这个包内的源文件。1.SharedInformerFactory的定义
-SharedInformerFactory接口定义在factory.go文件中：
-这里可以看到一个internalinterfaces.SharedInformerFactory接口，我们看一下这个接口的定义，代码在internalinterfaces/factory_interfaces.go中：
-这里可以看到熟悉的SharedIndexInformer。
-然后了解ForResource(resource schema.GroupVersionResource) (GenericInformer,error)这行代码的逻辑，这里接收一个GVR，返回了一个GenericInformer。什么是GenericInformer呢？我们在generic.go中可以看到相应的定义：
-接着看SharedInformerFactory接口剩下的一大堆相似的方法，我们以Apps() apps.Interface为例，这个Interface定义在apps/interface.go中：
-这时大家的关注点肯定是这里的v1.Interface类型是怎么定义的，继续到apps/v1/interface.go文件中查看：
-到这里已经有看着很眼熟的Deployments() DeploymentInformer之类的代码了，前面看过DeploymentInformer的定义：
-现在也就不难理解SharedInformerFactory的作用了，它提供了所有API group-version的资源对应的SharedIndexInformer，也就不难理解前面引用的sample-controller中的这行代码：
-通过其可以拿到一个Deployment资源对应的SharedIndexInformer。2.SharedInformerFactory的初始化
-继续来看SharedInformerFactory的New()逻辑，其代码在factory.go中：
-可以看到参数非常简单，主要是需要一个ClientSet，毕竟ListerWatcher的能力本质还是client提供的。继续来看这里调用的NewSharedInformerFactoryWithOptions()函数：
-杨傲
-3.SharedInformerFactory的启动过程
-最后查看SharedInformerFactory是如何启动的，Start()方法同样位于factory.go源文件中：
-
-### 5. 小结
-我们从一个基础Informer-Controller开始介绍，先分析了Controller的能力，其通过构造Reflector并启动从而能够获取指定类型资源的“更新”事件，然后通过事件构造Delta放到DeltaFIFO中，进而在processLoop中从DeltaFIFO里pop Deltas来处理，一方面将对象通过Indexer同步到本地cache（也就是一个ThreadSafeStore），另一方面调用ProcessFunc来处理这些Delta。
-然后SharedIndexInformer提供了构造Controller的能力，通过HandleDeltas()方法实现上面提到的ProcessFunc，同时还引入了sharedProcessor在HandleDeltas()中用于事件通知的处理。sharedProcessor分发事件通知时，接收方是内部继续抽象出来的processorListener，在processorListener中完成了ResourceEventHandler回调函数的具体调用。
-最后SharedInformerFactory又进一步封装了提供所有API资源对应的SharedIndexInformer的能力。也就是说一个SharedIndexInformer可以处理一种类型的资源，比如Deployment或者Pod等，而通过SharedInformerFactory可以轻松构造任意已知类型的SharedIndexInformer。另外，这里用到了ClientSet提供的访问所有API资源的能力，通过它也就能够完整实现整套Informer程序逻辑了。
