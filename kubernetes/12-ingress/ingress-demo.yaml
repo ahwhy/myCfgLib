@@ -25,6 +25,13 @@ spec:
         backend:
           serviceName: bar-svc
           servicePort: 8080
+  # https://kubernetes.github.io/ingress-nginx/user-guide/cli-arguments/
+  # --metrics-per-host=false 开启 defaultBackend 指标监控
+  defaultBackend:
+    service:
+      name: demoapp
+      port: 
+        number: 80
   tls:
   - hosts:
     - www.ik8s.io

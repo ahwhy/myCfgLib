@@ -14,9 +14,68 @@ spec:
         app: demoapp
         release: stable
     spec:
+      initContainers:
+      - name: init-sysctl
+        image: 'registry-vpc.cn-hangzhou.aliyuncs.com/acs/busybox:v1.29.2'
+        command:
+          - /bin/sh
+          - '-c'
+          - |
+            mount -o remount rw /proc/sys
+            sudo sysctl -w net.netfilter.nf_conntrack_max=1503232
+            sudo sysctl -w net.netfilter.nf_conntrack_buckets=375808
+            sudo sysctl -w net.netfilter.nf_conntrack_tcp_timeout_time_wait=60
+        resources: {}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          capabilities:
+            add:
+              - SYS_ADMIN
+          allowPrivilegeEscalation: true
       containers:
       - name: demoapp
         image: ikubernetes/demoapp:${VERSION}
+        ports:
+        - containerPort: 80
+          name: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: demoapp-deploy
+spec:
+  selector:
+    app: demoapp
+    release: stable
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
+
+
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deployment-demo
+spec:
+  replicas: 4
+  selector:
+    matchLabels:
+      app: demoapp
+      release: stable
+  template:
+    metadata:
+      labels:
+        app: demoapp
+        release: stable
+    spec:
+
+      containers:
+      - name: demoapp
+        image: ikubernetes/demoapp:v1.0
         ports:
         - containerPort: 80
           name: http
