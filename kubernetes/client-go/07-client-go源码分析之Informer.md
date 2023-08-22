@@ -161,6 +161,7 @@ Informer通过一个Controller对象来定义，本身结构很简单，在 `k8s
 			<-stopCh
 			c.config.Queue.Close()
 		}()
+		// 利用 Config 中的配置构造 Reflector
 		r := NewReflectorWithOptions(
 			c.config.ListerWatcher,
 			c.config.ObjectType,
@@ -183,8 +184,10 @@ Informer通过一个Controller对象来定义，本身结构很简单，在 `k8s
 
 		var wg wait.Group
 
+		// 启动 Reflector
 		wg.StartWithChannel(stopCh, r.Run)
 
+		// 执行 Controller 的 processLoop
 		wait.Until(c.processLoop, time.Second, stopCh)
 		wg.Wait()
 	}
@@ -245,30 +248,437 @@ Informer通过一个Controller对象来定义，本身结构很简单，在 `k8s
 		isInInitialList bool,
 	) error {
 		// from oldest to newest
+		// 对于每个 Deltas 来说，其中保存了很多 Delta，也就是对应不同类型的多个对象，这里的遍历会从旧往新里走
 		for _, d := range deltas {
 			obj := d.Object
 
 			switch d.Type {
+			// 除了 Deleted 外的所有情况
 			case Sync, Replaced, Added, Updated:
 				if old, exists, err := clientState.Get(obj); err == nil && exists {
+					// 通过 indexer 从 cache 中查询当前 Object，如果存在则更新 indexer 中的对象
 					if err := clientState.Update(obj); err != nil {
 						return err
 					}
+					// 调用 ResourceEventHandler 的 OnUpdate()
 					handler.OnUpdate(old, obj)
 				} else {
+					// 将对象添加到 indexer 中
 					if err := clientState.Add(obj); err != nil {
 						return err
 					}
+					// 调用 ResourceEventHandler 的 OnAdd()
 					handler.OnAdd(obj, isInInitialList)
 				}
 			case Deleted:
+				// 如果是删除操作，则从 indexer 中删除这个对象
 				if err := clientState.Delete(obj); err != nil {
 					return err
 				}
+				// 调用 ResourceEventHandler 的 OnDelete()
 				handler.OnDelete(obj)
 			}
 		}
 		return nil
 	}
 ```
-这里的代码逻辑主要是遍历一个Deltas中的所有Delta，然后根据Delta的类型来决定如何操作Indexer，也就是更新本地cache，同时分发相应的通知。
+这里的代码逻辑主要是遍历一个 `Deltas` 中的所有 `Delta`，然后根据 `Delta` 的类型来决定如何操作 `Indexer` ，也就是更新本地cache，同时分发相应的通知。
+
+
+### 2. SharedIndexInformer对象
+
+**a. 1.SharedIndexInformer是什么**
+
+在 Operator 开发中，如果不使用 controller-runtime库，也就是不通过 Kubebuilder 等工具来生成脚手架，就经常会用到 `SharedInformerFactory`。
+
+在 client-go 的 `informers/apps/v1`包的deployment.go文件中有 `DeploymentInformer` 类型的相关定义：
+```golang
+	// DeploymentInformer provides access to a shared informer and lister for
+	// Deployments.
+	type DeploymentInformer interface {
+		Informer() cache.SharedIndexInformer
+		Lister() v1.DeploymentLister
+	}
+```
+这里可以看到 `DeploymentInformer` 是由 `Informer` 和 `Lister` 组成的。
+
+
+**b. SharedIndexInformer接口的定义**
+
+回到 tools/cache/shared_informer.go 文件中，可以看到 `SharedIndexInformer`接口的定义：
+```golang
+	// SharedIndexInformer provides add and get Indexers ability based on SharedInformer.
+	type SharedIndexInformer interface {
+		SharedInformer
+		// AddIndexers add indexers to the informer before it starts.
+		AddIndexers(indexers Indexers) error
+		GetIndexer() Indexer
+	}
+
+	// SharedInformer provides eventually consistent linkage of its
+	// clients to the authoritative state of a given collection of
+	// objects.  An object is identified by its API group, kind/resource,
+	// namespace (if any), and name; the `ObjectMeta.UID` is not part of
+	// an object's ID as far as this contract is concerned.  One
+	// SharedInformer provides linkage to objects of a particular API
+	// group and kind/resource.  The linked object collection of a
+	// SharedInformer may be further restricted to one namespace (if
+	// applicable) and/or by label selector and/or field selector.
+	//
+	// The authoritative state of an object is what apiservers provide
+	// access to, and an object goes through a strict sequence of states.
+	// An object state is either (1) present with a ResourceVersion and
+	// other appropriate content or (2) "absent".
+	//
+	// A SharedInformer maintains a local cache --- exposed by GetStore(),
+	// by GetIndexer() in the case of an indexed informer, and possibly by
+	// machinery involved in creating and/or accessing the informer --- of
+	// the state of each relevant object.  This cache is eventually
+	// consistent with the authoritative state.  This means that, unless
+	// prevented by persistent communication problems, if ever a
+	// particular object ID X is authoritatively associated with a state S
+	// then for every SharedInformer I whose collection includes (X, S)
+	// eventually either (1) I's cache associates X with S or a later
+	// state of X, (2) I is stopped, or (3) the authoritative state
+	// service for X terminates.  To be formally complete, we say that the
+	// absent state meets any restriction by label selector or field
+	// selector.
+	//
+	// For a given informer and relevant object ID X, the sequence of
+	// states that appears in the informer's cache is a subsequence of the
+	// states authoritatively associated with X.  That is, some states
+	// might never appear in the cache but ordering among the appearing
+	// states is correct.  Note, however, that there is no promise about
+	// ordering between states seen for different objects.
+	//
+	// The local cache starts out empty, and gets populated and updated
+	// during `Run()`.
+	//
+	// As a simple example, if a collection of objects is henceforth
+	// unchanging, a SharedInformer is created that links to that
+	// collection, and that SharedInformer is `Run()` then that
+	// SharedInformer's cache eventually holds an exact copy of that
+	// collection (unless it is stopped too soon, the authoritative state
+	// service ends, or communication problems between the two
+	// persistently thwart achievement).
+	//
+	// As another simple example, if the local cache ever holds a
+	// non-absent state for some object ID and the object is eventually
+	// removed from the authoritative state then eventually the object is
+	// removed from the local cache (unless the SharedInformer is stopped
+	// too soon, the authoritative state service ends, or communication
+	// problems persistently thwart the desired result).
+	//
+	// The keys in the Store are of the form namespace/name for namespaced
+	// objects, and are simply the name for non-namespaced objects.
+	// Clients can use `MetaNamespaceKeyFunc(obj)` to extract the key for
+	// a given object, and `SplitMetaNamespaceKey(key)` to split a key
+	// into its constituent parts.
+	//
+	// Every query against the local cache is answered entirely from one
+	// snapshot of the cache's state.  Thus, the result of a `List` call
+	// will not contain two entries with the same namespace and name.
+	//
+	// A client is identified here by a ResourceEventHandler.  For every
+	// update to the SharedInformer's local cache and for every client
+	// added before `Run()`, eventually either the SharedInformer is
+	// stopped or the client is notified of the update.  A client added
+	// after `Run()` starts gets a startup batch of notifications of
+	// additions of the objects existing in the cache at the time that
+	// client was added; also, for every update to the SharedInformer's
+	// local cache after that client was added, eventually either the
+	// SharedInformer is stopped or that client is notified of that
+	// update.  Client notifications happen after the corresponding cache
+	// update and, in the case of a SharedIndexInformer, after the
+	// corresponding index updates.  It is possible that additional cache
+	// and index updates happen before such a prescribed notification.
+	// For a given SharedInformer and client, the notifications are
+	// delivered sequentially.  For a given SharedInformer, client, and
+	// object ID, the notifications are delivered in order.  Because
+	// `ObjectMeta.UID` has no role in identifying objects, it is possible
+	// that when (1) object O1 with ID (e.g. namespace and name) X and
+	// `ObjectMeta.UID` U1 in the SharedInformer's local cache is deleted
+	// and later (2) another object O2 with ID X and ObjectMeta.UID U2 is
+	// created the informer's clients are not notified of (1) and (2) but
+	// rather are notified only of an update from O1 to O2. Clients that
+	// need to detect such cases might do so by comparing the `ObjectMeta.UID`
+	// field of the old and the new object in the code that handles update
+	// notifications (i.e. `OnUpdate` method of ResourceEventHandler).
+	//
+	// A client must process each notification promptly; a SharedInformer
+	// is not engineered to deal well with a large backlog of
+	// notifications to deliver.  Lengthy processing should be passed off
+	// to something else, for example through a
+	// `client-go/util/workqueue`.
+	//
+	// A delete notification exposes the last locally known non-absent
+	// state, except that its ResourceVersion is replaced with a
+	// ResourceVersion in which the object is actually absent.
+	type SharedInformer interface {
+		// AddEventHandler adds an event handler to the shared informer using
+		// the shared informer's resync period.  Events to a single handler are
+		// delivered sequentially, but there is no coordination between
+		// different handlers.
+		// It returns a registration handle for the handler that can be used to
+		// remove the handler again, or to tell if the handler is synced (has
+		// seen every item in the initial list).
+		AddEventHandler(handler ResourceEventHandler) (ResourceEventHandlerRegistration, error)
+		// AddEventHandlerWithResyncPeriod adds an event handler to the
+		// shared informer with the requested resync period; zero means
+		// this handler does not care about resyncs.  The resync operation
+		// consists of delivering to the handler an update notification
+		// for every object in the informer's local cache; it does not add
+		// any interactions with the authoritative storage.  Some
+		// informers do no resyncs at all, not even for handlers added
+		// with a non-zero resyncPeriod.  For an informer that does
+		// resyncs, and for each handler that requests resyncs, that
+		// informer develops a nominal resync period that is no shorter
+		// than the requested period but may be longer.  The actual time
+		// between any two resyncs may be longer than the nominal period
+		// because the implementation takes time to do work and there may
+		// be competing load and scheduling noise.
+		// It returns a registration handle for the handler that can be used to remove
+		// the handler again and an error if the handler cannot be added.
+		AddEventHandlerWithResyncPeriod(handler ResourceEventHandler, resyncPeriod time.Duration) (ResourceEventHandlerRegistration, error)
+		// RemoveEventHandler removes a formerly added event handler given by
+		// its registration handle.
+		// This function is guaranteed to be idempotent, and thread-safe.
+		RemoveEventHandler(handle ResourceEventHandlerRegistration) error
+		// GetStore returns the informer's local cache as a Store.
+		GetStore() Store
+		// GetController is deprecated, it does nothing useful
+		GetController() Controller
+		// Run starts and runs the shared informer, returning after it stops.
+		// The informer will be stopped when stopCh is closed.
+		Run(stopCh <-chan struct{})
+		// HasSynced returns true if the shared informer's store has been
+		// informed by at least one full LIST of the authoritative state
+		// of the informer's object collection.  This is unrelated to "resync".
+		//
+		// Note that this doesn't tell you if an individual handler is synced!!
+		// For that, please call HasSynced on the handle returned by
+		// AddEventHandler.
+		HasSynced() bool
+		// LastSyncResourceVersion is the resource version observed when last synced with the underlying
+		// store. The value returned is not synchronized with access to the underlying store and is not
+		// thread-safe.
+		LastSyncResourceVersion() string
+
+		// The WatchErrorHandler is called whenever ListAndWatch drops the
+		// connection with an error. After calling this handler, the informer
+		// will backoff and retry.
+		//
+		// The default implementation looks at the error type and tries to log
+		// the error message at an appropriate level.
+		//
+		// There's only one handler, so if you call this multiple times, last one
+		// wins; calling after the informer has been started returns an error.
+		//
+		// The handler is intended for visibility, not to e.g. pause the consumers.
+		// The handler should return quickly - any expensive processing should be
+		// offloaded.
+		SetWatchErrorHandler(handler WatchErrorHandler) error
+
+		// The TransformFunc is called for each object which is about to be stored.
+		//
+		// This function is intended for you to take the opportunity to
+		// remove, transform, or normalize fields. One use case is to strip unused
+		// metadata fields out of objects to save on RAM cost.
+		//
+		// Must be set before starting the informer.
+		//
+		// Please see the comment on TransformFunc for more details.
+		SetTransform(handler TransformFunc) error
+
+		// IsStopped reports whether the informer has already been stopped.
+		// Adding event handlers to already stopped informers is not possible.
+		// An informer already stopped will never be started again.
+		IsStopped() bool
+	}
+```
+
+
+**c. sharedIndexInformer结构体的定义**
+
+`SharedIndexInformer` 接口的实现 sharedIndexerInformer的定义，同样在shared_informer.go文件中查看代码：
+```golang
+	// `*sharedIndexInformer` implements SharedIndexInformer and has three
+	// main components.  One is an indexed local cache, `indexer Indexer`.
+	// The second main component is a Controller that pulls
+	// objects/notifications using the ListerWatcher and pushes them into
+	// a DeltaFIFO --- whose knownObjects is the informer's local cache
+	// --- while concurrently Popping Deltas values from that fifo and
+	// processing them with `sharedIndexInformer::HandleDeltas`.  Each
+	// invocation of HandleDeltas, which is done with the fifo's lock
+	// held, processes each Delta in turn.  For each Delta this both
+	// updates the local cache and stuffs the relevant notification into
+	// the sharedProcessor.  The third main component is that
+	// sharedProcessor, which is responsible for relaying those
+	// notifications to each of the informer's clients.
+	type sharedIndexInformer struct {
+		indexer    Indexer
+		controller Controller
+
+		processor             *sharedProcessor
+		cacheMutationDetector MutationDetector
+
+		listerWatcher ListerWatcher
+
+		// objectType is an example object of the type this informer is expected to handle. If set, an event
+		// with an object with a mismatching type is dropped instead of being delivered to listeners.
+		objectType runtime.Object
+
+		// objectDescription is the description of this informer's objects. This typically defaults to
+		objectDescription string
+
+		// resyncCheckPeriod is how often we want the reflector's resync timer to fire so it can call
+		// shouldResync to check if any of our listeners need a resync.
+		resyncCheckPeriod time.Duration
+		// defaultEventHandlerResyncPeriod is the default resync period for any handlers added via
+		// AddEventHandler (i.e. they don't specify one and just want to use the shared informer's default
+		// value).
+		defaultEventHandlerResyncPeriod time.Duration
+		// clock allows for testability
+		clock clock.Clock
+
+		started, stopped bool
+		startedLock      sync.Mutex
+
+		// blockDeltas gives a way to stop all event distribution so that a late event handler
+		// can safely join the shared informer.
+		blockDeltas sync.Mutex
+
+		// Called whenever the ListAndWatch drops the connection with an error.
+		watchErrorHandler WatchErrorHandler
+
+		transform TransformFunc
+	}
+```
+这里的 `Indexer`、`Controller`、`ListerWatcher` 等都是熟悉的组件，`sharedProcessor` 在前面已经遇到过，这也是一个需要关注的重点逻辑
+
+
+**d. sharedIndexInformer的启动**
+
+继续来看 `sharedIndexInformer` 的 `Run()` 方法，其代码在 shared_informer.go 文件中：
+```golang
+	func (s *sharedIndexInformer) Run(stopCh <-chan struct{}) {
+		defer utilruntime.HandleCrash()
+
+		if s.HasStarted() {
+			klog.Warningf("The sharedIndexInformer has started, run more than once is not allowed")
+			return
+		}
+
+		func() {
+			s.startedLock.Lock()
+			defer s.startedLock.Unlock()
+
+			fifo := NewDeltaFIFOWithOptions(DeltaFIFOOptions{
+				KnownObjects:          s.indexer,
+				EmitDeltaTypeReplaced: true,
+				Transformer:           s.transform,
+			})
+
+			cfg := &Config{
+				Queue:             fifo,
+				ListerWatcher:     s.listerWatcher,
+				ObjectType:        s.objectType,
+				ObjectDescription: s.objectDescription,
+				FullResyncPeriod:  s.resyncCheckPeriod,
+				RetryOnError:      false,
+				ShouldResync:      s.processor.shouldResync,
+
+				Process:           s.HandleDeltas,
+				WatchErrorHandler: s.watchErrorHandler,
+			}
+
+			s.controller = New(cfg)
+			s.controller.(*controller).clock = s.clock
+			s.started = true
+		}()
+
+		// Separate stop channel because Processor should be stopped strictly after controller
+		processorStopCh := make(chan struct{})
+		var wg wait.Group
+		defer wg.Wait()              // Wait for Processor to stop
+		defer close(processorStopCh) // Tell Processor to stop
+		wg.StartWithChannel(processorStopCh, s.cacheMutationDetector.Run)
+		wg.StartWithChannel(processorStopCh, s.processor.run)
+
+		defer func() {
+			s.startedLock.Lock()
+			defer s.startedLock.Unlock()
+			s.stopped = true // Don't want any new listeners
+		}()
+		s.controller.Run(stopCh)
+	}
+```
+
+### 3. sharedProcessor对象
+
+`sharedProcessor` 中维护了 `processorListener` 集合，然后分发通知对象到 `listeners`，其代码在shared_informer.go中：
+```golang
+	// sharedProcessor has a collection of processorListener and can
+	// distribute a notification object to its listeners.  There are two
+	// kinds of distribute operations.  The sync distributions go to a
+	// subset of the listeners that (a) is recomputed in the occasional
+	// calls to shouldResync and (b) every listener is initially put in.
+	// The non-sync distributions go to every listener.
+	type sharedProcessor struct {
+		listenersStarted bool
+		listenersLock    sync.RWMutex
+		// Map from listeners to whether or not they are currently syncing
+		listeners map[*processorListener]bool
+		clock     clock.Clock
+		wg        wait.Group
+	}
+
+	// processorListener relays notifications from a sharedProcessor to
+	// one ResourceEventHandler --- using two goroutines, two unbuffered
+	// channels, and an unbounded ring buffer.  The `add(notification)`
+	// function sends the given notification to `addCh`.  One goroutine
+	// runs `pop()`, which pumps notifications from `addCh` to `nextCh`
+	// using storage in the ring buffer while `nextCh` is not keeping up.
+	// Another goroutine runs `run()`, which receives notifications from
+	// `nextCh` and synchronously invokes the appropriate handler method.
+	//
+	// processorListener also keeps track of the adjusted requested resync
+	// period of the listener.
+	type processorListener struct {
+		nextCh chan interface{}
+		addCh  chan interface{}
+
+		handler ResourceEventHandler
+
+		syncTracker *synctrack.SingleFileTracker
+
+		// pendingNotifications is an unbounded ring buffer that holds all notifications not yet distributed.
+		// There is one per listener, but a failing/stalled listener will have infinite pendingNotifications
+		// added until we OOM.
+		// TODO: This is no worse than before, since reflectors were backed by unbounded DeltaFIFOs, but
+		// we should try to do something better.
+		pendingNotifications buffer.RingGrowing
+
+		// requestedResyncPeriod is how frequently the listener wants a
+		// full resync from the shared informer, but modified by two
+		// adjustments.  One is imposing a lower bound,
+		// `minimumResyncPeriod`.  The other is another lower bound, the
+		// sharedIndexInformer's `resyncCheckPeriod`, that is imposed (a) only
+		// in AddEventHandlerWithResyncPeriod invocations made after the
+		// sharedIndexInformer starts and (b) only if the informer does
+		// resyncs at all.
+		requestedResyncPeriod time.Duration
+		// resyncPeriod is the threshold that will be used in the logic
+		// for this listener.  This value differs from
+		// requestedResyncPeriod only when the sharedIndexInformer does
+		// not do resyncs, in which case the value here is zero.  The
+		// actual time between resyncs depends on when the
+		// sharedProcessor's `shouldResync` function is invoked and when
+		// the sharedIndexInformer processes `Sync` type Delta objects.
+		resyncPeriod time.Duration
+		// nextResync is the earliest time the listener should get a full resync
+		nextResync time.Time
+		// resyncLock guards access to resyncPeriod and nextResync
+		resyncLock sync.Mutex
+	}
+```
