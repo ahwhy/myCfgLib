@@ -303,6 +303,7 @@ Informer通过一个Controller对象来定义，本身结构很简单，在 `k8s
 这里可以看到 `DeploymentInformer` 是由 `Informer` 和 `Lister` 组成的。
 
 
+
 **b. SharedIndexInformer接口的定义**
 
 回到 tools/cache/shared_informer.go 文件中，可以看到 `SharedIndexInformer`接口的定义：
@@ -616,7 +617,7 @@ Informer通过一个Controller对象来定义，本身结构很简单，在 `k8s
 
 ### 3. sharedProcessor对象
 
-`sharedProcessor` 中维护了 `processorListener` 集合，然后分发通知对象到 `listeners`，其代码在shared_informer.go中：
+`sharedProcessor` 中维护了 `processorListener` 集合，然后分发通知对象到 `listeners`，其代码在shared_informer.go中
 ```golang
 	// sharedProcessor has a collection of processorListener and can
 	// distribute a notification object to its listeners.  There are two
@@ -680,5 +681,275 @@ Informer通过一个Controller对象来定义，本身结构很简单，在 `k8s
 		nextResync time.Time
 		// resyncLock guards access to resyncPeriod and nextResync
 		resyncLock sync.Mutex
+	}
+
+	// 方法 run()
+	func (p *processorListener) run() {
+		// this call blocks until the channel is closed.  When a panic happens during the notification
+		// we will catch it, **the offending item will be skipped!**, and after a short delay (one second)
+		// the next notification will be attempted.  This is usually better than the alternative of never
+		// delivering again.
+		stopCh := make(chan struct{})
+		wait.Until(func() {
+			for next := range p.nextCh {
+				switch notification := next.(type) {
+				case updateNotification:
+					p.handler.OnUpdate(notification.oldObj, notification.newObj)
+				case addNotification:
+					p.handler.OnAdd(notification.newObj, notification.isInInitialList)
+					if notification.isInInitialList {
+						p.syncTracker.Finished()
+					}
+				case deleteNotification:
+					p.handler.OnDelete(notification.oldObj)
+				default:
+					utilruntime.HandleError(fmt.Errorf("unrecognized notification: %T", next))
+				}
+			}
+			// the only way to get here is if the p.nextCh is empty and closed
+			close(stopCh)
+		}, 1*time.Second, stopCh)
+	}
+
+	// 方法 add()
+	func (p *processorListener) add(notification interface{}) {
+		if a, ok := notification.(addNotification); ok && a.isInInitialList {
+			p.syncTracker.Start()
+		}
+		p.addCh <- notification
+	}
+
+	// 方法 pop()
+	func (p *processorListener) pop() {
+		defer utilruntime.HandleCrash()
+		defer close(p.nextCh) // Tell .run() to stop
+
+		var nextCh chan<- interface{}
+		var notification interface{}
+		for {
+			select {
+			case nextCh <- notification:
+				// Notification dispatched
+				var ok bool
+				notification, ok = p.pendingNotifications.ReadOne()
+				if !ok { // Nothing to pop
+					nextCh = nil // Disable this select case
+				}
+			case notificationToAdd, ok := <-p.addCh:
+				if !ok {
+					return
+				}
+				if notification == nil { // No notification to pop (and pendingNotifications is empty)
+					// Optimize the case - skip adding to pendingNotifications
+					notification = notificationToAdd
+					nextCh = p.nextCh
+				} else { // There is already a notification waiting to be dispatched
+					p.pendingNotifications.WriteOne(notificationToAdd)
+				}
+			}
+		}
+	}
+```
+
+
+### 4. 关于SharedInformerFactory
+
+**a. SharedInformerFactory的定义**
+
+`SharedInformerFactory` 接口定义在 informers/factory.go 文件中：
+```golang
+	// SharedInformerFactory provides shared informers for resources in all known
+	// API group versions.
+	//
+	// It is typically used like this:
+	//
+	//	ctx, cancel := context.Background()
+	//	defer cancel()
+	//	factory := NewSharedInformerFactory(client, resyncPeriod)
+	//	defer factory.WaitForStop()    // Returns immediately if nothing was started.
+	//	genericInformer := factory.ForResource(resource)
+	//	typedInformer := factory.SomeAPIGroup().V1().SomeType()
+	//	factory.Start(ctx.Done())          // Start processing these informers.
+	//	synced := factory.WaitForCacheSync(ctx.Done())
+	//	for v, ok := range synced {
+	//	    if !ok {
+	//	        fmt.Fprintf(os.Stderr, "caches failed to sync: %v", v)
+	//	        return
+	//	    }
+	//	}
+	//
+	//	// Creating informers can also be created after Start, but then
+	//	// Start must be called again:
+	//	anotherGenericInformer := factory.ForResource(resource)
+	//	factory.Start(ctx.Done())
+	type SharedInformerFactory interface {
+		internalinterfaces.SharedInformerFactory
+
+		// Start initializes all requested informers. They are handled in goroutines
+		// which run until the stop channel gets closed.
+		Start(stopCh <-chan struct{})
+
+		// Shutdown marks a factory as shutting down. At that point no new
+		// informers can be started anymore and Start will return without
+		// doing anything.
+		//
+		// In addition, Shutdown blocks until all goroutines have terminated. For that
+		// to happen, the close channel(s) that they were started with must be closed,
+		// either before Shutdown gets called or while it is waiting.
+		//
+		// Shutdown may be called multiple times, even concurrently. All such calls will
+		// block until all goroutines have terminated.
+		Shutdown()
+
+		// WaitForCacheSync blocks until all started informers' caches were synced
+		// or the stop channel gets closed.
+		WaitForCacheSync(stopCh <-chan struct{}) map[reflect.Type]bool
+
+		// ForResource gives generic access to a shared informer of the matching type.
+		ForResource(resource schema.GroupVersionResource) (GenericInformer, error)
+
+		// InformerFor returns the SharedIndexInformer for obj using an internal
+		// client.
+		InformerFor(obj runtime.Object, newFunc internalinterfaces.NewInformerFunc) cache.SharedIndexInformer
+
+		Admissionregistration() admissionregistration.Interface
+		Internal() apiserverinternal.Interface
+		Apps() apps.Interface
+		Autoscaling() autoscaling.Interface
+		Batch() batch.Interface
+		Certificates() certificates.Interface
+		Coordination() coordination.Interface
+		Core() core.Interface
+		Discovery() discovery.Interface
+		Events() events.Interface
+		Extensions() extensions.Interface
+		Flowcontrol() flowcontrol.Interface
+		Networking() networking.Interface
+		Node() node.Interface
+		Policy() policy.Interface
+		Rbac() rbac.Interface
+		Resource() resource.Interface
+		Scheduling() scheduling.Interface
+		Storage() storage.Interface
+	}
+
+	// 首先看下 internalinterfaces.SharedInformerFactory接口，在internalinterfaces/factory_interfaces.go中
+	// SharedInformerFactory a small interface to allow for adding an informer without an import cycle
+	type SharedInformerFactory interface {
+		Start(stopCh <-chan struct{})
+		InformerFor(obj runtime.Object, newFunc NewInformerFunc) cache.SharedIndexInformer
+	}
+
+	// 接着了解ForResource(resource schema.GroupVersionResource) (GenericInformer,error)中，返回了一个 GenericInformer
+	// GenericInformer is type of SharedIndexInformer which will locate and delegate to other
+	// sharedInformers based on type
+	type GenericInformer interface {
+		Informer() cache.SharedIndexInformer
+		Lister() cache.GenericLister
+	}
+
+	// 最后看剩下的这部分，一大堆相似的方法
+	// 以 "Apps() apps.Interface" 为例，在apps/interface.go中
+	// Interface provides access to each of this group's versions.
+	type Interface interface {
+		// V1 provides access to shared informers for resources in V1.
+		V1() v1.Interface
+		// V1beta1 provides access to shared informers for resources in V1beta1.
+		V1beta1() v1beta1.Interface
+		// V1beta2 provides access to shared informers for resources in V1beta2.
+		V1beta2() v1beta2.Interface
+	}
+
+	// v1.Interface 在 apps/v1/interface.go 中
+	// Interface provides access to all the informers in this group version.
+	type Interface interface {
+		// ControllerRevisions returns a ControllerRevisionInformer.
+		ControllerRevisions() ControllerRevisionInformer
+		// DaemonSets returns a DaemonSetInformer.
+		DaemonSets() DaemonSetInformer
+		// Deployments returns a DeploymentInformer.
+		Deployments() DeploymentInformer
+		// ReplicaSets returns a ReplicaSetInformer.
+		ReplicaSets() ReplicaSetInformer
+		// StatefulSets returns a StatefulSetInformer.
+		StatefulSets() StatefulSetInformer
+	}
+
+	// DeploymentInformer 接口，在 apps/v1/deployment.go 中
+	// DeploymentInformer provides access to a shared informer and lister for
+	// Deployments.
+	type DeploymentInformer interface {
+		Informer() cache.SharedIndexInformer
+		Lister() v1.DeploymentLister
+	}
+```
+现在也就不难理解SharedInformerFactory的作用了，它提供了所有 `API group-version` 的资源对应的 `SharedIndexInformer`，也就不难理解前面引用的sample-controller 中的这行代码` `，通过其可以拿到一个 Deployment 资源对应的 `SharedIndexInformer`。
+
+
+**b. SharedInformerFactory的初始化**
+
+继续来看 `NewSharedInformerFactory` 的逻辑，其代码在 factory.go 中：
+```golang
+	// NewSharedInformerFactory constructs a new instance of sharedInformerFactory for all namespaces.
+	func NewSharedInformerFactory(client kubernetes.Interface, defaultResync time.Duration) SharedInformerFactory {
+		return NewSharedInformerFactoryWithOptions(client, defaultResync)
+	}
+
+	// NewFilteredSharedInformerFactory constructs a new instance of sharedInformerFactory.
+	// Listers obtained via this SharedInformerFactory will be subject to the same filters
+	// as specified here.
+	// Deprecated: Please use NewSharedInformerFactoryWithOptions instead
+	func NewFilteredSharedInformerFactory(client kubernetes.Interface, defaultResync time.Duration, namespace string, tweakListOptions internalinterfaces.TweakListOptionsFunc) SharedInformerFactory {
+		return NewSharedInformerFactoryWithOptions(client, defaultResync, WithNamespace(namespace), WithTweakListOptions(tweakListOptions))
+	}
+
+	// NewSharedInformerFactoryWithOptions constructs a new instance of a SharedInformerFactory with additional options.
+	func NewSharedInformerFactoryWithOptions(client kubernetes.Interface, defaultResync time.Duration, options ...SharedInformerOption) SharedInformerFactory {
+		factory := &sharedInformerFactory{
+			client:           client,
+			namespace:        v1.NamespaceAll,
+			defaultResync:    defaultResync,
+			informers:        make(map[reflect.Type]cache.SharedIndexInformer),
+			startedInformers: make(map[reflect.Type]bool),
+			customResync:     make(map[reflect.Type]time.Duration),
+		}
+
+		// Apply all options
+		for _, opt := range options {
+			factory = opt(factory)
+		}
+
+		return factory
+	}
+```
+
+
+**c. SharedInformerFactory的启动过程**
+
+最后查看 `SharedInformerFactory` 是如何启动的，其`Start()`方法同样位于factory.go源文件中：
+```golang
+	func (f *sharedInformerFactory) Start(stopCh <-chan struct{}) {
+		f.lock.Lock()
+		defer f.lock.Unlock()
+
+		if f.shuttingDown {
+			return
+		}
+
+		for informerType, informer := range f.informers {
+			// 同类型只会调用一次
+			if !f.startedInformers[informerType] {
+				f.wg.Add(1)
+				// We need a new variable in each loop iteration,
+				// otherwise the goroutine would use the loop variable
+				// and that keeps changing.
+				informer := informer
+				go func() {
+					defer f.wg.Done()
+					informer.Run(stopCh)
+				}()
+				f.startedInformers[informerType] = true
+			}
+		}
 	}
 ```
