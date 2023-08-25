@@ -1025,6 +1025,7 @@ VmRSS:   5120108 kB/1024 = 5000mB /1024 = 4.88gB
 - [Linux cache参数调优](https://www.zhihu.com/column/p/136237953)
 - [Metrics-Server指标获取链路分析](https://developer.aliyun.com/article/1076518)
 - [k8s之容器内存与JVM内存](https://blog.csdn.net/qq_34562093/article/details/126754502)
+- [容器内存监控，是看rss还是wss？](https://www.jianshu.com/p/36a1df62cda7)
 - [Java进程内存分析](https://www.nxest.com/bits-pieces/java/jvm/)
 - [FullGC实战](https://mp.weixin.qq.com/s?__biz=MzU5ODUwNzY1Nw==&mid=2247484533&idx=1&sn=6f6adbccadb3742934dc49901dac76af&chksm=fe426d93c935e4851021c49e5a9eb5a2a9d3c564623e7667e1ef3a8f35cb98717041d0bbccff&scene=0&xtrack=1#rd)
 - [JVM调优系列----NewRatio与SurvivorRatio](https://it.cha138.com/php/show-47569.html)
