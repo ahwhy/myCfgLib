@@ -6,29 +6,29 @@
 
 client-go项目 是与 kube-apiserver 通信的 clients 的具体实现，其中包含很多相关工具包，例如 `kubernetes`包 就包含与 Kubernetes API 通信的各种 ClientSet，而 `tools/cache`包 则包含很多强大的编写控制器相关的组件。
 
-所以接下来我们以自定义控制器的底层实现原理为线索，来分析client-go中相关模块的源码实现。
+所以接下来我们以自定义控制器的底层实现原理为线索，来分析 client-go 中相关模块的源码实现。
 
-如图所示，我们在编写自定义控制器的过程中大致依赖于如下组件，其中圆形的是自定义控制器中需要编码的部分，其他椭圆和圆角矩形的是client-go提供的一些"工具"。
+如图所示，在编写自定义控制器的过程中大致依赖于如下组件，其中圆形的是自定义控制器中需要编码的部分，其他椭圆和圆角矩形的是 client-go 提供的一些"工具"。
 
 ![编写自定义控制器依赖的组件](./images/编写自定义控制器依赖的组件.jpg)
 
-- client-go的源码入口在Kubernetes项目的 `staging/src/k8s.io/client-go` 中，先整体查看上面涉及的相关模块，然后逐个深入分析其实现。
-  + Reflector：Reflector 从apiserver监听(watch)特定类型的资源，拿到变更通知后，将其丢到 DeltaFIFO队列 中。
-  + Informer：Informer 从 DeltaFIFO 中弹出(pop)相应对象，然后通过 Indexer 将对象和索引丢到 本地cache中，再触发相应的事件处理函数(Resource Event Handlers)。
-  + Indexer：Indexer 主要提供一个对象根据一定条件检索的能力，典型的实现是通过 namespace/name 来构造key，通过 Thread Safe Store 来存储对象。
-  + WorkQueue：WorkQueue 一般使用的是延时队列实现，在Resource Event Handlers中会完成将对象的key放入WorkQueue的过程，然后在自己的逻辑代码里从WorkQueue中消费这些key。
-  + ClientSet：ClientSet 提供的是资源的CURD能力，与apiserver交互。
-  + Resource Event Handlers：一般在 Resource Event Handlers 中添加一些简单的过滤功能，判断哪些对象需要加到WorkQueue中进一步处理，对于需要加到WorkQueue中的对象，就提取其key，然后入队。
-  + Worker：Worker指的是我们自己的业务代码处理过程，在这里可以直接收到WorkQueue中的任务，可以通过Indexer从本地缓存检索对象，通过ClientSet实现对象的增、删、改、查逻辑。
+- client-go 的源码入口在 Kubernetes 项目的 `staging/src/k8s.io/client-go` 中，先整体查看上面涉及的相关模块，然后逐个深入分析其实现。
+  + `Reflector` 从 apiserver 监听(watch)特定类型的资源，拿到变更通知后，将其丢到 DeltaFIFO 队列中
+  + `Informer` 从 DeltaFIFO 中弹出(pop)相应对象，然后通过 Indexer 将对象和索引丢到本地 cache 中，再触发相应的事件处理函数(Resource Event Handlers)
+  + `Indexer` 主要提供一个对象根据一定条件检索的能力，典型的实现是通过 namespace/name 来构造 key，通过 Thread Safe Store 来存储对象
+  + `WorkQueue` 一般使用的是延时队列实现，在 Resource Event Handlers 中会完成将对象的 key 放入 WorkQueue 的过程，然后在自己的逻辑代码里从 WorkQueue 中消费这些 key
+  + `ClientSet` 提供的是资源的 CURD 能力，与 apiserver 交互
+  + `Resource Event Handlers` 一般在 Resource Event Handlers 中添加一些简单的过滤功能，判断哪些对象需要加到 WorkQueue 中进一步处理，对于需要加到 WorkQueue 中的对象，就提取其 key，然后入队
+  + `Worker` 指的是我们自己的业务代码处理过程，在这里可以直接收到 WorkQueue 中的任务，可以通过 Indexer 从本地缓存检索对象，通过 ClientSet 实现对象的增、删、改、查逻辑
 
 
 ## 二、Client-go ListerWatcher
 
-Reflector 的任务就是从 apiserver 监听(watch)特定类型的资源，拿到变更通知后，将其传入到 DeltaFIFO 队列中；Reflector定义在 `k8s.io/client-go/tools/cache` 包下。
+`Reflector` 的任务就是从 apiserver 监听(watch)特定类型的资源，拿到变更通知后，将其传入到 `DeltaFIFO` 队列中；`Reflector` 定义在 `k8s.io/client-go/tools/cache` 包下。
 
 ### 1. Reflector 的启动过程
 
-代表 `Reflector` 的结构体属性比较多，如果不知道其工作原理的情况下去逐个看这些属性意义不大，所以这里先不去具体看这个结构体的定义，而是直接找到 `Run()` 方法，从 Reflector 的启动切入，源码在 reflector.go 中
+代表 `Reflector` 的结构体属性比较多，如果不知道其工作原理的情况下去逐个看这些属性意义不大，所以这里先不去具体看这个结构体的定义，而是直接找到 `Run()` 方法，从 `Reflector` 的启动切入，源码在 reflector.go 中
 ```golang
 	// Reflector watches a specified resource and causes all changes to be reflected in the given store.
 	type Reflector struct {
@@ -92,8 +92,7 @@ Reflector 的任务就是从 apiserver 监听(watch)特定类型的资源，拿�
 		UseWatchList bool
 	}
 
-	// Run repeatedly uses the reflector's ListAndWatch to fetch all the
-	// objects and subsequent deltas.
+	// Run repeatedly uses the reflector's ListAndWatch to fetch all the objects and subsequent deltas.
 	// Run will exit when stopCh is closed.
 	func (r *Reflector) Run(stopCh <-chan struct{}) {
 		klog.V(3).Infof("Starting reflector %s (%s) from %s", r.typeDescription, r.resyncPeriod, r.name)
@@ -152,9 +151,9 @@ Reflector 的任务就是从 apiserver 监听(watch)特定类型的资源，拿�
 ### 2. 核心方法 Reflector.ListAndWatch()
 
 - `Reflector.ListAndWatch()` 方法，是Reflector的核心逻辑之一
-	- `ListAndWatch()` 方法是先列出特定资源的所有对象，然后获取其资源版本，接着使用这个资源版本来开始监听流程，监听到新版本资源后，通过`watchHandler()` 方法将其加入 DeltaFIFO中；具体的实现，细化分为了几个方法
-		- `watchList()` 方法，通过 `ENABLE_CLIENT_GO_WATCH_LIST_ALPHA` 变量，判断是否调用`watchList()` 方法，会与apiserver建立一个数据流，来获得一致性的数据，即向 apiserver 发起一个 watch请求，并 调用`watchHandler()` 方法
-		- `list()` 方法，如果没有 调用`watchList()` 方法，则调用 `list()` 方法，会 lists 所有的 items，并且记录并调用 resource version；而list(列选)到的最新元素会通过 `syncWith()` 方法添加一个 `Sync`类型的 `DeltaType` 到 `DeltaFIFO` 中，所以 list操作本身也会触发后面的调谐逻辑
+	- `ListAndWatch()` 方法是先列出特定资源的所有对象，然后获取其资源版本，接着使用这个资源版本来开始监听流程，监听到新版本资源后，通过`watchHandler()` 方法将其加入 `DeltaFIFO` 中；具体的实现，细化分为了几个方法
+		- `watchList()` 方法，通过 `ENABLE_CLIENT_GO_WATCH_LIST_ALPHA` 变量，判断是否调用 `watchList()` 方法，会与 apiserve r建立一个数据流，来获得一致性的数据，即向 apiserver 发起一个 watch请求，并 调用`watchHandler()` 方法
+		- `list()` 方法，如果没有 调用`watchList()` 方法，则调用 `list()` 方法，会 lists 所有的 items，并且记录并调用 resource version；而list(列选)到的最新元素会通过 `syncWith()` 方法添加一个 `Sync`类型的 `DeltaType` 到 `DeltaFIFO` 中，所以 list 操作本身也会触发后面的调谐逻辑
 		- `startResync` 方法，会调用 `DeltaFIFO` 的 Replace 方法，即 `store.Replace`
 		- `watch()` 方法向 apiserver 发起一个 watch请求，并 调用`watchHandler()` 方法
 ```golang
@@ -261,11 +260,11 @@ Reflector 的任务就是从 apiserver 监听(watch)特定类型的资源，拿�
 			timeoutSeconds := int64(minWatchTimeout.Seconds() * (rand.Float64() + 1.0))
 			options := metav1.ListOptions{
 				ResourceVersion:      lastKnownRV,
-				// 用于降低apiserver压力，bookmark类型响应的对象主要只有 RV 信息
+				// 用于降低 apiserver 压力，bookmark 类型响应的对象主要只有 RV 信息
 				AllowWatchBookmarks:  true,
 				SendInitialEvents:    pointer.Bool(true),
 				ResourceVersionMatch: metav1.ResourceVersionMatchNotOlderThan,
-				// 如果超时没有接收到任何Event，则需要停止监听，避免阻塞
+				// 如果超时没有接收到任何 Event，则需要停止监听，避免阻塞
 				TimeoutSeconds:       &timeoutSeconds,
 			}
 			start := r.clock.Now()
@@ -690,8 +689,8 @@ Reflector 的任务就是从 apiserver 监听(watch)特定类型的资源，拿�
 ### 3. 核心方法 Reflector.watchHandler()
 
 - 下面是 `watchHander()` 方法的实现，同样在 reflector.go 中
-	- 在`watchHandler()`方法中完成了将监听到的 Event(事件)根据其 EventType(事件类型)分别调用 `DeltaFIFO` 的 `Add()/Update()/Delete()`等方法，完成对象追加到 `DeltaFIFO` 队列的过程
-	- `watchHandler()` 方法的调用在一个for循环中，所以一轮调用 `watchHandler()`工作流程完成后函数退出，新一轮的调用会传递进来新的 `watch.Interface` 和 `resourceVersion` 等
+	- 在 `watchHandler()` 方法中完成了将监听到的 Event(事件)根据其 EventType(事件类型)分别调用 `DeltaFIFO` 的 `Add()/Update()/Delete()`等方法，完成对象追加到 `DeltaFIFO` 队列的过程
+	- `watchHandler()` 方法的调用在一个 for 循环中，所以一轮调用 `watchHandler()` 工作流程完成后函数退出，新一轮的调用会传递进来新的 `watch.Interface` 和 `resourceVersion` 等
 ```golang
 	// watchHandler watches w and sets setLastSyncResourceVersion
 	func watchHandler(start time.Time,
@@ -819,7 +818,12 @@ Reflector 的任务就是从 apiserver 监听(watch)特定类型的资源，拿�
 
 ### 4. Reflector的初始化
 
-`NewReflector()` 的参数中有一个 `ListerWatcher`类型的 lw，还有一个 `expectedType` 和 `store`，lw 就是在 `ListerWatcher`，`expectedType` 指定期望关注的类型，而 `store` 是一个 `DeltaFIFO`。加在一起就是 `Reflector` 通过 `ListWatcher` 提供的能力去list-watch apiserver，然后完成将 `Event` 加到 `DeltaFIFO` 中
+- `NewReflector()` 的参数中有一个 `ListerWatcher`类型的 `lw`，还有一个 `expectedType` 和 `store`
+	+ `lw` 就是 `ListerWatcher`
+	+ `expectedType` 指定期望关注的类型
+	+ `store` 是一个 `DeltaFIFO` ( 或者 `Indexer` & `ThreadSafeStore` ? )
+
+加在一起就是 `Reflector` 通过 `ListWatcher` 提供的能力去 list-watch apiserver，然后完成将 `Event` 加到 `DeltaFIFO` 中
 ```golang
 	// NewNamespaceKeyedIndexerAndReflector creates an Indexer and a Reflector
 	// The indexer is configured to key on namespace
@@ -983,8 +987,8 @@ Reflector 的任务就是从 apiserver 监听(watch)特定类型的资源，拿�
 
 ### 5. 小结
 
-`Reflector` 的职责很清晰，要做的事情是保持 `DeltaFIFO` 中的 `items` 持续更新，具体实现是通过 `ListerWatcher` 提供的 list-watch(列选-监听)能力来列选指定类型的资源，这时会产生一系列Sync事件，然后通过列选到的 `ResourceVersion` 来开启监听过程，而监听到新的事件后，会和前面提到的Sync事件一样，都通过 `DeltaFIFO` 提供的方法构造相应的 `DeltaType` 添加到 `DeltaFIFO` 中。
+`Reflector` 的职责很清晰，要做的事情是保持 `DeltaFIFO` 中的 `items` 持续更新，具体实现是通过 `ListerWatcher` 提供的 list-watch(列选-监听)能力来列选指定类型的资源，这时会产生一系列 Sync 事件，然后通过列选到的 `ResourceVersion` 来开启监听过程，而监听到新的事件后，会和前面提到的Sync事件一样，都通过 `DeltaFIFO` 提供的方法构造相应的 `DeltaType` 添加到 `DeltaFIFO` 中。
 
 当然，前面提到的更新也并不是直接修改 `DeltaFIFO` 中已经存在的元素，而是添加一个新的 `DeltaType` 到队列中。另外，`DeltaFIFO` 中添加新 `DeltaType` 时也会有一定的去重机制。
 
-这里还有一个细节就是监听过程不是一劳永逸的，监听到新的事件后，会拿着对象的新 `ResourceVersion` 重新开启一轮新的监听过程。当然，这里的watch调用也有超时机制，一系列的健壮性措施，所以脱离 `Reflector`(Informer) 直接使用list-watch还是很难直接写出一套健壮的代码逻辑。
+这里还有一个细节就是监听过程不是一劳永逸的，监听到新的事件后，会拿着对象的新 `ResourceVersion` 重新开启一轮新的监听过程。当然，这里的 watc h调用也有超时机制，一系列的健壮性措施，所以脱离 `Reflector`(Informer) 直接使用list-watch还是很难直接写出一套健壮的代码逻辑。

@@ -6,30 +6,30 @@
 
 client-go项目 是与 kube-apiserver 通信的 clients 的具体实现，其中包含很多相关工具包，例如 `kubernetes`包 就包含与 Kubernetes API 通信的各种 ClientSet，而 `tools/cache`包 则包含很多强大的编写控制器相关的组件。
 
-所以接下来我们以自定义控制器的底层实现原理为线索，来分析client-go中相关模块的源码实现。
+所以接下来我们以自定义控制器的底层实现原理为线索，来分析 client-go 中相关模块的源码实现。
 
-如图所示，我们在编写自定义控制器的过程中大致依赖于如下组件，其中圆形的是自定义控制器中需要编码的部分，其他椭圆和圆角矩形的是client-go提供的一些"工具"。
+如图所示，在编写自定义控制器的过程中大致依赖于如下组件，其中圆形的是自定义控制器中需要编码的部分，其他椭圆和圆角矩形的是 client-go 提供的一些"工具"。
 
 ![编写自定义控制器依赖的组件](./images/编写自定义控制器依赖的组件.jpg)
 
-- client-go的源码入口在Kubernetes项目的 `staging/src/k8s.io/client-go` 中，先整体查看上面涉及的相关模块，然后逐个深入分析其实现。
-  + Reflector：Reflector 从apiserver监听(watch)特定类型的资源，拿到变更通知后，将其丢到 DeltaFIFO队列 中。
-  + Informer：Informer 从 DeltaFIFO 中弹出(pop)相应对象，然后通过 Indexer 将对象和索引丢到 本地cache中，再触发相应的事件处理函数(Resource Event Handlers)。
-  + Indexer：Indexer 主要提供一个对象根据一定条件检索的能力，典型的实现是通过 namespace/name 来构造key，通过 Thread Safe Store 来存储对象。
-  + WorkQueue：WorkQueue 一般使用的是延时队列实现，在Resource Event Handlers中会完成将对象的key放入WorkQueue的过程，然后在自己的逻辑代码里从WorkQueue中消费这些key。
-  + ClientSet：ClientSet 提供的是资源的CURD能力，与apiserver交互。
-  + Resource Event Handlers：一般在 Resource Event Handlers 中添加一些简单的过滤功能，判断哪些对象需要加到WorkQueue中进一步处理，对于需要加到WorkQueue中的对象，就提取其key，然后入队。
-  + Worker：Worker指的是我们自己的业务代码处理过程，在这里可以直接收到WorkQueue中的任务，可以通过Indexer从本地缓存检索对象，通过ClientSet实现对象的增、删、改、查逻辑。
+- client-go 的源码入口在 Kubernetes 项目的 `staging/src/k8s.io/client-go` 中，先整体查看上面涉及的相关模块，然后逐个深入分析其实现。
+  + `Reflector` 从 apiserver 监听(watch)特定类型的资源，拿到变更通知后，将其丢到 DeltaFIFO 队列中
+  + `Informer` 从 DeltaFIFO 中弹出(pop)相应对象，然后通过 Indexer 将对象和索引丢到本地 cache 中，再触发相应的事件处理函数(Resource Event Handlers)
+  + `Indexer` 主要提供一个对象根据一定条件检索的能力，典型的实现是通过 namespace/name 来构造 key，通过 Thread Safe Store 来存储对象
+  + `WorkQueue` 一般使用的是延时队列实现，在 Resource Event Handlers 中会完成将对象的 key 放入 WorkQueue 的过程，然后在自己的逻辑代码里从 WorkQueue 中消费这些 key
+  + `ClientSet` 提供的是资源的 CURD 能力，与 apiserver 交互
+  + `Resource Event Handlers` 一般在 Resource Event Handlers 中添加一些简单的过滤功能，判断哪些对象需要加到 WorkQueue 中进一步处理，对于需要加到 WorkQueue 中的对象，就提取其 key，然后入队
+  + `Worker` 指的是我们自己的业务代码处理过程，在这里可以直接收到 WorkQueue 中的任务，可以通过 Indexer 从本地缓存检索对象，通过 ClientSet 实现对象的增、删、改、查逻辑
 
 ## 二、Client-go DeltaFIFO
 
-DeltaFIFO也是一个重要组件，其相关代码在 `k8s.io/client-go/tools/cache`包 中
+`DeltaFIFO` 也是一个重要组件，其相关代码在 `k8s.io/client-go/tools/cache`包 中
 
-### 1. Queue接口 与 DeltaFIFO 的实现
+### 1. Queue 接口与 DeltaFIFO 的实现
 
-**a. Queue和Store接口**
+**a. Queue 和 Store 接口**
 
-- 在fifo.go中定义了一个 `Queue`接口，DeltaFIFO就是 `Queue`接口的一个实现
+- 在 fifo.go 中定义了一个 `Queue` 接口，`DeltaFIFO` 就是 `Queue`接口的一个实现
 ```golang
 	// Queue extends Store with a collection of Store keys to "process".
 	// Every Add, Update, or Delete may put the object's key in that collection.
@@ -67,7 +67,7 @@ DeltaFIFO也是一个重要组件，其相关代码在 `k8s.io/client-go/tools/c
 		Close()
 	}
 ```
-- `Queue`接口内嵌套了一个`Store`接口，Store定义在store.go中
+- `Queue` 接口内嵌套了一个 `Store` 接口，`Store` 定义在 store.go中
 ```golang
 	// Store is a generic object storage and processing interface.  A
 	// Store holds a map from string keys to accumulators, and has
@@ -120,9 +120,9 @@ DeltaFIFO也是一个重要组件，其相关代码在 `k8s.io/client-go/tools/c
 	type KeyFunc func(obj interface{}) (string, error)
 ```
 
-**b. DeltaFIFO结构体**
+**b. DeltaFIFO 结构体**
 
-- `DeltaFIFO`结构体
+- `DeltaFIFO` 结构体
 ```golang
 	// DeltaFIFO is a producer-consumer queue, where a Reflector is
 	// intended to be the producer, and the consumer is whatever calls
@@ -188,11 +188,11 @@ DeltaFIFO也是一个重要组件，其相关代码在 `k8s.io/client-go/tools/c
 	}
 ```
 
-- `DeltaFIFO`结构体中，`items`属性是一个map，map的value是一个 `Deltas`类型的
-	- `Deltas` 是 `[]Delta`类型的
+- `DeltaFIFO` 结构体中，`items` 属性是一个 map，map 的 value 为 `Deltas` 类型
+	- `Deltas` 为 `[]Delta`类型
 	- `Delta` 是一个结构体
-	- `Type`属性对应的是 `DeltaType`类型
-	- `DeltaType`是一个字符串，对应的是用Added、Updated这种单词描述一个 `Delta`的类型
+	- `Type` 属性对应的是 `DeltaType` 类型
+	- `DeltaType` 是一个字符串，对应的是用 Added、Updated这种单词描述一个 `Delta`的类型
 ```golang
 	// Deltas is a list of one or more 'Delta's to an individual object.
 	// The oldest delta is at index 0, the newest delta is the last one.
@@ -233,12 +233,12 @@ DeltaFIFO也是一个重要组件，其相关代码在 `k8s.io/client-go/tools/c
 
 ![DeltaFIFO的结构](./images/DeltaFIFO的结构.jpg)
 
-首先DeltaFIFO结构体中有 `queue` 和 `items` 两个主要的属性，类型分别是 `[]string` 和 `map[string]Deltas` 然后 `map[string]Deltas` 的key也就是 default/pod1 这种格式的字符串
+首先 `DeltaFIFO` 结构体中有 `queue` 和 `items` 两个主要的属性，类型分别是 `[]string` 和 `map[string]Deltas` 然后 `map[string]Deltas` 的 key 也就是 default/pod1 这种格式的字符串
 
-而`items`的 value是类型为 `[]Delta` 的 `Deltas`，这个 `Delta`的属性也就是`Type` 和 `Object`；`Type` 是前面提到的Added、Updated、Deleted这类字符串表示的 `DeltaType`，`Object` 就是这个 `Delta` 对应的对象，比如具体的某个Pod。
+而`items`的 value 是类型为 `[]Delta` 的 `Deltas`，这个 `Delta` 的属性也就是`Type` 和 `Object`；`Type` 是前面提到的 Added、Updated、Deleted 这类字符串表示的 `DeltaType`，`Object` 就是这个 `Delta` 对应的对象，比如具体的某个Pod。
 
-- DeltaFIFO的New函数
-	- 从这里可以看到一个 `MetaNamespaceKeyFunc`函数，这个函数中可以看到前面提到的 `map[string]Deltas` 的key为什么是 `<namespace>/<name>` 这种格式的 default/pod1
+- `DeltaFIFO` 的New函数
+	- 从这里可以看到一个 `MetaNamespaceKeyFunc`函数，这个函数中可以看到前面提到的 `map[string]Deltas` 的 key 为什么是 `<namespace>/<name>` 这种格式的 default/pod1
 ```golang
 	// NewDeltaFIFO returns a Queue which can be used to process changes to items.
 	func NewDeltaFIFO(keyFunc KeyFunc, knownObjects KeyListerGetter) *DeltaFIFO {
@@ -316,8 +316,8 @@ DeltaFIFO也是一个重要组件，其相关代码在 `k8s.io/client-go/tools/c
 
 ### 2. queueActionLocked()方法的逻辑
 
-- 在DeltaFIFO的实现中，有Add()、Update()、Delete()等方法
-	- 它们的逻辑都落在了queueActionLocked()方法中，只是传递的参数不一样，将对应变化类型的obj添加到队列中
+- 在 `DeltaFIFO` 的实现中，有 `Add()`、`Update()`、`Delete()` 等方法
+	- 它们的逻辑都落在了 `queueActionLocked()` 方法中，只是传递的参数不一样，将对应变化类型的 obj 添加到队列中
 ```golang
 	// Add inserts an item, and puts it in the queue. The item is only enqueued
 	// if it doesn't already exist in the set.
@@ -373,8 +373,7 @@ DeltaFIFO也是一个重要组件，其相关代码在 `k8s.io/client-go/tools/c
 		return f.queueActionLocked(Deleted, obj)
 	}
 
-	// KeyOf exposes f's keyFunc, but also detects the key of a Deltas object or
-	// DeletedFinalStateUnknown objects.
+	// KeyOf exposes f's keyFunc, but also detects the key of a Deltas object or DeletedFinalStateUnknown objects.
 	func (f *DeltaFIFO) KeyOf(obj interface{}) (string, error) {
 		if d, ok := obj.(Deltas); ok {
 			if len(d) == 0 {
@@ -397,7 +396,7 @@ DeltaFIFO也是一个重要组件，其相关代码在 `k8s.io/client-go/tools/c
 		Obj interface{}
 	}
 
-	// Add()、Update()、Delete()，最后都会调用queueActionLocked()方法，只是传递的参数不一样，将对应变化类型的obj添加到队列中
+	// Add()、Update()、Delete()，最后都会调用 queueActionLocked() 方法，只是传递的参数不一样，将对应变化类型的obj添加到队列中
 	// queueActionLocked appends to the delta list for the object.
 	// Caller must lock first.
 	func (f *DeltaFIFO) queueActionLocked(actionType DeltaType, obj interface{}) error {
@@ -491,14 +490,14 @@ DeltaFIFO也是一个重要组件，其相关代码在 `k8s.io/client-go/tools/c
 	}
 ```
 
-### 3. Pop()方法和Replace()方法的逻辑
+### 3. Pop() 方法和 Replace() 方法的逻辑
 
-**a. Pop()方法的实现**
+**a. Pop() 方法的实现**
 
-- Pop()会按照元素的添加或更新顺序有序地返回一个元素 `Deltas`，在队列为空时会阻塞
-	- Pop过程会先从队列中删除一个元素后返回，所以如果处理失败了，则需要通过 `AddIfNotPresent()` 方法将这个元素加回到队列中
-	- Pop()的参数是 `type PopProcessFunc func(interface{}) error` 类型的process
-	- 在 `Pop()` 函数中，直接将队列中的第一个元素出队，然后丢给process处理，如果处理失败会重新入队，但是这个Deltas和对应的错误信息会被返回
+- `Pop()` 会按照元素的添加或更新顺序有序地返回一个元素 `Deltas`，在队列为空时会阻塞
+	- Pop 过程会先从队列中删除一个元素后返回，所以如果处理失败了，则需要通过 `AddIfNotPresent()` 方法将这个元素加回到队列中
+	- `Pop()` 的参数是 `type PopProcessFunc func(interface{}) error` 类型的 `process`
+	- 在 `Pop()` 函数中，直接将队列中的第一个元素出队，然后丢给 `process` 处理，如果处理失败会重新入队，但是这个 `Deltas` 和对应的错误信息会被返回
 ```golang
 	// Pop blocks until the queue has some items, and then returns one.  If
 	// multiple items are ready, they are returned in the order in which they were
@@ -629,7 +628,7 @@ DeltaFIFO也是一个重要组件，其相关代码在 `k8s.io/client-go/tools/c
 					return
 				}
 				if c.config.RetryOnError {
-					// 其实 Pop() 内部已经调用了 AddIfNotPresent
+					// 其实 Pop() 内部已经调用了 addIfNotPresent
 					// This is the safe way to re-enqueue.
 					c.config.Queue.AddIfNotPresent(obj)
 				}
@@ -640,11 +639,11 @@ DeltaFIFO也是一个重要组件，其相关代码在 `k8s.io/client-go/tools/c
 
 **b. Replace()方法的实现**
 
-- Replace()方法简单地做了两件事
-	- 给传入的对象列表添加一个 `Sync/Replace DeltaType` 的Delta。
-	- 执行一些与删除相关的程序逻辑。
+- `Replace()` 方法简单地做了两件事
+	- 给传入的对象列表添加一个 `Sync/Replace DeltaType` 的 `Delta`
+	- 执行一些与删除相关的程序逻辑
 
-- Replace()过程可以简单理解成
+- `Replace()` 过程可以简单理解成
 	- 传递一个新的 `[]Deltas` 过来
 	- 如果当前 `DeltaFIFO` 中已经有这些元素，则追加一个 `Sync/Replace` 动作
 	- 反之 `DeltaFIFO` 中多出来的 `Deltas` 可能与 apiserver 失联导致实际被删除掉，但是删除事件并没有被监听(watch)到，所以直接追加一个类型为 Deleted 的 `Delta`

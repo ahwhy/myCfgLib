@@ -2,7 +2,7 @@
 
 ## 一、Client-go 源码分析
 
-在深度使用Kubernetes时 难免会涉及Operator的开发，目前虽然已经有Kubebuilder/Operator SDK、controller-runtime等工具可以较好地屏蔽底层细节，但是不清楚底层原理会让我们在编码过程中心里没底。
+在深度使用 Kubernetes 时，难免会涉及 Operator 的开发，目前虽然已经有 Kubebuilder/Operator SDK、controller-runtime等工具可以较好地屏蔽底层细节，但是不清楚底层原理会让我们在编码过程中心里没底。
 
 比如自定义控制器重启时是否会重新收到所有相关Event，调谐的子资源是Deployment时相关Pod的变更是否会触发调谐逻辑等，很多细节问题会不停地跳出来。所以我们只有详细分析过client-go和Operator开发相关的各种组件的原理与源码后，才能对自己开发的自定义控制器行为知根知底，胸有成竹。
 
@@ -10,26 +10,26 @@
 
 client-go项目 是与 kube-apiserver 通信的 clients 的具体实现，其中包含很多相关工具包，例如 `kubernetes`包 就包含与 Kubernetes API 通信的各种 ClientSet，而 `tools/cache`包 则包含很多强大的编写控制器相关的组件。
 
-所以接下来我们以自定义控制器的底层实现原理为线索，来分析client-go中相关模块的源码实现。
+所以接下来我们以自定义控制器的底层实现原理为线索，来分析 client-go 中相关模块的源码实现。
 
-如图所示，我们在编写自定义控制器的过程中大致依赖于如下组件，其中圆形的是自定义控制器中需要编码的部分，其他椭圆和圆角矩形的是client-go提供的一些"工具"。
+如图所示，在编写自定义控制器的过程中大致依赖于如下组件，其中圆形的是自定义控制器中需要编码的部分，其他椭圆和圆角矩形的是 client-go 提供的一些"工具"。
 
 ![编写自定义控制器依赖的组件](./images/编写自定义控制器依赖的组件.jpg)
 
-- client-go的源码入口在Kubernetes项目的 `staging/src/k8s.io/client-go` 中，先整体查看上面涉及的相关模块，然后逐个深入分析其实现。
-  + Reflector：Reflector 从apiserver监听(watch)特定类型的资源，拿到变更通知后，将其丢到 DeltaFIFO队列 中。
-  + Informer：Informer 从 DeltaFIFO 中弹出(pop)相应对象，然后通过 Indexer 将对象和索引丢到 本地cache中，再触发相应的事件处理函数(Resource Event Handlers)。
-  + Indexer：Indexer 主要提供一个对象根据一定条件检索的能力，典型的实现是通过 namespace/name 来构造key，通过 Thread Safe Store 来存储对象。
-  + WorkQueue：WorkQueue 一般使用的是延时队列实现，在Resource Event Handlers中会完成将对象的key放入WorkQueue的过程，然后在自己的逻辑代码里从WorkQueue中消费这些key。
-  + ClientSet：ClientSet 提供的是资源的CURD能力，与apiserver交互。
-  + Resource Event Handlers：一般在 Resource Event Handlers 中添加一些简单的过滤功能，判断哪些对象需要加到WorkQueue中进一步处理，对于需要加到WorkQueue中的对象，就提取其key，然后入队。
-  + Worker：Worker指的是我们自己的业务代码处理过程，在这里可以直接收到WorkQueue中的任务，可以通过Indexer从本地缓存检索对象，通过ClientSet实现对象的增、删、改、查逻辑。
+- client-go 的源码入口在 Kubernetes 项目的 `staging/src/k8s.io/client-go` 中，先整体查看上面涉及的相关模块，然后逐个深入分析其实现。
+  + `Reflector` 从 apiserver 监听(watch)特定类型的资源，拿到变更通知后，将其丢到 DeltaFIFO 队列中
+  + `Informer` 从 DeltaFIFO 中弹出(pop)相应对象，然后通过 Indexer 将对象和索引丢到本地 cache 中，再触发相应的事件处理函数(Resource Event Handlers)
+  + `Indexer` 主要提供一个对象根据一定条件检索的能力，典型的实现是通过 namespace/name 来构造 key，通过 Thread Safe Store 来存储对象
+  + `WorkQueue` 一般使用的是延时队列实现，在 Resource Event Handlers 中会完成将对象的 key 放入 WorkQueue 的过程，然后在自己的逻辑代码里从 WorkQueue 中消费这些 key
+  + `ClientSet` 提供的是资源的 CURD 能力，与 apiserver 交互
+  + `Resource Event Handlers` 一般在 Resource Event Handlers 中添加一些简单的过滤功能，判断哪些对象需要加到 WorkQueue 中进一步处理，对于需要加到 WorkQueue 中的对象，就提取其 key，然后入队
+  + `Worker` 指的是我们自己的业务代码处理过程，在这里可以直接收到 WorkQueue 中的任务，可以通过 Indexer 从本地缓存检索对象，通过 ClientSet 实现对象的增、删、改、查逻辑
 
 ## 二、Client-go WorkQueue
 
-WorkQueue一般使用延时队列来实现，在 Resource Event Handlers 中会完成将对象的key放入WorkQueue的过程，然后在自己的逻辑代码里从WorkQueue中消费这些key。
+`WorkQueue` 一般使用延时队列来实现，在 Resource Event Handlers 中会完成将对象的 key 放入 WorkQueue 的过程，然后在自己的逻辑代码里从 WorkQueue 中消费这些key。
 
-client-go 的 `util/workqueue`包 里主要有三个队列，分别是普通队列、延时队列和限速队列，后一个队列以前一个队列的实现为基础，层层添加新功能，下面按照 Queue、DelayingQueue、RateLimitingQueue 的顺序层层拨开来看各种队列是如何实现的。
+client-go 的 `util/workqueue`包 里主要有三个队列，分别是普通队列、延时队列和限速队列，后一个队列以前一个队列的实现为基础，层层添加新功能，下面按照 `Queue`、`DelayingQueue`、`RateLimitingQueue` 的顺序层层拨开来看各种队列是如何实现的。
 
 - 在 `k8s.io/client-go/util/workqueue` 包下可以看到这样三个Go源文件：
   + queue.go
@@ -39,9 +39,9 @@ client-go 的 `util/workqueue`包 里主要有三个队列，分别是普通队�
 
 ### 1. 普通队列 Queue 的实现
 
-**a. 表示Queue的接口和相应的实现结构体**
+**a. 表示 Queue 的接口和相应的实现结构体**
 
-- 定义Queue的接口在queue.go中直接叫作Interface
+- 定义 `Queue` 的接口在 queue.go 中直接叫作 `Interface`
 ```golang
 	type Interface interface {
 		Add(item interface{})                     // 添加一个元素
@@ -54,10 +54,10 @@ client-go 的 `util/workqueue`包 里主要有三个队列，分别是普通队�
 	}
 ```
 
-- Interface的实现类型是Type，这个名字延续了用Interface表示interface的风格，里面的三个属性queue、dirty、processing都保存有元素(items)，但是含义有所不同
-	+ queue：这是一个[ ]t类型，也就是一个切片，因为其有序，所以这里当作一个列表来存储元素的处理顺序。
-	+ dirty：属于set类型，dirty就是一个集合，其中存储的是所有需要处理的元素，这些元素也会保存在queue中，但是集合中的元素是无序的，且集合的特性是其里面的元素具有唯一性。
-	+ processing：也是一个集合，存放的是当前正在处理的元素，也就是说这个元素来自queue出队的元素，同时这个元素会被从dirty中删除。
+- `Interface` 的实现类型是 `Type`，这个名字延续了用 Interface 表示 interface 的风格，里面的三个属性 queue、dirty、processing 都保存有元素(items)，但是含义有所不同
+	+ `queue` 是一个 `[]t` 类型，也就是一个切片，因为其有序，所以这里当作一个列表来存储元素的处理顺序
+	+ `dirty` 属于 set 类型，dirty 就是一个集合，其中存储的是所有需要处理的元素，这些元素也会保存在 queue 中，但是集合中的元素是无序的，且集合的特性是其里面的元素具有唯一性
+	+ `processing` 也是一个集合，存放的是当前正在处理的元素，也就是说这个元素来自 queue 出队的元素，同时这个元素会被从 dirty 中删除
 ```golang
 	// Type is a work queue (see the package comment).
 	type Type struct {
@@ -110,9 +110,9 @@ client-go 的 `util/workqueue`包 里主要有三个队列，分别是普通队�
 	}
 ```
 
-**b.Queue.Add()方法的实现**
+**b. Queue.Add() 方法的实现**
 
-- Add()方法用于标记一个新的元素需要被处理
+- `Add()` 方法用于标记一个新的元素需要被处理
 ```golang
 	// Add marks item as needing processing.
 	func (q *Type) Add(item interface{}) {
@@ -137,9 +137,9 @@ client-go 的 `util/workqueue`包 里主要有三个队列，分别是普通队�
 	}
 ```
 
-**c.Queue.Get()方法的实现**
+**c. Queue.Get() 方法的实现**
 
-- Get()方法在获取不到元素的时候会阻塞，直到有一个元素可以被返回
+- `Get()` 方法在获取不到元素的时候会阻塞，直到有一个元素可以被返回
 ```golang
 	// Get blocks until it can return an item to be processed. If shutdown = true,
 	// the caller should end their goroutine. You must call Done with item when you
@@ -172,9 +172,9 @@ client-go 的 `util/workqueue`包 里主要有三个队列，分别是普通队�
 	}
 ```
 
-**d.Queue.Done()方法的实现**
+**d. Queue.Done() 方法的实现**
 
-- Done()方法的作用是标记一个元素已经处理完成
+- `Done()` 方法的作用是标记一个元素已经处理完成
 ```golang
 	// Done marks item as done processing, and if it has been marked as dirty again
 	// while it was being processed, it will be re-added to the queue for
@@ -199,12 +199,12 @@ client-go 的 `util/workqueue`包 里主要有三个队列，分别是普通队�
 
 ### 2. 延时队列 DelayingQueue 的实现
 
-**a.表示DelayingQueue的接口和相应的实现结构体**
+**a. 表示 DelayingQueue 的接口和相应的实现结构体**
 
-- 定义 DelayingQueue 的接口在 delaying_queue.go 源文件中，名字和 Queue 所使用的 Interface 很对称，叫作 DelayingInterface
-	- 可以看到 DelayingInterface接口 中嵌套了一个表示 Queue的Interface，也就是说 DelayingInterface接口 包含 Interface接口 的所有方法声明
-	- 另外相比于 Queue，这里多了一个 AddAfter() 方法，即 延时添加元素
-	- DelayingQueueConfig 通过指定可选配置以自定义 DelayingInterface 接口。
+- 定义 `DelayingQueue` 的接口在 delaying_queue.go 源文件中，名字和 `Queue` 所使用的 `Interface` 很对称，叫作 `DelayingInterface`
+	- 可以看到 `DelayingInterface` 接口中嵌套了一个表示 `Queue` 的 `Interface`，也就是说 `DelayingInterface` 接口包含 `Interface` 接口的所有方法声明
+	- 另外相比于 `Queue`，这里多了一个 `AddAfter()` 方法，即 延时添加元素
+	- `DelayingQueueConfig` 通过指定可选配置以自定义 `DelayingInterface` 接口。
 ```golang
 	// DelayingInterface is an Interface that can Add an item at a later time. This makes it easier to
 	// requeue items after failures without ending up in a hot-loop.
@@ -256,9 +256,9 @@ client-go 的 `util/workqueue`包 里主要有三个队列，分别是普通队�
 	}
 ```
 
-**b.waitFor对象**
+**b. waitFor对象**
 
-- waitFor的实现
+- `waitFor` 的实现
 	- 保存 备添加到队列中的数据 和 应该被加入队列的时间
 ```golang
 	// waitFor holds the data to add and the time it should be added
@@ -272,7 +272,7 @@ client-go 的 `util/workqueue`包 里主要有三个队列，分别是普通队�
 	}
 ```
 
-- 用最小堆的方式来实现，一个waitFor的优先级队列，这个 waitForPriorityQueue 类型实现了heap.Interface接口。
+- 用最小堆的方式来实现，一个 `waitFor` 的优先级队列，这个 `waitForPriorityQueue` 类型实现了 `heap.Interface` 接口。
 ```golang
 	// waitForPriorityQueue implements a priority queue for waitFor items.
 	//
@@ -322,9 +322,9 @@ client-go 的 `util/workqueue`包 里主要有三个队列，分别是普通队�
 	}
 ```
 
-**c.NewDelayingQueue**
+**c. NewDelayingQueue**
 
-- DelayingQueue的几个New函数
+- `DelayingQueue` 的几个New函数
 	- 统一调用了 `NewDelayingQueueWithConfig()`
 ```golang
 	// NewDelayingQueue constructs a new workqueue with delayed queuing ability.
@@ -398,9 +398,9 @@ client-go 的 `util/workqueue`包 里主要有三个队列，分别是普通队�
 	}
 ```
 
-**d.waitingLoop()方法**
+**d. waitingLoop() 方法**
 
-- waitingLoop()方法是延时队列实现的核心逻辑
+- `waitingLoop()` 方法是延时队列实现的核心逻辑
 ```golang
 	// waitingLoop runs until the workqueue is shutdown and keeps a check on the list of items to be added.
 	func (q *delayingType) waitingLoop() {
@@ -512,9 +512,9 @@ client-go 的 `util/workqueue`包 里主要有三个队列，分别是普通队�
 	}
 ```
 
-**e.AddAfter()方法**
+**e. AddAfter() 方法**
 
-- AddAfter()方法的作用是在指定的延时时长到达之后，在work queue中添加一个元素
+- `AddAfter()` 方法的作用是在指定的延时时长到达之后，在work queue中添加一个元素
 ```golang
 	// AddAfter adds the given item to the work queue after the given delay
 	func (q *delayingType) AddAfter(item interface{}, duration time.Duration) {
@@ -541,10 +541,10 @@ client-go 的 `util/workqueue`包 里主要有三个队列，分别是普通队�
 
 ### 3. 限速队列 RateLimitingQueue 的实现
 
-**a.表示RateLimitingQueue的接口和相应的实现结构体**
+**a.表示 RateLimitingQueue 的接口和相应的实现结构体**
 
-- RateLimitingQueue 对应的接口叫作 RateLimitingInterface，源码是在 rate_limiting_queue.go 中
-	- 实现RateLimitingInterface的结构体是rateLimitingType
+- `RateLimitingQueue` 对应的接口叫作 `RateLimitingInterface`，源码是在 rate_limiting_queue.go 中
+	- 实现 `RateLimitingInterface` 的结构体是 `rateLimitingType`
 ```golang
 	// RateLimitingInterface is an interface that rate limits items being added to the queue.
 	type RateLimitingInterface interface {
@@ -586,9 +586,9 @@ client-go 的 `util/workqueue`包 里主要有三个队列，分别是普通队�
 	}
 ```
 
-**b.RateLimitingQueue的New函数**
+**b. RateLimitingQueue 的New函数**
 
-- RateLimitingQueue 的 New 函数 `NewRateLimitingQueue`
+- `RateLimitingQueue` 的 New 函数 `NewRateLimitingQueue`
 ```golang
 	// NewRateLimitingQueue constructs a new workqueue with rateLimited queuing ability
 	// Remember to call Forget!  If you don't, you may end up tracking failures forever.
@@ -638,9 +638,9 @@ client-go 的 `util/workqueue`包 里主要有三个队列，分别是普通队�
 	}
 ```
 
-**c.RateLimiter**
+**c. RateLimiter**
 
-- RateLimiter 表示一个限速器，定义在同一个包的 default_rate_limiters.go 源文件中
+- `RateLimiter` 表示一个限速器，定义在同一个包的 default_rate_limiters.go 源文件中
 ```golang
 	type RateLimiter interface {
 		// When gets an item and gets to decide how long that item should wait
@@ -662,7 +662,7 @@ client-go 的 `util/workqueue`包 里主要有三个队列，分别是普通队�
 
 - `BucketRateLimiter`
 	- 通过Go语言标准库的 `golang.org/x/time/rate.Limiter`包实现
-	- BucketRateLimiter实例化的时候，比如传递一个`rate.NewLimiter(rate.Limit(10),100)`进去，表示令牌桶里最多有100个令牌，每秒发放10个令牌
+	- BucketRateLimiter 实例化的时候，比如传递一个`rate.NewLimiter(rate.Limit(10),100)`进去，表示令牌桶里最多有100个令牌，每秒发放10个令牌
 ```golang
 	// DefaultControllerRateLimiter is a no-arg constructor for a default rate limiter for a workqueue.  It has
 	// both overall and per-item rate limiting.  The overall is a token bucket and the per-item is exponential
@@ -879,7 +879,7 @@ client-go 的 `util/workqueue`包 里主要有三个队列，分别是普通队�
 	}
 ```
 
-- WithMaxWaitRateLimiter
+- `WithMaxWaitRateLimiter`
 	- 在其他限速器上包装一个最大延迟的属性，如果到了最大延时，则直接返回
 ```golang
 	// WithMaxWaitRateLimiter have maxDelay which avoids waiting too long
@@ -910,7 +910,7 @@ client-go 的 `util/workqueue`包 里主要有三个队列，分别是普通队�
 	}
 ```
 
-**d.RateLimitingQueue的限速实现**
+**d. RateLimitingQueue 的限速实现**
 
 - 可以看到限速队列的实现基本由内部的延时队列提供的功能和包装的限速器提供的功能组合而来
 ```golang

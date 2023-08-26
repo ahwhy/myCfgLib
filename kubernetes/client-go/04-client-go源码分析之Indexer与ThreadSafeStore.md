@@ -6,31 +6,31 @@
 
 client-go项目 是与 kube-apiserver 通信的 clients 的具体实现，其中包含很多相关工具包，例如 `kubernetes`包 就包含与 Kubernetes API 通信的各种 ClientSet，而 `tools/cache`包 则包含很多强大的编写控制器相关的组件。
 
-所以接下来我们以自定义控制器的底层实现原理为线索，来分析client-go中相关模块的源码实现。
+所以接下来我们以自定义控制器的底层实现原理为线索，来分析 client-go 中相关模块的源码实现。
 
-如图所示，我们在编写自定义控制器的过程中大致依赖于如下组件，其中圆形的是自定义控制器中需要编码的部分，其他椭圆和圆角矩形的是client-go提供的一些"工具"。
+如图所示，在编写自定义控制器的过程中大致依赖于如下组件，其中圆形的是自定义控制器中需要编码的部分，其他椭圆和圆角矩形的是 client-go 提供的一些"工具"。
 
 ![编写自定义控制器依赖的组件](./images/编写自定义控制器依赖的组件.jpg)
 
-- client-go的源码入口在Kubernetes项目的 `staging/src/k8s.io/client-go` 中，先整体查看上面涉及的相关模块，然后逐个深入分析其实现。
-  + Reflector：Reflector 从apiserver监听(watch)特定类型的资源，拿到变更通知后，将其丢到 DeltaFIFO队列 中。
-  + Informer：Informer 从 DeltaFIFO 中弹出(pop)相应对象，然后通过 Indexer 将对象和索引丢到 本地cache中，再触发相应的事件处理函数(Resource Event Handlers)。
-  + Indexer：Indexer 主要提供一个对象根据一定条件检索的能力，典型的实现是通过 namespace/name 来构造key，通过 Thread Safe Store 来存储对象。
-  + WorkQueue：WorkQueue 一般使用的是延时队列实现，在Resource Event Handlers中会完成将对象的key放入WorkQueue的过程，然后在自己的逻辑代码里从WorkQueue中消费这些key。
-  + ClientSet：ClientSet 提供的是资源的CURD能力，与apiserver交互。
-  + Resource Event Handlers：一般在 Resource Event Handlers 中添加一些简单的过滤功能，判断哪些对象需要加到WorkQueue中进一步处理，对于需要加到WorkQueue中的对象，就提取其key，然后入队。
-  + Worker：Worker指的是我们自己的业务代码处理过程，在这里可以直接收到WorkQueue中的任务，可以通过Indexer从本地缓存检索对象，通过ClientSet实现对象的增、删、改、查逻辑。
+- client-go 的源码入口在 Kubernetes 项目的 `staging/src/k8s.io/client-go` 中，先整体查看上面涉及的相关模块，然后逐个深入分析其实现。
+  + `Reflector` 从 apiserver 监听(watch)特定类型的资源，拿到变更通知后，将其丢到 DeltaFIFO 队列中
+  + `Informer` 从 DeltaFIFO 中弹出(pop)相应对象，然后通过 Indexer 将对象和索引丢到本地 cache 中，再触发相应的事件处理函数(Resource Event Handlers)
+  + `Indexer` 主要提供一个对象根据一定条件检索的能力，典型的实现是通过 namespace/name 来构造 key，通过 Thread Safe Store 来存储对象
+  + `WorkQueue` 一般使用的是延时队列实现，在 Resource Event Handlers 中会完成将对象的 key 放入 WorkQueue 的过程，然后在自己的逻辑代码里从 WorkQueue 中消费这些 key
+  + `ClientSet` 提供的是资源的 CURD 能力，与 apiserver 交互
+  + `Resource Event Handlers` 一般在 Resource Event Handlers 中添加一些简单的过滤功能，判断哪些对象需要加到 WorkQueue 中进一步处理，对于需要加到 WorkQueue 中的对象，就提取其 key，然后入队
+  + `Worker` 指的是我们自己的业务代码处理过程，在这里可以直接收到 WorkQueue 中的任务，可以通过 Indexer 从本地缓存检索对象，通过 ClientSet 实现对象的增、删、改、查逻辑
 
 
 ## 二、Client-go Indexer 与 ThreadSafeStore
 
-Indexer主要为对象提供根据一定条件进行检索的能力，典型的实现是通过namespace/name来构造key，通过ThreadSafeStore来存储对象。换言之，Indexer主要依赖于ThreadSafeStore实现，是client-go提供的一种缓存机制，通过检索本地缓存可以有效降低apiserver的压力。
+`Indexer` 主要为对象提供根据一定条件进行检索的能力，典型的实现是通过 namespace/name 来构造 key，通过 `ThreadSafeStore` 来存储对象。换言之，`Indexer` 主要依赖于 `ThreadSafeStore` 实现，是 client-go 提供的一种缓存机制，通过检索本地缓存可以有效降低 apiserver 的压力。
 
 ### 1. Indexer 接口和 cache 的实现
 
 - `Indexer` 接口主要是在 `Store` 接口的基础上拓展了对象的检索功能
 	- 代码在 `k8s.io/client-go/tools/cache` 包下
-	- Indexer接口定义在index.go中
+	- `Indexer` 接口定义在 index.go 中
 ```golang
 	// Indexer extends Store with multiple indices and restricts each
 	// accumulator to simply hold the current object (and be empty after Delete).
@@ -219,9 +219,9 @@ Indexer主要为对象提供根据一定条件进行检索的能力，典型的�
 	}
 ```
 
-- `KeyFunc` 类型是这样定义的 `type KeyFunc func(obj interface{}) (string, error)`，即 给一个对象返回一个字符串类型的key
+- `KeyFunc` 类型是这样定义的 `type KeyFunc func(obj interface{}) (string, error)`，即 给一个对象返回一个字符串类型的 key
 	- `KeyFunc` 的一个默认实现如下 `MetaNamespaceKeyFunc`
-	- 可以看到一般情况下返回值是 `<namespace>/<name>`，如果namespace为空，则直接返回name。
+	- 可以看到一般情况下返回值是 `<namespace>/<name>`，如果 namespace 为空，则直接返回 name
 ```golang
 	// ExplicitKey can be passed to MetaNamespaceKeyFunc if you have the key for
 	// the object but not the object itself.
