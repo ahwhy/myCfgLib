@@ -270,7 +270,7 @@ client-go项目 是与 kube-apiserver 通信的 clients 的具体实现，其中
 			start := r.clock.Now()
 
 			// 调用 watch 开始监听
-			// client-go源码分析之ListerWatcher 215行
+			// client-go源码分析之ListerWatcher #213
 			// Watch(options metav1.ListOptions) (watch.Interface, error)
 			w, err = r.listerWatcher.Watch(options)
 			if err != nil {
@@ -346,7 +346,7 @@ client-go项目 是与 kube-apiserver 通信的 clients 的具体实现，其中
 			// list request will return the full response.
 			// 开始尝试收集 list 的 chunks
 			pager := pager.New(pager.SimplePageFunc(func(opts metav1.ListOptions) (runtime.Object, error) {
-				// client-go源码分析之ListerWatcher 208行
+				// client-go源码分析之ListerWatcher #206
 				// List(options metav1.ListOptions) (runtime.Object, error)
 				return r.listerWatcher.List(opts)
 			}))
@@ -821,7 +821,7 @@ client-go项目 是与 kube-apiserver 通信的 clients 的具体实现，其中
 - `NewReflector()` 的参数中有一个 `ListerWatcher`类型的 `lw`，还有一个 `expectedType` 和 `store`
 	+ `lw` 就是 `ListerWatcher`
 	+ `expectedType` 指定期望关注的类型
-	+ `store` 是一个 `DeltaFIFO` ( 或者 `Indexer` & `ThreadSafeStore` ? )
+	+ `store` 是一个 `DeltaFIFO` (client-go源码分析之Informer #221)
 
 加在一起就是 `Reflector` 通过 `ListWatcher` 提供的能力去 list-watch apiserver，然后完成将 `Event` 加到 `DeltaFIFO` 中
 ```golang

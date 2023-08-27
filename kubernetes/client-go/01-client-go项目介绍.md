@@ -45,7 +45,7 @@
 
 ### 1. client-go 操作 deployment
 
-- 初始化 DeploymentInterface类型 实例
+- 初始化 `DeploymentInterface` 类型实例
 ```golang
 	// 获取 home 路径
 	homePath := homedir.HomeDir()
@@ -69,7 +69,7 @@
 	dpClient := clientset.AppsV1().Deployments(coreV1.NamespaceDefault)
 ```
 
-- 实现 createDeployment()函数
+- 实现 `createDeployment()` 函数
 ```golang
 	func createDeployment(dpClient v1.DeploymentInterface) error {
 		replicas := int32(2)
@@ -121,7 +121,7 @@
 	<-time.Tick(1 * time.Minute)
 ```
 
-- 实现 updateDeployment()函数
+- 实现 `updateDeployment()` 函数
 ```golang
 	func updateDeployment(dpClient v1.DeploymentInterface) error {
 		dp, err := dpClient.Get(context.TODO(), "kube-demoapp", metav1.GetOptions{})
@@ -146,11 +146,11 @@
 	<-time.Tick(1 * time.Minute)
 ```
 
-- 实现 deleteDeployment()函数
-  - 关于PropagationPolicy属性，有3种可选特性
-    - DeletePropagationOrphan 不考虑依赖资源
-    - DeletePropagationBackground 后台删除依赖资源
-    - DeletePropagationForeground 前台删除依赖资源
+- 实现 `deleteDeployment()` 函数
+  - 关于 `PropagationPolicy` 属性，有3种可选特性
+    - `DeletePropagationOrphan` 不考虑依赖资源
+    - `DeletePropagationBackground` 后台删除依赖资源
+    - `DeletePropagationForeground` 前台删除依赖资源
 ```golang
 	func deleteDeployment(dpClient v1.DeploymentInterface) error {
 		deletePolicy := metav1.DeletePropagationForeground

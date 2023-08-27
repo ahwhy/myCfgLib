@@ -24,15 +24,15 @@ client-go项目 是与 kube-apiserver 通信的 clients 的具体实现，其中
 
 ## 二、Client-go Informer
 
-Informer 这个词的出镜率很高，与 `Reflector`、`WorkQueue` 等组件不同，`Informer` 相对来说更加模糊，在很多文章中都可以看到 Informer 的身影，在源码中真的去找一个叫作Informer的对象，却又发现找不到一个单纯的Informer，但是有很多结构体或者接口中包含Informer这个词。
+Informer 这个词的出镜率很高，与 `Reflector`、`WorkQueue` 等组件不同，`Informer` 相对来说更加模糊，在很多文章中都可以看到 Informer 的身影，在源码中真的去找一个叫作 Informer 的对象，却又发现找不到一个单纯的 Informer，但是有很多结构体或者接口中包含 Informer 这个词。
 
-在一开始提到过Informer从DeltaFIFO中Pop相应的对象，然后通过Indexer将对象和索引丢到本地cache中，再触发相应的事件处理函数（Resource Event Handlers）的运行。接下来通过源码，重新来梳理一下整个过程。
+在一开始提到过 `Informer` 从 `DeltaFIFO` 中 Pop 相应的对象，然后通过 `Indexer` 将对象和索引丢到本地 `cache` 中，再触发相应的事件处理函数(Resource Event Handlers)的运行。接下来通过源码，重新来梳理一下整个过程。
 
 ### 1. Informer 即 Controller
 
-**a. Controller结构体与Controller接口**
+**a. Controller 结构体与 Controller 接口**
 
-Informer通过一个Controller对象来定义，本身结构很简单，在 `k8s.io/client-go/tools/cache`包中的 controller.go源文件中可以看到：
+Informer 通过一个 `Controller` 对象来定义，本身结构很简单，在 `k8s.io/client-go/tools/cache`包中的 controller.go 源文件中可以看到：
 ```golang
 	// Controller的定义
 	// `*controller` implements Controller
@@ -43,9 +43,9 @@ Informer通过一个Controller对象来定义，本身结构很简单，在 `k8s
 		clock          clock.Clock
 	}
 ```
-这里有熟悉的 Reflector ，可以猜到 `Informer` 启动时会去运行 `Reflector` ，从而通过 `Reflector` 实现 list-watch apiserver，更新"事件"到 `DeltaFIFO` 中用于进一步处理
+这里有熟悉的 `Reflector` ，可以猜到 `Informer` 启动时会去运行 `Reflector` ，从而通过 `Reflector` 实现 list-watch apiserver，更新"事件"到 `DeltaFIFO` 中用于进一步处理
 
-继续看下controller对应的Controller接口：
+继续看下 `controller` 对应的 `Controller` 接口：
 ```golang
 	// Controller is a low-level controller that is parameterized by a
 	// Config and used in sharedIndexInformer.
@@ -66,16 +66,14 @@ Informer通过一个Controller对象来定义，本身结构很简单，在 `k8s
 		LastSyncResourceVersion() string
 	}
 ```
-这里的核心方法很明显是`Run(stopCh<-chan struct{})`，Run负责两件事情
+这里的核心方法就是 `Run(stopCh<-chan struct{})`，Run 负责两件事情
 
-  1）构造Reflector利用ListerWatcher的能力将对象事件更新到DeltaFIFO。
-
-  2）从DeltaFIFO中Pop对象后调用ProcessFunc来处理。
-
+  1) 构造 `Reflector` 利用 `ListerWatcher` 的能力将对象事件更新到 `DeltaFIFO`。
+  2) 从 `DeltaFIFO` 中 `Pop` 对象后调用 `ProcessFunc` 来处理。
 
 **b. Controller的初始化**
 
-在controller.go文件中有如下代码：
+在 controller.go 文件中有如下代码：
 ```golang
 	// New makes a new Controller from the given Config.
 	func New(c *Config) Controller {
@@ -85,11 +83,62 @@ Informer通过一个Controller对象来定义，本身结构很简单，在 `k8s
 		}
 		return ctlr
 	}
+
+	// Config contains all the settings for one of these low-level controllers.
+	type Config struct {
+		// The queue for your objects - has to be a DeltaFIFO due to
+		// assumptions in the implementation. Your Process() function
+		// should accept the output of this Queue's Pop() method.
+		Queue
+
+		// Something that can list and watch your objects.
+		ListerWatcher
+
+		// Something that can process a popped Deltas.
+		Process ProcessFunc
+
+		// ObjectType is an example object of the type this controller is
+		// expected to handle.
+		ObjectType runtime.Object
+
+		// ObjectDescription is the description to use when logging type-specific information about this controller.
+		ObjectDescription string
+
+		// FullResyncPeriod is the period at which ShouldResync is considered.
+		FullResyncPeriod time.Duration
+
+		// ShouldResync is periodically used by the reflector to determine
+		// whether to Resync the Queue. If ShouldResync is `nil` or
+		// returns true, it means the reflector should proceed with the
+		// resync.
+		ShouldResync ShouldResyncFunc
+
+		// If true, when Process() returns an error, re-enqueue the object.
+		// TODO: add interface to let you inject a delay/backoff or drop
+		//       the object completely if desired. Pass the object in
+		//       question to this interface as a parameter.  This is probably moot
+		//       now that this functionality appears at a higher level.
+		RetryOnError bool
+
+		// Called whenever the ListAndWatch drops the connection with an error.
+		WatchErrorHandler WatchErrorHandler
+
+		// WatchListPageSize is the requested chunk size of initial and relist watch lists.
+		WatchListPageSize int64
+	}
+
+	// ShouldResyncFunc is a type of function that indicates if a reflector should perform a
+	// resync or not. It can be used by a shared informer to support multiple event handlers with custom
+	// resync periods.
+	type ShouldResyncFunc func() bool
+
+	// ProcessFunc processes a single object.
+	type ProcessFunc func(obj interface{}, isInInitialList bool) error
 ```
 这里主要是传递了一个 `Config` 进来，核心逻辑便是 `Config` 从何而来以及后面要如何使用。
 
-然后，先不关注 `NewInformer()` 的代码，实际开发中主要是使用 `SharedIndexInformer`，这两个入口初始化Controller的逻辑类似。
-直接跟踪更实用的一个分支，查看 `func (s *sharedIndexInformer) Run(stopCh<-chan struct{})` 方法中如何调用 `New()`，代码位于shared_informer.go中：
+然后，先不关注 `NewInformer()` 的代码，实际开发中主要是使用 `SharedIndexInformer`，这两个入口初始化 `Controller` 的逻辑类似。
+直接跟踪更实用的一个分支，查看 `func (s *sharedIndexInformer) Run(stopCh<-chan struct{})` 方法中如何调用 `New()`，代码位于 shared_informer.go 中：
 ```golang
 	func (s *sharedIndexInformer) Run(stopCh <-chan struct{}) {
 		defer utilruntime.HandleCrash()
@@ -103,6 +152,7 @@ Informer通过一个Controller对象来定义，本身结构很简单，在 `k8s
 			s.startedLock.Lock()
 			defer s.startedLock.Unlock()
 
+			// 初始化一个 DeltaFIFO
 			fifo := NewDeltaFIFOWithOptions(DeltaFIFOOptions{
 				KnownObjects:          s.indexer,
 				EmitDeltaTypeReplaced: true,
@@ -122,6 +172,7 @@ Informer通过一个Controller对象来定义，本身结构很简单，在 `k8s
 				WatchErrorHandler: s.watchErrorHandler,
 			}
 
+			// 通过 Config 创建一个 Controller
 			s.controller = New(cfg)
 			s.controller.(*controller).clock = s.clock
 			s.started = true
@@ -140,17 +191,17 @@ Informer通过一个Controller对象来定义，本身结构很简单，在 `k8s
 			defer s.startedLock.Unlock()
 			s.stopped = true // Don't want any new listeners
 		}()
+		// func (c *controller) Run(stopCh <-chan struct{})
 		s.controller.Run(stopCh)
 	}
 ```
 从这里可以看到 `SharedIndexInformer` 的 `Run()` 过程中会构造一个 `Config`，然后创建 `Controller`，最后调用 `Controller` 的 `Run()`方法。
 
-另外，这里也可以看到前面分析过的DeltaFIFO、ListerWatcher等，其中的Process:s.HandleDeltas这一行也比较重要，Process属性的类型是ProcessFunc，可以看到具体的ProcessFunc是HandleDeltas方法。
-
+另外，这里也可以看到前面分析过的 `DeltaFIFO`、`ListerWatcher` 等，其中的 `Process: s.HandleDeltas` 这一行也比较重要，`Process` 属性的类型是 `ProcessFunc`，可以看到具体的 `ProcessFunc` 是 `HandleDeltas` 方法。
 
 **c. Controller的启动**
 
-上面提到 `Controller` 的初始化本身没有太多的逻辑，主要是构造了一个 `Config` 对象传递进来，所以 `Controller` 启动时肯定会有这个 `Config` 的使用逻，回到controller.go文件继续查看：
+上面提到 `Controller` 的初始化本身没有太多的逻辑，主要是构造了一个 `Config` 对象传递进来，所以 `Controller` 启动时肯定会有这个 `Config` 的使用逻辑，回到 controller.go 文件继续查看：
 ```golang
 	// Run begins processing items, and will continue until a value is sent down stopCh or it is closed.
 	// It's an error to call Run more than once.
@@ -185,6 +236,7 @@ Informer通过一个Controller对象来定义，本身结构很简单，在 `k8s
 		var wg wait.Group
 
 		// 启动 Reflector
+		// func (r *Reflector) Run(stopCh <-chan struct{})
 		wg.StartWithChannel(stopCh, r.Run)
 
 		// 执行 Controller 的 processLoop
@@ -192,12 +244,11 @@ Informer通过一个Controller对象来定义，本身结构很简单，在 `k8s
 		wg.Wait()
 	}
 ```
-这里的代码逻辑很简单，构造 `Reflector` 后运行起来，然后执行 `c.processLoop`，显然 `Controller` 的业务逻辑隐藏在 processLoop方法中。
-
+这里的代码逻辑很简单，构造 `Reflector` 后运行起来，然后执行 `c.processLoop`，显然 `Controller` 的业务逻辑隐藏在 `processLoop` 方法中。
 
 **d. processLoop**
 
-这里的代码逻辑是从 `DeltaFIFO` 中Pop出一个对象丢给 `PopProcessFunc` 处理，如果失败了就 re-enqueue 到 `DeltaFIFO` 中。前面提到过这里的 `PopProcessFunc` 由 `HandleDeltas()` 方法来实现，所以这里的主要逻辑就转到了 `HandleDeltas()` 是如何实现的。
+这里的代码逻辑是从 `DeltaFIFO` 中 Pop 出一个对象丢给 `PopProcessFunc` 处理，如果失败了就 re-enqueue 到 `DeltaFIFO` 中。前面提到过这里的 `PopProcessFunc` 由 `HandleDeltas()` 方法来实现，所以这里的主要逻辑就转到了 `HandleDeltas()` 是如何实现的。
 ```golang
 	// processLoop drains the work queue.
 	// TODO: Consider doing the processing in parallel. This will require a little thought
@@ -210,6 +261,7 @@ Informer通过一个Controller对象来定义，本身结构很简单，在 `k8s
 	// also be helpful.
 	func (c *controller) processLoop() {
 		for {
+			// type PopProcessFunc func(obj interface{}, isInInitialList bool) error
 			obj, err := c.config.Queue.Pop(PopProcessFunc(c.config.Process))
 			if err != nil {
 				if err == ErrFIFOClosed {
@@ -226,7 +278,7 @@ Informer通过一个Controller对象来定义，本身结构很简单，在 `k8s
 
 **e. HandleDeltas()**
 
-`HandleDeltas()` 代码逻辑都落在 `processDeltas() `函数的调用上，位于shared_informer.go文件中：
+`HandleDeltas()` 代码逻辑都落在 `processDeltas()` 函数的调用上，位于 shared_informer.go 文件中：
 ```golang
 	func (s *sharedIndexInformer) HandleDeltas(obj interface{}, isInInitialList bool) error {
 		s.blockDeltas.Lock()
@@ -281,15 +333,36 @@ Informer通过一个Controller对象来定义，本身结构很简单，在 `k8s
 		}
 		return nil
 	}
-```
-这里的代码逻辑主要是遍历一个 `Deltas` 中的所有 `Delta`，然后根据 `Delta` 的类型来决定如何操作 `Indexer` ，也就是更新本地cache，同时分发相应的通知。
 
+	// ResourceEventHandler can handle notifications for events that
+	// happen to a resource. The events are informational only, so you
+	// can't return an error.  The handlers MUST NOT modify the objects
+	// received; this concerns not only the top level of structure but all
+	// the data structures reachable from it.
+	//   - OnAdd is called when an object is added.
+	//   - OnUpdate is called when an object is modified. Note that oldObj is the
+	//     last known state of the object-- it is possible that several changes
+	//     were combined together, so you can't use this to see every single
+	//     change. OnUpdate is also called when a re-list happens, and it will
+	//     get called even if nothing changed. This is useful for periodically
+	//     evaluating or syncing something.
+	//   - OnDelete will get the final state of the item if it is known, otherwise
+	//     it will get an object of type DeletedFinalStateUnknown. This can
+	//     happen if the watch is closed and misses the delete event and we don't
+	//     notice the deletion until the subsequent re-list.
+	type ResourceEventHandler interface {
+		OnAdd(obj interface{}, isInInitialList bool)
+		OnUpdate(oldObj, newObj interface{})
+		OnDelete(obj interface{})
+	}
+```
+这里的代码逻辑主要是遍历一个 `Deltas` 中的所有 `Delta`，然后根据 `Delta` 的类型来决定如何操作 `Indexer` ，也就是更新本地 `cache`，同时分发相应的通知。
 
 ### 2. SharedIndexInformer对象
 
 **a. 1.SharedIndexInformer是什么**
 
-在 Operator 开发中，如果不使用 controller-runtime库，也就是不通过 Kubebuilder 等工具来生成脚手架，就经常会用到 `SharedInformerFactory`。
+在 Operator 开发中，如果不使用 controller-runtime 库，也就是不通过 Kubebuilder 等工具来生成脚手架，就经常会用到 `SharedInformerFactory`。
 
 在 client-go 的 `informers/apps/v1`包的deployment.go文件中有 `DeploymentInformer` 类型的相关定义：
 ```golang
@@ -301,8 +374,6 @@ Informer通过一个Controller对象来定义，本身结构很简单，在 `k8s
 	}
 ```
 这里可以看到 `DeploymentInformer` 是由 `Informer` 和 `Lister` 组成的。
-
-
 
 **b. SharedIndexInformer接口的定义**
 
@@ -498,7 +569,6 @@ Informer通过一个Controller对象来定义，本身结构很简单，在 `k8s
 	}
 ```
 
-
 **c. sharedIndexInformer结构体的定义**
 
 `SharedIndexInformer` 接口的实现 sharedIndexerInformer的定义，同样在shared_informer.go文件中查看代码：
@@ -557,7 +627,6 @@ Informer通过一个Controller对象来定义，本身结构很简单，在 `k8s
 ```
 这里的 `Indexer`、`Controller`、`ListerWatcher` 等都是熟悉的组件，`sharedProcessor` 在前面已经遇到过，这也是一个需要关注的重点逻辑
 
-
 **d. sharedIndexInformer的启动**
 
 继续来看 `sharedIndexInformer` 的 `Run()` 方法，其代码在 shared_informer.go 文件中：
@@ -574,6 +643,7 @@ Informer通过一个Controller对象来定义，本身结构很简单，在 `k8s
 			s.startedLock.Lock()
 			defer s.startedLock.Unlock()
 
+			// 初始化一个 DeltaFIFO
 			fifo := NewDeltaFIFOWithOptions(DeltaFIFOOptions{
 				KnownObjects:          s.indexer,
 				EmitDeltaTypeReplaced: true,
@@ -593,6 +663,7 @@ Informer通过一个Controller对象来定义，本身结构很简单，在 `k8s
 				WatchErrorHandler: s.watchErrorHandler,
 			}
 
+			// 通过 Config 创建一个 Controller
 			s.controller = New(cfg)
 			s.controller.(*controller).clock = s.clock
 			s.started = true
@@ -611,13 +682,14 @@ Informer通过一个Controller对象来定义，本身结构很简单，在 `k8s
 			defer s.startedLock.Unlock()
 			s.stopped = true // Don't want any new listeners
 		}()
+		// func (c *controller) Run(stopCh <-chan struct{})
 		s.controller.Run(stopCh)
 	}
 ```
 
 ### 3. sharedProcessor对象
 
-`sharedProcessor` 中维护了 `processorListener` 集合，然后分发通知对象到 `listeners`，其代码在shared_informer.go中
+`sharedProcessor` 中维护了 `processorListener` 集合，然后分发通知对象到 `listeners`，其代码在 shared_informer.go 中
 ```golang
 	// sharedProcessor has a collection of processorListener and can
 	// distribute a notification object to its listeners.  There are two
@@ -751,7 +823,6 @@ Informer通过一个Controller对象来定义，本身结构很简单，在 `k8s
 	}
 ```
 
-
 ### 4. 关于SharedInformerFactory
 
 **a. SharedInformerFactory的定义**
@@ -883,8 +954,7 @@ Informer通过一个Controller对象来定义，本身结构很简单，在 `k8s
 		Lister() v1.DeploymentLister
 	}
 ```
-现在也就不难理解SharedInformerFactory的作用了，它提供了所有 `API group-version` 的资源对应的 `SharedIndexInformer`，也就不难理解前面引用的sample-controller 中的这行代码` `，通过其可以拿到一个 Deployment 资源对应的 `SharedIndexInformer`。
-
+现在也就不难理解 `SharedInformerFactory` 的作用了，它提供了所有 `API group-version` 的资源对应的 `SharedIndexInformer`。
 
 **b. SharedInformerFactory的初始化**
 
@@ -923,10 +993,9 @@ Informer通过一个Controller对象来定义，本身结构很简单，在 `k8s
 	}
 ```
 
-
 **c. SharedInformerFactory的启动过程**
 
-最后查看 `SharedInformerFactory` 是如何启动的，其`Start()`方法同样位于factory.go源文件中：
+最后查看 `SharedInformerFactory` 是如何启动的，其 `Start()` 方法同样位于 factory.go 源文件中：
 ```golang
 	func (f *sharedInformerFactory) Start(stopCh <-chan struct{}) {
 		f.lock.Lock()

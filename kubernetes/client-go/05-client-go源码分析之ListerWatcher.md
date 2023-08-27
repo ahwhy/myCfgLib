@@ -318,7 +318,6 @@ chunked 类型的 response 由一个个 chunk(块) 组成，每个 chunk 的格�
 
 上面的例子中，服务器端响应的内容是两个相同的字符串 "Hello Trunked\n"，客户端拿到的响应也就是 "10Hello Trunked\n\r\n10Hello Trunked\n\r\n0\r\n"。
 
-
 **b. watch API中的chunked**
 
 现在多数 Kubernetes 集群都是以 HTTPS 方式暴露 API，而且开启了双向 TLS，下面通过 kubectl 代理 kube-apiserver 提供 HTTP 的 API，进行调用和抓包

@@ -82,7 +82,7 @@ client-go项目 是与 kube-apiserver 通信的 clients 的具体实现，其中
 - `Indexer` 的默认实现是 `cache`，定义在 store.go中
 	- 这里涉及两个类型 `keyFunc` 与 `ThreadSafeStore`
 	- 从 `Indexer` 的方法的实现来看
-		- 这里的逻辑就是调用 `keyFunc()`方法获取key，然后调用 `cacheStorage.Xxx()` 方法完成对应的增删改查过程
+		- 这里的逻辑就是调用 `keyFunc()` 方法获取 key，然后调用 `cacheStorage.Xxx()` 方法完成对应的增删改查过程
 ```golang
 	// `*cache` implements Indexer in terms of a ThreadSafeStore and an associated KeyFunc.
 	type cache struct {
@@ -322,11 +322,20 @@ client-go项目 是与 kube-apiserver 通信的 clients 的具体实现，其中
 	// Indexers maps a name to an IndexFunc
 	type Indexers map[string]IndexFunc
 
-	// Indices maps a name to an Index
-	type Indices map[string]Index
-
 	// IndexFunc knows how to compute the set of indexed values for an object.
 	type IndexFunc func(obj interface{}) ([]string, error)
+
+	// MetaNamespaceIndexFunc is a default index function that indexes based on an object's namespace
+	func MetaNamespaceIndexFunc(obj interface{}) ([]string, error) {
+		meta, err := meta.Accessor(obj)
+		if err != nil {
+			return []string{""}, fmt.Errorf("object has no meta: %v", err)
+		}
+		return []string{meta.GetNamespace()}, nil
+	}
+
+	// Indices maps a name to an Index
+	type Indices map[string]Index
 
 	// Index maps the indexed value to a set of keys in the store that match on that value
 	type Index map[string]sets.String
@@ -345,13 +354,13 @@ client-go项目 是与 kube-apiserver 通信的 clients 的具体实现，其中
 
 ![理解IndexFunc、Indexers和Indices几个对象](./images/理解IndexFunc、Indexers和Indices几个对象.jpg)
 
-`Indexers` 中保存的是 `Index` 函数map，一个典型的实现是字符串namespace作为key，`IndexFunc` 类型的实现 `MetaNamespaceIndexFunc` 函数作为value，也就是通过namespace来检索时，借助 `Indexers` 可以拿到对应的计算 `Index` 的函数，接着调用这个函数把对象传进去，就可以计算出这个对象对应的key，就是具体的namespace值，比如default、kube-system这种格式的字符串。
+`Indexers` 中保存的是 `Index` 函数 map，一个典型的实现是字符串 namespace 作为 key，`IndexFunc` 类型的实现 `MetaNamespaceIndexFunc` 函数作为 value，也就是通过 namespace 来检索时，借助 `Indexers` 可以拿到对应的计算 `Index` 的函数，接着调用这个函数把对象传进去，就可以计算出这个对象对应的 key，就是具体的 namespace 值，比如 default、kube-system 这种格式的字符串。
 
-然后在 `Indices` 中保存的也是一个map，key是上面计算出来的default这种格式的namespace值，value是一个set，而set表示的是这个default namespace下的一些具体pod的 `<namespace>/<name>` 这类格式字符串。最后拿着这个key，就可以在items中检索到对应的对象。
+然后在 `Indices` 中保存的也是一个 map，key 是上面计算出来的 default 这种格式的 namespace 值，value 是一个 set，而 set 表示的是这个default namespace 下的一些具体 pod 的 `<namespace>/<name>` 这类格式字符串。最后拿着这个 key，就可以在 items 中检索到对应的对象。
 
-**b. Add()、Update()等方法的实现**
+**b. Add()、Update() 等方法的实现**
 
-- threadSafeMap如何实现添加元素
+- `threadSafeMap` 如何实现添加元素
 	- `Add()`、`Update()`、`Delete()` 方法
 	- 更复杂的逻辑在 `updateIndices()` 方法
 ```golang
@@ -384,7 +393,7 @@ client-go项目 是与 kube-apiserver 通信的 clients 的具体实现，其中
 	// - for update you must provide both the oldObj and the newObj
 	// - for delete you must provide only the oldObj
 	// updateIndices must be called from a function that already has a lock on the cache
-	// 创建、更新、删除的入口都是这个方法，差异点在于 create 场景下的参数只传递 newObj，delete 场景下的参数需要传递 oldObj 和 newObj，而 delete 场景下的参数只传递 oldObj
+	// 创建、更新、删除的入口都是这个方法，差异点在于 create 场景下的参数只传递 newObj，update 场景下的参数需要传递 oldObj 和 newObj，而 delete 场景下的参数只传递 oldObj
 	func (i *storeIndex) updateIndices(oldObj interface{}, newObj interface{}, key string) {
 		var oldIndexValues, indexValues []string
 		var err error
@@ -519,8 +528,8 @@ client-go项目 是与 kube-apiserver 通信的 clients 的具体实现，其中
 
 **b. ByIndex()方法**
 
-- `ByIndex()` 方法的实现，直接传递 `indexedValue` ，就不需要通过obj去计算key了
-	- 例如 `indexName==namespace&indexValue==default` 就是直接检索default下的资源对象
+- `ByIndex()` 方法的实现，直接传递 `indexedValue` ，就不需要通过 obj 去计算 key 了
+	- 例如 `indexName==namespace&indexValue==default` 就是直接检索 default 下的资源对象
 ```golang
 	// ByIndex returns a list of the items whose indexed values in the given index include the given indexed value
 	func (c *threadSafeMap) ByIndex(indexName, indexedValue string) ([]interface{}, error) {

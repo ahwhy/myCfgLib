@@ -21,6 +21,7 @@ client-go项目 是与 kube-apiserver 通信的 clients 的具体实现，其中
   + `Resource Event Handlers` 一般在 Resource Event Handlers 中添加一些简单的过滤功能，判断哪些对象需要加到 WorkQueue 中进一步处理，对于需要加到 WorkQueue 中的对象，就提取其 key，然后入队
   + `Worker` 指的是我们自己的业务代码处理过程，在这里可以直接收到 WorkQueue 中的任务，可以通过 Indexer 从本地缓存检索对象，通过 ClientSet 实现对象的增、删、改、查逻辑
 
+
 ## 二、Client-go DeltaFIFO
 
 `DeltaFIFO` 也是一个重要组件，其相关代码在 `k8s.io/client-go/tools/cache`包 中
@@ -66,7 +67,12 @@ client-go项目 是与 kube-apiserver 通信的 clients 的具体实现，其中
 		// Close the queue
 		Close()
 	}
+
+	// PopProcessFunc is passed to Pop() method of Queue interface.
+	// It is supposed to process the accumulator popped from the queue.
+	type PopProcessFunc func(obj interface{}, isInInitialList bool) error
 ```
+
 - `Queue` 接口内嵌套了一个 `Store` 接口，`Store` 定义在 store.go中
 ```golang
 	// Store is a generic object storage and processing interface.  A
