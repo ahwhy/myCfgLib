@@ -821,7 +821,7 @@ client-go项目 是与 kube-apiserver 通信的 clients 的具体实现，其中
 - `NewReflector()` 的参数中有一个 `ListerWatcher`类型的 `lw`，还有一个 `expectedType` 和 `store`
 	+ `lw` 就是 `ListerWatcher`
 	+ `expectedType` 指定期望关注的类型
-	+ `store` 是一个 `DeltaFIFO` (client-go源码分析之Informer #221)
+	+ `store` 是一个 `DeltaFIFO` (client-go源码分析之Informer #220)
 
 加在一起就是 `Reflector` 通过 `ListWatcher` 提供的能力去 list-watch apiserver，然后完成将 `Event` 加到 `DeltaFIFO` 中
 ```golang

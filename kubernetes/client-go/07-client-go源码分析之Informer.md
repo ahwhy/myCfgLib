@@ -71,7 +71,7 @@ Informer 通过一个 `Controller` 对象来定义，本身结构很简单，在
   1) 构造 `Reflector` 利用 `ListerWatcher` 的能力将对象事件更新到 `DeltaFIFO`。
   2) 从 `DeltaFIFO` 中 `Pop` 对象后调用 `ProcessFunc` 来处理。
 
-**b. Controller的初始化**
+**b. Controller 的初始化**
 
 在 controller.go 文件中有如下代码：
 ```golang
@@ -199,7 +199,7 @@ Informer 通过一个 `Controller` 对象来定义，本身结构很简单，在
 
 另外，这里也可以看到前面分析过的 `DeltaFIFO`、`ListerWatcher` 等，其中的 `Process: s.HandleDeltas` 这一行也比较重要，`Process` 属性的类型是 `ProcessFunc`，可以看到具体的 `ProcessFunc` 是 `HandleDeltas` 方法。
 
-**c. Controller的启动**
+**c. Controller 的启动**
 
 上面提到 `Controller` 的初始化本身没有太多的逻辑，主要是构造了一个 `Config` 对象传递进来，所以 `Controller` 启动时肯定会有这个 `Config` 的使用逻辑，回到 controller.go 文件继续查看：
 ```golang
@@ -216,6 +216,7 @@ Informer 通过一个 `Controller` 对象来定义，本身结构很简单，在
 		r := NewReflectorWithOptions(
 			c.config.ListerWatcher,
 			c.config.ObjectType,
+			// 若由上面的 sharedIndexInformer 追踪而来，此时传入的 Queue 为 DeltaFIFO
 			c.config.Queue,
 			ReflectorOptions{
 				ResyncPeriod:    c.config.FullResyncPeriod,
@@ -261,6 +262,7 @@ Informer 通过一个 `Controller` 对象来定义，本身结构很简单，在
 	// also be helpful.
 	func (c *controller) processLoop() {
 		for {
+			// config 的 Process 属性为 s.HandleDelta
 			// type PopProcessFunc func(obj interface{}, isInInitialList bool) error
 			obj, err := c.config.Queue.Pop(PopProcessFunc(c.config.Process))
 			if err != nil {
@@ -356,26 +358,56 @@ Informer 通过一个 `Controller` 对象来定义，本身结构很简单，在
 		OnDelete(obj interface{})
 	}
 ```
-这里的代码逻辑主要是遍历一个 `Deltas` 中的所有 `Delta`，然后根据 `Delta` 的类型来决定如何操作 `Indexer` ，也就是更新本地 `cache`，同时分发相应的通知。
+这里的代码逻辑主要是遍历一个 `Deltas` 中的所有 `Delta`，然后根据 `Delta` 的类型来决定如何操作 `Indexer`，也就是更新本地 `cache`，同时分发相应的通知。
 
 ### 2. SharedIndexInformer对象
 
-**a. 1.SharedIndexInformer是什么**
+**a. 1.SharedIndexInformer 是什么**
 
 在 Operator 开发中，如果不使用 controller-runtime 库，也就是不通过 Kubebuilder 等工具来生成脚手架，就经常会用到 `SharedInformerFactory`。
 
-在 client-go 的 `informers/apps/v1`包的deployment.go文件中有 `DeploymentInformer` 类型的相关定义：
+- 一个典型的例子，`sample-controller` 中的 `main()`函数
+	- [sample-controller](https://github.com/kubernetes/sample-controller)
 ```golang
-	// DeploymentInformer provides access to a shared informer and lister for
-	// Deployments.
+	func main() {
+		// ...
+		cfg, err := clientcmd.BuildConfigFromFlags(masterURL, kubeconfig)
+		kubeClient, err := kubernetes.NewForConfig(cfg)
+		exampleClient, err := clientset.NewForConfig(cfg)
+		// ...
+
+		// kubeinformers "k8s.io/client-go/informers"
+		kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClient, time.Second*30)
+		exampleInformerFactory := informers.NewSharedInformerFactory(exampleClient, time.Second*30)
+
+		controller := NewController(ctx, kubeClient, exampleClient,
+			kubeInformerFactory.Apps().V1().Deployments(),
+			exampleInformerFactory.Samplecontroller().V1alpha1().Foos())
+
+		// notice that there is no need to run Start methods in a separate goroutine. (i.e. go kubeInformerFactory.Start(ctx.done())
+		// Start method is non-blocking and runs all registered informers in a dedicated goroutine.
+		kubeInformerFactory.Start(ctx.Done())
+		exampleInformerFactory.Start(ctx.Done())
+		// ...
+
+		if err = controller.Run(ctx, 2); err != nil {
+			logger.Error(err, "Error running controller")
+			klog.FlushAndExit(klog.ExitFlushTimeout, 1)
+		}
+	}
+```
+
+这里可以看到 `sample-controller` 依赖于 `kubeInformerFactory.Apps().V1().Deployments()` 提供一个 `Informer`，其中的 `Deployments()` 方法返回的是 `DeploymentInformer` 类型，在 client-go 的 `informers/apps/v1` 包的 deployment.go 文件中有 `DeploymentInformer` 类型的相关定义：
+```golang
+	// DeploymentInformer provides access to a shared informer and lister for Deployments.
 	type DeploymentInformer interface {
 		Informer() cache.SharedIndexInformer
 		Lister() v1.DeploymentLister
 	}
 ```
-这里可以看到 `DeploymentInformer` 是由 `Informer` 和 `Lister` 组成的。
+这里可以看到 `DeploymentInformer` 是由 `Informer` 和 `Lister` 组成的，也就是说上面例子中，编码时用到的 `Informer` 本质就是一个  `SharedIndexInformer`。
 
-**b. SharedIndexInformer接口的定义**
+**b. SharedIndexInformer 接口的定义**
 
 回到 tools/cache/shared_informer.go 文件中，可以看到 `SharedIndexInformer`接口的定义：
 ```golang
@@ -396,50 +428,22 @@ Informer 通过一个 `Controller` 对象来定义，本身结构很简单，在
 	// group and kind/resource.  The linked object collection of a
 	// SharedInformer may be further restricted to one namespace (if
 	// applicable) and/or by label selector and/or field selector.
+	// SharedInformer 提供了其客户端到给定对象集合的可信状态的最终一致的链接。
+	// 对象由其 API group、kind/resource、namespace(如果有的话)和 name 来标识；
+	// 就此协定而言，"ObjectMeta.UID" 不是对象 ID 的一部分。
+	// 一个 SharedInformer 提供了到特定 API group、kind/resource 的对象的链接。
+	// SharedInformer 的链接对象集合可以进一步被限制到一个 namespace(如果适用的话)、label selector、field selector。
 	//
 	// The authoritative state of an object is what apiservers provide
 	// access to, and an object goes through a strict sequence of states.
 	// An object state is either (1) present with a ResourceVersion and
 	// other appropriate content or (2) "absent".
-	//
-	// A SharedInformer maintains a local cache --- exposed by GetStore(),
-	// by GetIndexer() in the case of an indexed informer, and possibly by
-	// machinery involved in creating and/or accessing the informer --- of
-	// the state of each relevant object.  This cache is eventually
-	// consistent with the authoritative state.  This means that, unless
-	// prevented by persistent communication problems, if ever a
-	// particular object ID X is authoritatively associated with a state S
-	// then for every SharedInformer I whose collection includes (X, S)
-	// eventually either (1) I's cache associates X with S or a later
-	// state of X, (2) I is stopped, or (3) the authoritative state
-	// service for X terminates.  To be formally complete, we say that the
-	// absent state meets any restriction by label selector or field
-	// selector.
-	//
-	// For a given informer and relevant object ID X, the sequence of
-	// states that appears in the informer's cache is a subsequence of the
-	// states authoritatively associated with X.  That is, some states
-	// might never appear in the cache but ordering among the appearing
-	// states is correct.  Note, however, that there is no promise about
-	// ordering between states seen for different objects.
+	// 对象的可信状态是 apiservers 提供访问的内容，对象经历一系列严格的状态。
+	// 对象状态 (1)与资源版本和其他适当的内容一起出现，(2)"不存在"。
 	//
 	// The local cache starts out empty, and gets populated and updated
 	// during `Run()`.
-	//
-	// As a simple example, if a collection of objects is henceforth
-	// unchanging, a SharedInformer is created that links to that
-	// collection, and that SharedInformer is `Run()` then that
-	// SharedInformer's cache eventually holds an exact copy of that
-	// collection (unless it is stopped too soon, the authoritative state
-	// service ends, or communication problems between the two
-	// persistently thwart achievement).
-	//
-	// As another simple example, if the local cache ever holds a
-	// non-absent state for some object ID and the object is eventually
-	// removed from the authoritative state then eventually the object is
-	// removed from the local cache (unless the SharedInformer is stopped
-	// too soon, the authoritative state service ends, or communication
-	// problems persistently thwart the desired result).
+	// 本地缓存开始时为空，在 "Run()" 期间被填充和更新。
 	//
 	// The keys in the Store are of the form namespace/name for namespaced
 	// objects, and are simply the name for non-namespaced objects.
@@ -450,6 +454,8 @@ Informer 通过一个 `Controller` 对象来定义，本身结构很简单，在
 	// Every query against the local cache is answered entirely from one
 	// snapshot of the cache's state.  Thus, the result of a `List` call
 	// will not contain two entries with the same namespace and name.
+	// 针对本地缓存的每个查询都完全由缓存状态的一个快照来回答。
+	// 因此，"List" 调用的结果不会包含两个具有相同命名空间和名称的条目。
 	//
 	// A client is identified here by a ResourceEventHandler.  For every
 	// update to the SharedInformer's local cache and for every client
@@ -482,10 +488,8 @@ Informer 通过一个 `Controller` 对象来定义，本身结构很简单，在
 	// notifications to deliver.  Lengthy processing should be passed off
 	// to something else, for example through a
 	// `client-go/util/workqueue`.
-	//
-	// A delete notification exposes the last locally known non-absent
-	// state, except that its ResourceVersion is replaced with a
-	// ResourceVersion in which the object is actually absent.
+	// Client 必须及时处理每个通知；SharedInformer 不能很好地处理大量积压的通知。
+	// 冗长的处理过程应该被传递给其他组件，例如通过 "client-go/util/workqueue"。
 	type SharedInformer interface {
 		// AddEventHandler adds an event handler to the shared informer using
 		// the shared informer's resync period.  Events to a single handler are
@@ -571,7 +575,15 @@ Informer 通过一个 `Controller` 对象来定义，本身结构很简单，在
 
 **c. sharedIndexInformer结构体的定义**
 
-`SharedIndexInformer` 接口的实现 sharedIndexerInformer的定义，同样在shared_informer.go文件中查看代码：
+- `sharedIndexerInformer` 实现 `SharedIndexInformer` 接口，共有3个主要组件，同样在 shared_informer.go 文件中查看代码
+	- `indexer Indexer` 带索引的本地 cache
+	- `controller Controller` Controller 控制器
+		- 使用 ListerWatcher 拉取 objects/notifications，并推送至 DeltaFIFO
+		- DeltaFIFO 的 knownObjects，为 sharedIndexerInformer 的 indexer
+		- 从 DeltaFIFO 弹出 Deltas 后，通过 sharedIndexInformer.HandleDeltas 进行处理
+		- HandleDeltas 的每次调用都是在 DeltaFIFO 加锁的情况下完成的，它依次处理每个Delta
+		- 对于每个 Delta，将会更新本地 cache 并将相关通知填充到 sharedProcessor 中
+	- `processor *sharedProcessor` 负责将这些通知转发给每个 informer 的客户端
 ```golang
 	// `*sharedIndexInformer` implements SharedIndexInformer and has three
 	// main components.  One is an indexed local cache, `indexer Indexer`.
@@ -904,7 +916,7 @@ Informer 通过一个 `Controller` 对象来定义，本身结构很简单，在
 		Storage() storage.Interface
 	}
 
-	// 首先看下 internalinterfaces.SharedInformerFactory接口，在internalinterfaces/factory_interfaces.go中
+	// 首先看下 internalinterfaces.SharedInformerFactory 接口，在internalinterfaces/factory_interfaces.go中
 	// SharedInformerFactory a small interface to allow for adding an informer without an import cycle
 	type SharedInformerFactory interface {
 		Start(stopCh <-chan struct{})
@@ -955,6 +967,8 @@ Informer 通过一个 `Controller` 对象来定义，本身结构很简单，在
 	}
 ```
 现在也就不难理解 `SharedInformerFactory` 的作用了，它提供了所有 `API group-version` 的资源对应的 `SharedIndexInformer`。
+
+而前面引用的 sample-controller 中的这行代码 `kubeInformerFactory.Apps().V1().Deployments()`，通过其可以拿到一个 Deployment 资源对应的 `SharedIndexInformer`。
 
 **b. SharedInformerFactory的初始化**
 
@@ -1022,3 +1036,11 @@ Informer 通过一个 `Controller` 对象来定义，本身结构很简单，在
 		}
 	}
 ```
+
+### 5. 小结
+
+本文从一个基础 Informer-Controller 开始介绍，先分析了 `Controller` 的能力，其通过构造 `Reflector` 并启动从而能够获取指定类型资源的"更新"事件，然后通过事件构造 `Delta` 放到 `DeltaFIFO` 中，进而在 `processLoop` 中从 `DeltaFIFO` 里 pop `Deltas` 来处理，一方面将对象通过 `Indexer` 同步到本地 cache (也就是一个 `ThreadSafeStore` )，另一方面调用 `ProcessFunc` 来处理这些 `Delta`。
+
+然后 `SharedIndexInformer` 提供了构造 `Controller` 的能力，通过 `HandleDeltas()` 方法实现上面提到的 `ProcessFunc`，同时还引入了 `sharedProcessor` 在 `HandleDeltas()` 中用于事件通知的处理。`sharedProcessor` 分发事件通知时，接收方是内部继续抽象出来的 `processorListener`，在 `processorListener` 中完成了 `ResourceEventHandler` 回调函数的具体调用。
+
+最后 `SharedInformerFactory` 又进一步封装了提供所有 API 资源对应的 `SharedIndexInformer` 的能力。也就是说一个 `SharedIndexInformer` 可以处理一种类型的资源，比如 Deployment 或者 Pod 等，而通过 `SharedInformerFactory` 可以轻松构造任意已知类型的 `SharedIndexInformer`。另外，这里用到了 `ClientSet` 提供的访问所有 API 资源的能力，通过它也就能够完整实现整套 `Informer` 程序逻辑了。
