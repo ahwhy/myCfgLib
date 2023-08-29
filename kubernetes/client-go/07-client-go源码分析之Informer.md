@@ -357,6 +357,57 @@ Informer 通过一个 `Controller` 对象来定义，本身结构很简单，在
 		OnUpdate(oldObj, newObj interface{})
 		OnDelete(obj interface{})
 	}
+
+	// Conforms to ResourceEventHandler
+	func (s *sharedIndexInformer) OnAdd(obj interface{}, isInInitialList bool) {
+		// Invocation of this function is locked under s.blockDeltas, so it is
+		// save to distribute the notification
+		s.cacheMutationDetector.AddObject(obj)
+		s.processor.distribute(addNotification{newObj: obj, isInInitialList: isInInitialList}, false)
+	}
+
+	type addNotification struct {
+		newObj          interface{}
+		isInInitialList bool
+	}
+
+	// Conforms to ResourceEventHandler
+	func (s *sharedIndexInformer) OnUpdate(old, new interface{}) {
+		isSync := false
+
+		// If is a Sync event, isSync should be true
+		// If is a Replaced event, isSync is true if resource version is unchanged.
+		// If RV is unchanged: this is a Sync/Replaced event, so isSync is true
+
+		if accessor, err := meta.Accessor(new); err == nil {
+			if oldAccessor, err := meta.Accessor(old); err == nil {
+				// Events that didn't change resourceVersion are treated as resync events
+				// and only propagated to listeners that requested resync
+				isSync = accessor.GetResourceVersion() == oldAccessor.GetResourceVersion()
+			}
+		}
+
+		// Invocation of this function is locked under s.blockDeltas, so it is
+		// save to distribute the notification
+		s.cacheMutationDetector.AddObject(new)
+		s.processor.distribute(updateNotification{oldObj: old, newObj: new}, isSync)
+	}
+
+	type updateNotification struct {
+		oldObj interface{}
+		newObj interface{}
+	}
+
+	// Conforms to ResourceEventHandler
+	func (s *sharedIndexInformer) OnDelete(old interface{}) {
+		// Invocation of this function is locked under s.blockDeltas, so it is
+		// save to distribute the notification
+		s.processor.distribute(deleteNotification{oldObj: old}, false)
+	}
+
+	type deleteNotification struct {
+		oldObj interface{}
+	}
 ```
 这里的代码逻辑主要是遍历一个 `Deltas` 中的所有 `Delta`，然后根据 `Delta` 的类型来决定如何操作 `Indexer`，也就是更新本地 `cache`，同时分发相应的通知。
 
@@ -498,6 +549,7 @@ Informer 通过一个 `Controller` 对象来定义，本身结构很简单，在
 		// It returns a registration handle for the handler that can be used to
 		// remove the handler again, or to tell if the handler is synced (has
 		// seen every item in the initial list).
+		// 可以添加自定义的 ResourceEventHandler
 		AddEventHandler(handler ResourceEventHandler) (ResourceEventHandlerRegistration, error)
 		// AddEventHandlerWithResyncPeriod adds an event handler to the
 		// shared informer with the requested resync period; zero means
@@ -515,17 +567,20 @@ Informer 通过一个 `Controller` 对象来定义，本身结构很简单，在
 		// be competing load and scheduling noise.
 		// It returns a registration handle for the handler that can be used to remove
 		// the handler again and an error if the handler cannot be added.
+		// 附带 resync 间隔配置，resyncPeriod 设置为 0 表示不关心 resync
 		AddEventHandlerWithResyncPeriod(handler ResourceEventHandler, resyncPeriod time.Duration) (ResourceEventHandlerRegistration, error)
 		// RemoveEventHandler removes a formerly added event handler given by
 		// its registration handle.
 		// This function is guaranteed to be idempotent, and thread-safe.
 		RemoveEventHandler(handle ResourceEventHandlerRegistration) error
 		// GetStore returns the informer's local cache as a Store.
+		// 这里的 Store 指的是 Indexer
 		GetStore() Store
 		// GetController is deprecated, it does nothing useful
 		GetController() Controller
 		// Run starts and runs the shared informer, returning after it stops.
 		// The informer will be stopped when stopCh is closed.
+		// 通过 Run 方法启动
 		Run(stopCh <-chan struct{})
 		// HasSynced returns true if the shared informer's store has been
 		// informed by at least one full LIST of the authoritative state
@@ -534,10 +589,12 @@ Informer 通过一个 `Controller` 对象来定义，本身结构很简单，在
 		// Note that this doesn't tell you if an individual handler is synced!!
 		// For that, please call HasSynced on the handle returned by
 		// AddEventHandler.
+		// 这里和 resync 没有关系，表示 Indexer 至少更新过一次全量的对象
 		HasSynced() bool
 		// LastSyncResourceVersion is the resource version observed when last synced with the underlying
 		// store. The value returned is not synchronized with access to the underlying store and is not
 		// thread-safe.
+		// 最后一次拿到的 RV
 		LastSyncResourceVersion() string
 
 		// The WatchErrorHandler is called whenever ListAndWatch drops the
@@ -553,6 +610,7 @@ Informer 通过一个 `Controller` 对象来定义，本身结构很简单，在
 		// The handler is intended for visibility, not to e.g. pause the consumers.
 		// The handler should return quickly - any expensive processing should be
 		// offloaded.
+		// 用于每次 ListAndWatch 连接断开时回调，主要是日志记录的作用
 		SetWatchErrorHandler(handler WatchErrorHandler) error
 
 		// The TransformFunc is called for each object which is about to be stored.
@@ -564,6 +622,7 @@ Informer 通过一个 `Controller` 对象来定义，本身结构很简单，在
 		// Must be set before starting the informer.
 		//
 		// Please see the comment on TransformFunc for more details.
+		// 用于在对象存储前执行一些操作
 		SetTransform(handler TransformFunc) error
 
 		// IsStopped reports whether the informer has already been stopped.
@@ -609,6 +668,7 @@ Informer 通过一个 `Controller` 对象来定义，本身结构很简单，在
 
 		// objectType is an example object of the type this informer is expected to handle. If set, an event
 		// with an object with a mismatching type is dropped instead of being delivered to listeners.
+		// 表示当前 Informer 期望关注的类型，主要是 GVK 信息
 		objectType runtime.Object
 
 		// objectDescription is the description of this informer's objects. This typically defaults to
@@ -616,6 +676,7 @@ Informer 通过一个 `Controller` 对象来定义，本身结构很简单，在
 
 		// resyncCheckPeriod is how often we want the reflector's resync timer to fire so it can call
 		// shouldResync to check if any of our listeners need a resync.
+		// reflector 的 resync 计时器计时间隔，通知所有的 listener 执行 resync
 		resyncCheckPeriod time.Duration
 		// defaultEventHandlerResyncPeriod is the default resync period for any handlers added via
 		// AddEventHandler (i.e. they don't specify one and just want to use the shared informer's default
@@ -733,6 +794,7 @@ Informer 通过一个 `Controller` 对象来定义，本身结构很简单，在
 		nextCh chan interface{}
 		addCh  chan interface{}
 
+		// 核心属性
 		handler ResourceEventHandler
 
 		syncTracker *synctrack.SingleFileTracker
@@ -766,8 +828,16 @@ Informer 通过一个 `Controller` 对象来定义，本身结构很简单，在
 		// resyncLock guards access to resyncPeriod and nextResync
 		resyncLock sync.Mutex
 	}
+```
+可以看到 `processorListener` 中有一个 `ResourceEventHandler`，这是我们认识的组件。
 
+- `processorListener` 有三个主要方法
+	+ `run()` 从 nextCh 中拿通知，然后根据其类型去调用 ResourceEventHandler 相应的 OnAdd()/OnUpdate()/OnDelete() 方法
+	+ `add(notification interface{})`
+	+ `pop()`
+```golang
 	// 方法 run()
+	// 这里的逻辑很清晰，从 nextCh 中拿通知，然后根据其类型去调用 ResourceEventHandler 相应的 OnAdd()/OnUpdate()/OnDelete() 方法
 	func (p *processorListener) run() {
 		// this call blocks until the channel is closed.  When a panic happens during the notification
 		// we will catch it, **the offending item will be skipped!**, and after a short delay (one second)
@@ -800,6 +870,7 @@ Informer 通过一个 `Controller` 对象来定义，本身结构很简单，在
 		if a, ok := notification.(addNotification); ok && a.isInInitialList {
 			p.syncTracker.Start()
 		}
+		// 将通知放到 addCh 中，下面的 pop() 方法中先执行到的 case 是第二个
 		p.addCh <- notification
 	}
 
@@ -812,13 +883,17 @@ Informer 通过一个 `Controller` 对象来定义，本身结构很简单，在
 		var notification interface{}
 		for {
 			select {
+			// 下面将获取到的通知添加到 nextCh 中，供 run() 方法中消费
 			case nextCh <- notification:
+				// 分发通知
 				// Notification dispatched
 				var ok bool
+				// 从 pendingNotifications 中消费通知，生产者在下面的 case 中
 				notification, ok = p.pendingNotifications.ReadOne()
 				if !ok { // Nothing to pop
 					nextCh = nil // Disable this select case
 				}
+			// 逻辑从这里开始，从 addCh 中提取通知
 			case notificationToAdd, ok := <-p.addCh:
 				if !ok {
 					return
@@ -828,12 +903,85 @@ Informer 通过一个 `Controller` 对象来定义，本身结构很简单，在
 					notification = notificationToAdd
 					nextCh = p.nextCh
 				} else { // There is already a notification waiting to be dispatched
+					// 新添加到通知丢到 pendingNotifications 中
 					p.pendingNotifications.WriteOne(notificationToAdd)
 				}
 			}
 		}
 	}
 ```
+可以看到 `processorListener` 提供了一定的缓冲机制来接收 `notification`，然后去消费这些 `notification` 调用 `ResourceEventHandler` 相关方法。
+
+- 接下来继续查看 `sharedProcessor` 的几种主要方法
+	+ `addListener()` 调用前面 `listener` 的 `run()` 和 `pop()` 方法
+	+ `distribute()` 调用 `sharedProcessor` 内部维护的所有 `listener` 的 `add()` 方法
+	+ `run()` 和前面 `addListener()`方法类似，也就是调用`listener` 的 `run()` 和 `pop()` 方法
+```golang
+	func (p *sharedProcessor) addListener(listener *processorListener) ResourceEventHandlerRegistration {
+		p.listenersLock.Lock()
+		defer p.listenersLock.Unlock()
+
+		if p.listeners == nil {
+			p.listeners = make(map[*processorListener]bool)
+		}
+
+		p.listeners[listener] = true
+
+		if p.listenersStarted {
+			p.wg.Start(listener.run)
+			p.wg.Start(listener.pop)
+		}
+
+		return listener
+	}
+
+	func (p *sharedProcessor) distribute(obj interface{}, sync bool) {
+		p.listenersLock.RLock()
+		defer p.listenersLock.RUnlock()
+
+		for listener, isSyncing := range p.listeners {
+			switch {
+			case !sync:
+				// non-sync messages are delivered to every listener
+				listener.add(obj)
+			case isSyncing:
+				// sync messages are delivered to every syncing listener
+				listener.add(obj)
+			default:
+				// skipping a sync obj for a non-syncing listener
+			}
+		}
+	}
+
+	func (p *sharedProcessor) run(stopCh <-chan struct{}) {
+		func() {
+			p.listenersLock.RLock()
+			defer p.listenersLock.RUnlock()
+			for listener := range p.listeners {
+				p.wg.Start(listener.run)
+				p.wg.Start(listener.pop)
+			}
+			p.listenersStarted = true
+		}()
+		<-stopCh
+
+		p.listenersLock.Lock()
+		defer p.listenersLock.Unlock()
+		for listener := range p.listeners {
+			close(listener.addCh) // Tell .pop() to stop. .pop() will tell .run() to stop
+		}
+
+		// Wipe out list of listeners since they are now closed
+		// (processorListener cannot be re-used)
+		p.listeners = nil
+
+		// Reset to false since no listeners are running
+		p.listenersStarted = false
+
+		p.wg.Wait() // Wait for all .pop() and .run() to stop
+	}
+```
+至此，基本就分析完 `sharedProcessor`、`SharedIndexInformer` 的能力和逻辑了。
 
 ### 4. 关于SharedInformerFactory
 
@@ -916,14 +1064,333 @@ Informer 通过一个 `Controller` 对象来定义，本身结构很简单，在
 		Storage() storage.Interface
 	}
 
-	// 首先看下 internalinterfaces.SharedInformerFactory 接口，在internalinterfaces/factory_interfaces.go中
+	// 首先看下 internalinterfaces.SharedInformerFactory 接口，在 internalinterfaces/factory_interfaces.go 中
 	// SharedInformerFactory a small interface to allow for adding an informer without an import cycle
 	type SharedInformerFactory interface {
 		Start(stopCh <-chan struct{})
 		InformerFor(obj runtime.Object, newFunc NewInformerFunc) cache.SharedIndexInformer
 	}
 
-	// 接着了解ForResource(resource schema.GroupVersionResource) (GenericInformer,error)中，返回了一个 GenericInformer
+	// 接着了解下 ForResource ，这里接收了一个 GVR，返回了一个 GenericInformer
+	// ForResource gives generic access to a shared informer of the matching type
+	// TODO extend this to unknown resources with a client pool
+	func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource) (GenericInformer, error) {
+		switch resource {
+		// Group=admissionregistration.k8s.io, Version=v1
+		case v1.SchemeGroupVersion.WithResource("mutatingwebhookconfigurations"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Admissionregistration().V1().MutatingWebhookConfigurations().Informer()}, nil
+		case v1.SchemeGroupVersion.WithResource("validatingwebhookconfigurations"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Admissionregistration().V1().ValidatingWebhookConfigurations().Informer()}, nil
+
+			// Group=admissionregistration.k8s.io, Version=v1alpha1
+		case v1alpha1.SchemeGroupVersion.WithResource("validatingadmissionpolicies"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Admissionregistration().V1alpha1().ValidatingAdmissionPolicies().Informer()}, nil
+		case v1alpha1.SchemeGroupVersion.WithResource("validatingadmissionpolicybindings"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Admissionregistration().V1alpha1().ValidatingAdmissionPolicyBindings().Informer()}, nil
+
+			// Group=admissionregistration.k8s.io, Version=v1beta1
+		case v1beta1.SchemeGroupVersion.WithResource("mutatingwebhookconfigurations"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Admissionregistration().V1beta1().MutatingWebhookConfigurations().Informer()}, nil
+		case v1beta1.SchemeGroupVersion.WithResource("validatingwebhookconfigurations"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Admissionregistration().V1beta1().ValidatingWebhookConfigurations().Informer()}, nil
+
+			// Group=apps, Version=v1
+		case appsv1.SchemeGroupVersion.WithResource("controllerrevisions"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Apps().V1().ControllerRevisions().Informer()}, nil
+		case appsv1.SchemeGroupVersion.WithResource("daemonsets"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Apps().V1().DaemonSets().Informer()}, nil
+		case appsv1.SchemeGroupVersion.WithResource("deployments"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Apps().V1().Deployments().Informer()}, nil
+		case appsv1.SchemeGroupVersion.WithResource("replicasets"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Apps().V1().ReplicaSets().Informer()}, nil
+		case appsv1.SchemeGroupVersion.WithResource("statefulsets"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Apps().V1().StatefulSets().Informer()}, nil
+
+			// Group=apps, Version=v1beta1
+		case appsv1beta1.SchemeGroupVersion.WithResource("controllerrevisions"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Apps().V1beta1().ControllerRevisions().Informer()}, nil
+		case appsv1beta1.SchemeGroupVersion.WithResource("deployments"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Apps().V1beta1().Deployments().Informer()}, nil
+		case appsv1beta1.SchemeGroupVersion.WithResource("statefulsets"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Apps().V1beta1().StatefulSets().Informer()}, nil
+
+			// Group=apps, Version=v1beta2
+		case v1beta2.SchemeGroupVersion.WithResource("controllerrevisions"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Apps().V1beta2().ControllerRevisions().Informer()}, nil
+		case v1beta2.SchemeGroupVersion.WithResource("daemonsets"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Apps().V1beta2().DaemonSets().Informer()}, nil
+		case v1beta2.SchemeGroupVersion.WithResource("deployments"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Apps().V1beta2().Deployments().Informer()}, nil
+		case v1beta2.SchemeGroupVersion.WithResource("replicasets"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Apps().V1beta2().ReplicaSets().Informer()}, nil
+		case v1beta2.SchemeGroupVersion.WithResource("statefulsets"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Apps().V1beta2().StatefulSets().Informer()}, nil
+
+			// Group=autoscaling, Version=v1
+		case autoscalingv1.SchemeGroupVersion.WithResource("horizontalpodautoscalers"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Autoscaling().V1().HorizontalPodAutoscalers().Informer()}, nil
+
+			// Group=autoscaling, Version=v2
+		case v2.SchemeGroupVersion.WithResource("horizontalpodautoscalers"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Autoscaling().V2().HorizontalPodAutoscalers().Informer()}, nil
+
+			// Group=autoscaling, Version=v2beta1
+		case v2beta1.SchemeGroupVersion.WithResource("horizontalpodautoscalers"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Autoscaling().V2beta1().HorizontalPodAutoscalers().Informer()}, nil
+
+			// Group=autoscaling, Version=v2beta2
+		case v2beta2.SchemeGroupVersion.WithResource("horizontalpodautoscalers"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Autoscaling().V2beta2().HorizontalPodAutoscalers().Informer()}, nil
+
+			// Group=batch, Version=v1
+		case batchv1.SchemeGroupVersion.WithResource("cronjobs"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Batch().V1().CronJobs().Informer()}, nil
+		case batchv1.SchemeGroupVersion.WithResource("jobs"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Batch().V1().Jobs().Informer()}, nil
+
+			// Group=batch, Version=v1beta1
+		case batchv1beta1.SchemeGroupVersion.WithResource("cronjobs"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Batch().V1beta1().CronJobs().Informer()}, nil
+
+			// Group=certificates.k8s.io, Version=v1
+		case certificatesv1.SchemeGroupVersion.WithResource("certificatesigningrequests"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Certificates().V1().CertificateSigningRequests().Informer()}, nil
+
+			// Group=certificates.k8s.io, Version=v1alpha1
+		case certificatesv1alpha1.SchemeGroupVersion.WithResource("clustertrustbundles"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Certificates().V1alpha1().ClusterTrustBundles().Informer()}, nil
+
+			// Group=certificates.k8s.io, Version=v1beta1
+		case certificatesv1beta1.SchemeGroupVersion.WithResource("certificatesigningrequests"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Certificates().V1beta1().CertificateSigningRequests().Informer()}, nil
+
+			// Group=coordination.k8s.io, Version=v1
+		case coordinationv1.SchemeGroupVersion.WithResource("leases"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Coordination().V1().Leases().Informer()}, nil
+
+			// Group=coordination.k8s.io, Version=v1beta1
+		case coordinationv1beta1.SchemeGroupVersion.WithResource("leases"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Coordination().V1beta1().Leases().Informer()}, nil
+
+			// Group=core, Version=v1
+		case corev1.SchemeGroupVersion.WithResource("componentstatuses"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Core().V1().ComponentStatuses().Informer()}, nil
+		case corev1.SchemeGroupVersion.WithResource("configmaps"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Core().V1().ConfigMaps().Informer()}, nil
+		case corev1.SchemeGroupVersion.WithResource("endpoints"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Core().V1().Endpoints().Informer()}, nil
+		case corev1.SchemeGroupVersion.WithResource("events"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Core().V1().Events().Informer()}, nil
+		case corev1.SchemeGroupVersion.WithResource("limitranges"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Core().V1().LimitRanges().Informer()}, nil
+		case corev1.SchemeGroupVersion.WithResource("namespaces"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Core().V1().Namespaces().Informer()}, nil
+		case corev1.SchemeGroupVersion.WithResource("nodes"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Core().V1().Nodes().Informer()}, nil
+		case corev1.SchemeGroupVersion.WithResource("persistentvolumes"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Core().V1().PersistentVolumes().Informer()}, nil
+		case corev1.SchemeGroupVersion.WithResource("persistentvolumeclaims"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Core().V1().PersistentVolumeClaims().Informer()}, nil
+		case corev1.SchemeGroupVersion.WithResource("pods"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Core().V1().Pods().Informer()}, nil
+		case corev1.SchemeGroupVersion.WithResource("podtemplates"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Core().V1().PodTemplates().Informer()}, nil
+		case corev1.SchemeGroupVersion.WithResource("replicationcontrollers"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Core().V1().ReplicationControllers().Informer()}, nil
+		case corev1.SchemeGroupVersion.WithResource("resourcequotas"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Core().V1().ResourceQuotas().Informer()}, nil
+		case corev1.SchemeGroupVersion.WithResource("secrets"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Core().V1().Secrets().Informer()}, nil
+		case corev1.SchemeGroupVersion.WithResource("services"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Core().V1().Services().Informer()}, nil
+		case corev1.SchemeGroupVersion.WithResource("serviceaccounts"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Core().V1().ServiceAccounts().Informer()}, nil
+
+			// Group=discovery.k8s.io, Version=v1
+		case discoveryv1.SchemeGroupVersion.WithResource("endpointslices"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Discovery().V1().EndpointSlices().Informer()}, nil
+
+			// Group=discovery.k8s.io, Version=v1beta1
+		case discoveryv1beta1.SchemeGroupVersion.WithResource("endpointslices"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Discovery().V1beta1().EndpointSlices().Informer()}, nil
+
+			// Group=events.k8s.io, Version=v1
+		case eventsv1.SchemeGroupVersion.WithResource("events"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Events().V1().Events().Informer()}, nil
+
+			// Group=events.k8s.io, Version=v1beta1
+		case eventsv1beta1.SchemeGroupVersion.WithResource("events"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Events().V1beta1().Events().Informer()}, nil
+
+			// Group=extensions, Version=v1beta1
+		case extensionsv1beta1.SchemeGroupVersion.WithResource("daemonsets"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Extensions().V1beta1().DaemonSets().Informer()}, nil
+		case extensionsv1beta1.SchemeGroupVersion.WithResource("deployments"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Extensions().V1beta1().Deployments().Informer()}, nil
+		case extensionsv1beta1.SchemeGroupVersion.WithResource("ingresses"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Extensions().V1beta1().Ingresses().Informer()}, nil
+		case extensionsv1beta1.SchemeGroupVersion.WithResource("networkpolicies"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Extensions().V1beta1().NetworkPolicies().Informer()}, nil
+		case extensionsv1beta1.SchemeGroupVersion.WithResource("replicasets"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Extensions().V1beta1().ReplicaSets().Informer()}, nil
+
+			// Group=flowcontrol.apiserver.k8s.io, Version=v1alpha1
+		case flowcontrolv1alpha1.SchemeGroupVersion.WithResource("flowschemas"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Flowcontrol().V1alpha1().FlowSchemas().Informer()}, nil
+		case flowcontrolv1alpha1.SchemeGroupVersion.WithResource("prioritylevelconfigurations"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Flowcontrol().V1alpha1().PriorityLevelConfigurations().Informer()}, nil
+
+			// Group=flowcontrol.apiserver.k8s.io, Version=v1beta1
+		case flowcontrolv1beta1.SchemeGroupVersion.WithResource("flowschemas"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Flowcontrol().V1beta1().FlowSchemas().Informer()}, nil
+		case flowcontrolv1beta1.SchemeGroupVersion.WithResource("prioritylevelconfigurations"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Flowcontrol().V1beta1().PriorityLevelConfigurations().Informer()}, nil
+
+			// Group=flowcontrol.apiserver.k8s.io, Version=v1beta2
+		case flowcontrolv1beta2.SchemeGroupVersion.WithResource("flowschemas"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Flowcontrol().V1beta2().FlowSchemas().Informer()}, nil
+		case flowcontrolv1beta2.SchemeGroupVersion.WithResource("prioritylevelconfigurations"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Flowcontrol().V1beta2().PriorityLevelConfigurations().Informer()}, nil
+
+			// Group=flowcontrol.apiserver.k8s.io, Version=v1beta3
+		case v1beta3.SchemeGroupVersion.WithResource("flowschemas"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Flowcontrol().V1beta3().FlowSchemas().Informer()}, nil
+		case v1beta3.SchemeGroupVersion.WithResource("prioritylevelconfigurations"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Flowcontrol().V1beta3().PriorityLevelConfigurations().Informer()}, nil
+
+			// Group=internal.apiserver.k8s.io, Version=v1alpha1
+		case apiserverinternalv1alpha1.SchemeGroupVersion.WithResource("storageversions"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Internal().V1alpha1().StorageVersions().Informer()}, nil
+
+			// Group=networking.k8s.io, Version=v1
+		case networkingv1.SchemeGroupVersion.WithResource("ingresses"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Networking().V1().Ingresses().Informer()}, nil
+		case networkingv1.SchemeGroupVersion.WithResource("ingressclasses"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Networking().V1().IngressClasses().Informer()}, nil
+		case networkingv1.SchemeGroupVersion.WithResource("networkpolicies"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Networking().V1().NetworkPolicies().Informer()}, nil
+
+			// Group=networking.k8s.io, Version=v1alpha1
+		case networkingv1alpha1.SchemeGroupVersion.WithResource("clustercidrs"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Networking().V1alpha1().ClusterCIDRs().Informer()}, nil
+		case networkingv1alpha1.SchemeGroupVersion.WithResource("ipaddresses"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Networking().V1alpha1().IPAddresses().Informer()}, nil
+
+			// Group=networking.k8s.io, Version=v1beta1
+		case networkingv1beta1.SchemeGroupVersion.WithResource("ingresses"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Networking().V1beta1().Ingresses().Informer()}, nil
+		case networkingv1beta1.SchemeGroupVersion.WithResource("ingressclasses"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Networking().V1beta1().IngressClasses().Informer()}, nil
+
+			// Group=node.k8s.io, Version=v1
+		case nodev1.SchemeGroupVersion.WithResource("runtimeclasses"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Node().V1().RuntimeClasses().Informer()}, nil
+
+			// Group=node.k8s.io, Version=v1alpha1
+		case nodev1alpha1.SchemeGroupVersion.WithResource("runtimeclasses"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Node().V1alpha1().RuntimeClasses().Informer()}, nil
+
+			// Group=node.k8s.io, Version=v1beta1
+		case nodev1beta1.SchemeGroupVersion.WithResource("runtimeclasses"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Node().V1beta1().RuntimeClasses().Informer()}, nil
+
+			// Group=policy, Version=v1
+		case policyv1.SchemeGroupVersion.WithResource("poddisruptionbudgets"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Policy().V1().PodDisruptionBudgets().Informer()}, nil
+
+			// Group=policy, Version=v1beta1
+		case policyv1beta1.SchemeGroupVersion.WithResource("poddisruptionbudgets"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Policy().V1beta1().PodDisruptionBudgets().Informer()}, nil
+		case policyv1beta1.SchemeGroupVersion.WithResource("podsecuritypolicies"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Policy().V1beta1().PodSecurityPolicies().Informer()}, nil
+
+			// Group=rbac.authorization.k8s.io, Version=v1
+		case rbacv1.SchemeGroupVersion.WithResource("clusterroles"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Rbac().V1().ClusterRoles().Informer()}, nil
+		case rbacv1.SchemeGroupVersion.WithResource("clusterrolebindings"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Rbac().V1().ClusterRoleBindings().Informer()}, nil
+		case rbacv1.SchemeGroupVersion.WithResource("roles"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Rbac().V1().Roles().Informer()}, nil
+		case rbacv1.SchemeGroupVersion.WithResource("rolebindings"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Rbac().V1().RoleBindings().Informer()}, nil
+
+			// Group=rbac.authorization.k8s.io, Version=v1alpha1
+		case rbacv1alpha1.SchemeGroupVersion.WithResource("clusterroles"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Rbac().V1alpha1().ClusterRoles().Informer()}, nil
+		case rbacv1alpha1.SchemeGroupVersion.WithResource("clusterrolebindings"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Rbac().V1alpha1().ClusterRoleBindings().Informer()}, nil
+		case rbacv1alpha1.SchemeGroupVersion.WithResource("roles"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Rbac().V1alpha1().Roles().Informer()}, nil
+		case rbacv1alpha1.SchemeGroupVersion.WithResource("rolebindings"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Rbac().V1alpha1().RoleBindings().Informer()}, nil
+
+			// Group=rbac.authorization.k8s.io, Version=v1beta1
+		case rbacv1beta1.SchemeGroupVersion.WithResource("clusterroles"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Rbac().V1beta1().ClusterRoles().Informer()}, nil
+		case rbacv1beta1.SchemeGroupVersion.WithResource("clusterrolebindings"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Rbac().V1beta1().ClusterRoleBindings().Informer()}, nil
+		case rbacv1beta1.SchemeGroupVersion.WithResource("roles"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Rbac().V1beta1().Roles().Informer()}, nil
+		case rbacv1beta1.SchemeGroupVersion.WithResource("rolebindings"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Rbac().V1beta1().RoleBindings().Informer()}, nil
+
+			// Group=resource.k8s.io, Version=v1alpha2
+		case v1alpha2.SchemeGroupVersion.WithResource("podschedulingcontexts"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Resource().V1alpha2().PodSchedulingContexts().Informer()}, nil
+		case v1alpha2.SchemeGroupVersion.WithResource("resourceclaims"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Resource().V1alpha2().ResourceClaims().Informer()}, nil
+		case v1alpha2.SchemeGroupVersion.WithResource("resourceclaimtemplates"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Resource().V1alpha2().ResourceClaimTemplates().Informer()}, nil
+		case v1alpha2.SchemeGroupVersion.WithResource("resourceclasses"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Resource().V1alpha2().ResourceClasses().Informer()}, nil
+
+			// Group=scheduling.k8s.io, Version=v1
+		case schedulingv1.SchemeGroupVersion.WithResource("priorityclasses"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Scheduling().V1().PriorityClasses().Informer()}, nil
+
+			// Group=scheduling.k8s.io, Version=v1alpha1
+		case schedulingv1alpha1.SchemeGroupVersion.WithResource("priorityclasses"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Scheduling().V1alpha1().PriorityClasses().Informer()}, nil
+
+			// Group=scheduling.k8s.io, Version=v1beta1
+		case schedulingv1beta1.SchemeGroupVersion.WithResource("priorityclasses"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Scheduling().V1beta1().PriorityClasses().Informer()}, nil
+
+			// Group=storage.k8s.io, Version=v1
+		case storagev1.SchemeGroupVersion.WithResource("csidrivers"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Storage().V1().CSIDrivers().Informer()}, nil
+		case storagev1.SchemeGroupVersion.WithResource("csinodes"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Storage().V1().CSINodes().Informer()}, nil
+		case storagev1.SchemeGroupVersion.WithResource("csistoragecapacities"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Storage().V1().CSIStorageCapacities().Informer()}, nil
+		case storagev1.SchemeGroupVersion.WithResource("storageclasses"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Storage().V1().StorageClasses().Informer()}, nil
+		case storagev1.SchemeGroupVersion.WithResource("volumeattachments"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Storage().V1().VolumeAttachments().Informer()}, nil
+
+			// Group=storage.k8s.io, Version=v1alpha1
+		case storagev1alpha1.SchemeGroupVersion.WithResource("csistoragecapacities"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Storage().V1alpha1().CSIStorageCapacities().Informer()}, nil
+		case storagev1alpha1.SchemeGroupVersion.WithResource("volumeattachments"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Storage().V1alpha1().VolumeAttachments().Informer()}, nil
+
+			// Group=storage.k8s.io, Version=v1beta1
+		case storagev1beta1.SchemeGroupVersion.WithResource("csidrivers"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Storage().V1beta1().CSIDrivers().Informer()}, nil
+		case storagev1beta1.SchemeGroupVersion.WithResource("csinodes"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Storage().V1beta1().CSINodes().Informer()}, nil
+		case storagev1beta1.SchemeGroupVersion.WithResource("csistoragecapacities"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Storage().V1beta1().CSIStorageCapacities().Informer()}, nil
+		case storagev1beta1.SchemeGroupVersion.WithResource("storageclasses"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Storage().V1beta1().StorageClasses().Informer()}, nil
+		case storagev1beta1.SchemeGroupVersion.WithResource("volumeattachments"):
+			return &genericInformer{resource: resource.GroupResource(), informer: f.Storage().V1beta1().VolumeAttachments().Informer()}, nil
+
+		}
+
+		return nil, fmt.Errorf("no informer found for %v", resource)
+	}
+
 	// GenericInformer is type of SharedIndexInformer which will locate and delegate to other
 	// sharedInformers based on type
 	type GenericInformer interface {
@@ -931,7 +1398,17 @@ Informer 通过一个 `Controller` 对象来定义，本身结构很简单，在
 		Lister() cache.GenericLister
 	}
 
-	// 最后看剩下的这部分，一大堆相似的方法
+	// GenericLister is a lister skin on a generic Indexer
+	type GenericLister interface {
+		// List will return all objects across namespaces
+		List(selector labels.Selector) (ret []runtime.Object, err error)
+		// Get will attempt to retrieve assuming that name==key
+		Get(name string) (runtime.Object, error)
+		// ByNamespace will give you a GenericNamespaceLister for one namespace
+		ByNamespace(namespace string) GenericNamespaceLister
+	}
+
+	// 最后看 SharedInformerFactory 接口剩下的这部分，一大堆相似的方法
 	// 以 "Apps() apps.Interface" 为例，在apps/interface.go中
 	// Interface provides access to each of this group's versions.
 	type Interface interface {
@@ -965,6 +1442,17 @@ Informer 通过一个 `Controller` 对象来定义，本身结构很简单，在
 		Informer() cache.SharedIndexInformer
 		Lister() v1.DeploymentLister
 	}
+
+	// DeploymentLister helps list Deployments.
+	// All objects returned here must be treated as read-only.
+	type DeploymentLister interface {
+		// List lists all Deployments in the indexer.
+		// Objects returned here must be treated as read-only.
+		List(selector labels.Selector) (ret []*v1.Deployment, err error)
+		// Deployments returns an object that can list and get Deployments.
+		Deployments(namespace string) DeploymentNamespaceLister
+		DeploymentListerExpansion
+	}
 ```
 现在也就不难理解 `SharedInformerFactory` 的作用了，它提供了所有 `API group-version` 的资源对应的 `SharedIndexInformer`。
 
@@ -991,8 +1479,9 @@ Informer 通过一个 `Controller` 对象来定义，本身结构很简单，在
 	func NewSharedInformerFactoryWithOptions(client kubernetes.Interface, defaultResync time.Duration, options ...SharedInformerOption) SharedInformerFactory {
 		factory := &sharedInformerFactory{
 			client:           client,
-			namespace:        v1.NamespaceAll,
+			namespace:        v1.NamespaceAll, // 空字符串 const NamespaceAll = ""
 			defaultResync:    defaultResync,
+			// 可以存放不同类型的 SharedIndexInformer
 			informers:        make(map[reflect.Type]cache.SharedIndexInformer),
 			startedInformers: make(map[reflect.Type]bool),
 			customResync:     make(map[reflect.Type]time.Duration),
@@ -1004,6 +1493,28 @@ Informer 通过一个 `Controller` 对象来定义，本身结构很简单，在
 		}
 
 		return factory
+	}
+
+	// SharedInformerOption defines the functional option type for SharedInformerFactory.
+	type SharedInformerOption func(*sharedInformerFactory) *sharedInformerFactory
+
+	type sharedInformerFactory struct {
+		client           kubernetes.Interface
+		namespace        string
+		tweakListOptions internalinterfaces.TweakListOptionsFunc
+		lock             sync.Mutex
+		defaultResync    time.Duration
+		customResync     map[reflect.Type]time.Duration
+
+		informers map[reflect.Type]cache.SharedIndexInformer
+		// startedInformers is used for tracking which informers have been started.
+		// This allows Start() to be called multiple times safely.
+		startedInformers map[reflect.Type]bool
+		// wg tracks how many goroutines were started.
+		wg sync.WaitGroup
+		// shuttingDown is true when Shutdown has been called. It may still be running
+		// because it needs to wait for goroutines.
+		shuttingDown bool
 	}
 ```
 
@@ -1029,7 +1540,7 @@ Informer 通过一个 `Controller` 对象来定义，本身结构很简单，在
 				informer := informer
 				go func() {
 					defer f.wg.Done()
-					informer.Run(stopCh)
+					informer.Run(stopCh) // 最后的入口
 				}()
 				f.startedInformers[informerType] = true
 			}
