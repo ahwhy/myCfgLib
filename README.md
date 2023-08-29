@@ -25,7 +25,7 @@
 
 ## Kubernetes Doc
 - [Kubernetes API 简介](./kubernetes/doc/Kubernetes-API简介.md)
-- [Kubernetes Client-go 源码分析](./kubernetes/client-go/)
+- [Kubernetes Client-go 源码分析](./kubernetes/client-go/README.md)
 
 ## Jenkins
 - [Jenkinsfile](./jenkins/pipe/Jenkinsfile)
