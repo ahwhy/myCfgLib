@@ -7,12 +7,17 @@
 - [client-go 项目](https://github.com/kubernetes/client-go)
 
 - client-go的包结构
+  + `applyconfigurations` 这个包提供了 apply 的类型安全 go struct，用于构造 Server端 apply request的配置
   + `kubernetes` 这个包中放的是用 client-gen 自动生成的用来访问 Kubernetes API 的 ClientSet，后面会经常看到 ClientSet 这个工具
   + `discovery` 这个包提供了一种机制用来发现 API Server 支持的 API 资源
   + `dynamic` 这个包中包含 dynamic client，用来执行任意 API 资源对象的通用操作
+  + `informers` 这个包为 Kubernetes APIs 提供生成 informer 的方法，即 `NewFilteredSharedInformerFactory`
+  + `listers` 这个包为 Kubernetes APIs 提供生成 listers 的方法
   + `plugin/pkg/client/auth` 这个包提供了可选的用于获取外部源证书的认证插件
   + `transport` 这个包用于设置认证和建立连接
   + `tools/cache` 这个包中放了很多和开发控制器相关的工具集
+  + `tools/clientcmd` 这个包提供从固定配置构建 client 的一站式服务，包括 kubeconfig 文件、命令行或任何合并的组合
+  + `tools/leaderelection` 这个包实现了一组端点的 leader 选举
 
 ### 2. client-go 版本规则
 
