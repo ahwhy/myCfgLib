@@ -25,3 +25,5 @@ client-go项目 是与 kube-apiserver 通信的 clients 的具体实现。
 - [client-go 源码分析之 Reflector](./06-client-go源码分析之Reflector.md)
 
 - [client-go 源码分析之 Informer](./07-client-go源码分析之Informer.md)
+
+- [client-go Examples](./examples/)
