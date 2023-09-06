@@ -15,6 +15,7 @@
 $ tree -L 1 ./api
 # 第一层目录都是 API Group
 ./api
+...
 ├── admission
 ├── admissionregistration
 ├── apidiscovery
@@ -25,23 +26,18 @@ $ tree -L 1 ./api
 ├── autoscaling
 ├── batch
 ├── certificates
-├── code-of-conduct.md
 ├── coordination
 ├── core
 ├── discovery
-├── doc.go
 ├── events
 ├── extensions
 ├── flowcontrol
-├── go.mod
-├── go.sum
 ├── imagepolicy
 ├── networking
 ├── node
 ├── policy
 ├── rbac
 ├── resource
-├── roundtrip_test.go
 ├── scheduling
 ├── storage
 └── testdata
@@ -157,6 +153,24 @@ machinery 是"机械、组织、体制、系统"的意思，从项目名称上�
 `apimachinery` 项目的作用是为了解耦用到 Kubernetes API 的服务端和客户端，实现了很多公共类型依赖，主要包含Scheme、类型转换、编码解码等逻辑。依赖 apimachinery 的项目主要是 `k8s.io/kubernetes`、`k8s.io/client-go` 和 `k8s.io/apiserver` 等
 
 `k8s.io/apimachinery` 项目同样也是从 `k8s.io/kubernetes`项目的 staging 下同步过来的，给 `k8s.io/apimachinery` 项目贡献代码同样需要提交到 Kubernetes 主库。
+```shell
+$ tree -L 1 ./pkg 
+# apimachinery/pkg 目录下含的包
+./pkg 
+...
+├── api
+├── apis
+├── conversion
+├── fields
+├── labels
+├── runtime
+├── selection
+├── test
+├── types
+├── util
+├── version
+└── watch
+```
 
 
 ### 3. controller-runtime项目
