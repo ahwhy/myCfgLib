@@ -152,7 +152,7 @@ machinery 是"机械、组织、体制、系统"的意思，从项目名称上�
 
 `apimachinery` 项目的作用是为了解耦用到 Kubernetes API 的服务端和客户端，实现了很多公共类型依赖，主要包含Scheme、类型转换、编码解码等逻辑。依赖 apimachinery 的项目主要是 `k8s.io/kubernetes`、`k8s.io/client-go` 和 `k8s.io/apiserver` 等
 
-`k8s.io/apimachinery` 项目同样也是从 `k8s.io/kubernetes`项目的 staging 下同步过来的，给 `k8s.io/apimachinery` 项目贡献代码同样需要提交到 Kubernetes 主库。
+`k8s.io/apimachinery` 项目同样也是从 `k8s.io/kubernetes` 项目的 staging 下同步过来的，给 `k8s.io/apimachinery` 项目贡献代码同样需要提交到 Kubernetes 主库。
 ```shell
 $ tree -L 1 ./pkg 
 # apimachinery/pkg 目录下含的包
@@ -183,50 +183,82 @@ $ tree -L 1 ./pkg
 
 在使用 Kubebuilder 的时候，会自动生成代码，其中用的很多能力都是 `controller-runtime` 提供的。
 
+```shell
+$ tree -L 1 ./pkg 
+# controller-runtime/pkg 目录下含的包
+./pkg
+...
+├── builder
+├── cache             # 本地共享缓存 Cache
+├── certwatcher
+├── client            # Clients
+├── cluster
+├── config
+├── controller        # Controller
+├── conversion
+├── envtest           # test
+├── event             # Event
+├── finalizer
+├── handler
+├── healthz
+├── internal
+├── leaderelection    # 管理 leader 选举
+├── log               # Logging
+├── manager           # Managers
+├── metrics           # Metrics
+├── predicate         # Predicates
+├── ratelimiter
+├── reconcile
+├── recorder
+├── scheme            # 关联Go类型和对应的 Kubernetes API 类型(Group-Version-Kinds)
+├── source
+└── webhook           # Webhook
+
+26 directories, 1 file
+```
+
 **a. Managers**
 
-所有的 `Controller` 和 `Webhook` 最终都是由 `Managers` 来运行的，`Managers` 负责 `Controllers` 和 `Webhooks` 的运行、公共依赖项的设置(pkg/runtime/inject)，比如 `shared caches` 和 `clients`、管理 `leader` 选举(pkg/leaderelection)等。
+所有的 `Controller` 和 `Webhook` 最终都是由 `Managers` 来运行的，Managers 负责 Controllers 和 Webhooks 的运行、公共依赖项的设置(`pkg/runtime/inject` 包)，比如 shared caches 和 clients、管理 leader 选举(`pkg/leaderelection` 包)等。
 
-另外，`Managers` 还通过 signal handler 实现了 Pod 运行终止时的优雅退出功能(pkg/manager/signals)。
+另外，`Managers` 还通过 signal handler 实现了 Pod 运行终止时的优雅退出功能(`pkg/manager/signals` 包)。
 
 **b. Controllers**
 
-`Controllers`(pkg/controller) 使用 `events`(pkg/event) 来触发调谐请求，可以手动创建 `Controllers`，但是一般都是通过 `Builder`(pkg/builder) 来创建的，这样可以简化 `event` 源码(pkg/handler)，比如 Kubernetes 资源对象的变更消息，到 event 处理器之间的关联逻辑编码，或者将一个调谐请求加入所属的队列。
+`Controllers`(`pkg/controller` 包) 使用 events(`pkg/event` 包) 来触发调谐请求，可以手动创建 Controllers，但是一般都是通过 `Builder`(`pkg/builder` 包) 来创建的，这样可以简化 event 源码( pkg/handler 包)，比如 Kubernetes 资源对象的变更消息，到 event 处理器之间的关联逻辑编码，或者将一个调谐请求加入所属的队列。
 
-`Predicates`(pkg/predicate) 可以被用来过滤哪些 event 最后会触发调谐过程，其中有一些预置公用代码逻辑用于实现一些进阶场景。
+`Predicates`(`pkg/predicate` 包) 可以被用来过滤哪些 event 最后会触发调谐过程，其中有一些预置公用代码逻辑用于实现一些进阶场景。
 
 **c. Reconcilers**
 
-`Controllers` 的逻辑是在 `Reconcilers` 中实现的，`Reconciler` 函数的核心逻辑是拿到一个包含 name 和 namespace 的对象的调谐请求，然后调谐这个对象，最终返回一个响应或者一个表明是否需要二次调谐的错误。
+`Controllers` 的逻辑是在 Reconcilers 中实现的，Reconciler 函数的核心逻辑是拿到一个包含 name 和 namespace 的对象的调谐请求，然后调谐这个对象，最终返回一个响应或者一个表明是否需要二次调谐的错误。
 
 **d. Clients and Caches**
 
-`Reconcilers` 使用 `Clients`(pkg/client) 来访问API对象，Managers 提供的默认 Client 从本地共享缓存 (pkg/cache) 中读取数据，直接写到 API Server，但是 `Clients` 也可以配置成不经过缓存直接和 API Server 交互。当其他结构化的数据被请求时，缓存中会自动更新监听到的对象。
+Reconcilers 使用 `Clients`(`pkg/client` 包) 来访问API对象，Managers 提供的默认 Client 从本地共享缓存 (`pkg/cache` 包) 中读取数据，直接写到 API Server，但是 Clients 也可以配置成不经过缓存直接和 API Server 交互。当其他结构化的数据被请求时，缓存中会自动更新监听到的对象。
 
 默认单独的Client 并不保证缓存的写安全，也不保证创建、查询的一致性。代码不应该假设创建、更新成功的资源能够马上得到更新后的资源。
 
-`Caches` 也许有对应的 `Indexes`，它可以通过 `FieldIndexer`(pkg/client) 从 `Managers` 中获取。
+`Caches` 也许有对应的 `Indexes`，它可以通过 `FieldIndexer`(`pkg/client` 包) 从 Managers 中获取。
 
 `Indexes` 可以被用来快速且简单地通过特定字段检索所有的对象。
 
 **e. Schemes**
 
-`Schemes`(pkg/scheme) 用来关联Go类型和对应的 Kubernetes API 类型(Group-Version-Kinds)的。
+`Schemes`(`pkg/scheme` 包) 用来关联Go类型和对应的 Kubernetes API 类型(Group-Version-Kinds)的。
 
 **f. Webhooks**
 
-`Webhooks`(pkg/webhook/admission) 也许会被直接实现，但是一般还是使用 `builder`(pkg/webhook/admission/builder) 来创建。它们通过被 `Managers` 管理的 `server`(pkg/webhook) 来运行。
+`Webhooks`(`pkg/webhook/admission` 包) 也许会被直接实现，但是一般还是使用 builder(`pkg/webhook/admission/builder` 包) 来创建。它们通过被 Managers 管理的 server(`pkg/webhook` 包) 来运行。
 
 **g. Logging and Metrics**
 
-`Logging`(pkg/log) 是通过 `logr`(https://godoc.org/github.com/go-logr/logr) 日志接口实现的结构化数据，使用 `Zap`(https://go.uber.org/zap,pkg/log/zap) 提供了简单的日志配置。也可以使用其他基于 `logr` 实现的日志工具作为 `controller-runtime` 的日志实现。
+`Logging`(`pkg/log` 包) 是通过 logr(https://godoc.org/github.com/go-logr/logr) 日志接口实现的结构化数据，使用 `Zap`(https://go.uber.org/zap,pkg/log/zap) 提供了简单的日志配置。也可以使用其他基于 `logr` 实现的日志工具作为 controller-runtime 的日志实现。
 
-`Metrics`(pkg/metrics)注册到了controller-runtime-specific Prometheus metrics registry中，`Manager`可以通过 HTTP Endpoint 来提供 `Metrics` 服务。
+`Metrics`(`pkg/metrics` 包)注册到了 controller-runtime-specific Prometheus metrics registry 中，Manager 可以通过 HTTP Endpoint 来提供 Metrics 服务。
 
 **h. Testing**
 
-通过 test 环境(pkg/envtest)可以简单地给 `Controllers` 与 `Webhooks` 构建单元测试和集成测试。
+通过 test 环境(`pkg/envtest` 包)可以简单地给 `Controllers` 与 `Webhooks` 构建单元测试和集成测试。
 
-`envtest` 会自动复制一份 ETCD 和 kube-apiserver 到合适的地方，然后提供一个正确的方式来自动连接到 API Server。
-
-`envtest` 通过一些设计也可以和Ginkgo测试框架一起工作。
+`envtest` 会自动复制一份 ETCD 和 kube-apiserver 到合适的地方，然后提供一个正确的方式来自动连接到 API Server。envtest 通过一些设计也可以和Ginkgo测试框架一起工作。
