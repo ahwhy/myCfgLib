@@ -78,7 +78,7 @@ kubebuilder create api --group webapp --version v1 --kind Guestbook
 
 ### 3.File Tree
 ```shell
-$ kubebuilder init --domain application.operator.io --repo github.com/ahwhy/application-operator --owner ahwhya@outlook.com
+$ kubebuilder init --domain application.operator.io --repo github.com/ahwhy/application-operator --owner ahwhya
 
 $ kubebuilder create api --group apps --version v1 --kind Application
 
@@ -147,4 +147,104 @@ $ make run
 
 $ make undeploy
 $ make uninstall
+```
+
+
+## 三、开始一个新的 Operator 项目
+
+### 1. Init 项目
+
+```shell
+# 创建项目文件夹
+➜ mkdir clusterops-operator && cd clusterops-operator
+
+# 初始化项目
+➜ kubebuilder init --domain clusterops.io --repo github.com/ahwhy/clusterops-operator --owner ahwhya
+Writing kustomize manifests for you to edit...
+Writing scaffold for you to edit...
+Get controller runtime:
+$ go get sigs.k8s.io/controller-runtime@v0.15.0
+Update dependencies:
+$ go mod tidy
+Next: define a resource with:
+$ kubebuilder create api
+
+# 初始化git
+➜ git init
+Initialized empty Git repository in /Users/workspace/MyOperatorProjects/clusterops-operator/.git/
+➜ git add . && git commit -m "init clusterops-operator" --author "ahwhya <ahwhya@outlook.com>"
+[main (root-commit) 02ff0bc] init clusterops-operator
+ 26 files changed, 1309 insertions(+)
+ create mode 100644 .dockerignore
+ create mode 100644 .gitignore
+ create mode 100644 Dockerfile
+ create mode 100644 Makefile
+ create mode 100644 PROJECT
+ create mode 100644 README.md
+ create mode 100644 cmd/main.go
+ create mode 100644 config/default/kustomization.yaml
+ create mode 100644 config/default/manager_auth_proxy_patch.yaml
+ create mode 100644 config/default/manager_config_patch.yaml
+ create mode 100644 config/manager/kustomization.yaml
+ create mode 100644 config/manager/manager.yaml
+ create mode 100644 config/prometheus/kustomization.yaml
+ create mode 100644 config/prometheus/monitor.yaml
+ create mode 100644 config/rbac/auth_proxy_client_clusterrole.yaml
+ create mode 100644 config/rbac/auth_proxy_role.yaml
+ create mode 100644 config/rbac/auth_proxy_role_binding.yaml
+ create mode 100644 config/rbac/auth_proxy_service.yaml
+ create mode 100644 config/rbac/kustomization.yaml
+ create mode 100644 config/rbac/leader_election_role.yaml
+ create mode 100644 config/rbac/leader_election_role_binding.yaml
+ create mode 100644 config/rbac/role_binding.yaml
+ create mode 100644 config/rbac/service_account.yaml
+ create mode 100644 go.mod
+ create mode 100644 go.sum
+ create mode 100644 hack/boilerplate.go.txt
+
+# 添加api apps/v1/Application
+➜ kubebuilder create api --group apps --version v1 --kind Application
+Create Resource [y/n]
+y
+Create Controller [y/n]
+y
+Writing kustomize manifests for you to edit...
+Writing scaffold for you to edit...
+api/v1/application_types.go
+api/v1/groupversion_info.go
+internal/controller/suite_test.go
+internal/controller/application_controller.go
+Update dependencies:
+$ go mod tidy
+Running make:
+$ make generate
+mkdir -p /Users/workspace/MyOperatorProjects/clusterops-operator/bin
+test -s /Users/workspace/MyOperatorProjects/clusterops-operator/bin/controller-gen && /Users/workspace/MyOperatorProjects/clusterops-operator/bin/controller-gen --version | grep -q v0.12.0 || \
+	GOBIN=/Users/workspace/MyOperatorProjects/clusterops-operator/bin go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.12.0
+/Users/workspace/MyOperatorProjects/clusterops-operator/bin/controller-gen object:headerFile="hack/boilerplate.go.txt" paths="./..."
+Next: implement your new API and generate the manifests (e.g. CRDs,CRs) with:
+$ make manifests
+
+➜ git add . && git commit -m "add api apps/v1/Application" --author "ahwhya <ahwhya@outlook.com>"
+[main e435861] add api apps/v1/Application
+ 17 files changed, 543 insertions(+)
+ create mode 100644 api/v1/application_types.go
+ create mode 100644 api/v1/groupversion_info.go
+ create mode 100644 api/v1/zz_generated.deepcopy.go
+ create mode 100644 config/crd/kustomization.yaml
+ create mode 100644 config/crd/kustomizeconfig.yaml
+ create mode 100644 config/crd/patches/cainjection_in_applications.yaml
+ create mode 100644 config/crd/patches/webhook_in_applications.yaml
+ create mode 100644 config/rbac/application_editor_role.yaml
+ create mode 100644 config/rbac/application_viewer_role.yaml
+ create mode 100644 config/samples/apps_v1_application.yaml
+ create mode 100644 config/samples/kustomization.yaml
+ create mode 100644 internal/controller/application_controller.go
+ create mode 100644 internal/controller/suite_test.go
+
+# 推送到远程仓库
+# or push an existing repository from the command line
+➜ git remote add origin https://github.com/ahwhy/clusterops-operator.git
+➜ git branch -M main
+➜ git push -u origin main
 ```
