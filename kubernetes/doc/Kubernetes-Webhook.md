@@ -116,4 +116,293 @@ $ make manifests
 这时如果想在本地运行测试Webhook，默认需要准备证书，放到 `/tmp/k8s-webhook-server/serving-certs/tls.{crt,key}` 中，然后执行 `make run` 命令。
 
 
-### 4. cert-manager部署
+### 4. cert-manager 部署
+
+在部署 Webhook 之前需要先安装 cert-manager，用来实现证书签发功能。关于cert-manager的详细介绍可以参考[官方文档](https://cert-manager.io/docs/)。
+
+cert-manager 提供了 helm Chart 包方式部署
+```shell
+➜ helm repo add jetstack https://charts.jetstack.io
+"jetstack" has been added to your repositories
+
+➜ helm repo update
+Hang tight while we grab the latest from your chart repositories...
+...Successfully got an update from the "jetstack" chart repository
+Update Complete. ⎈Happy Helming!⎈
+
+➜ helm search repo jetstack
+NAME                                   	CHART VERSION	APP VERSION	DESCRIPTION
+jetstack/cert-manager                  	v1.13.0      	v1.13.0    	A Helm chart for cert-manager
+jetstack/cert-manager-approver-policy  	v0.7.0       	v0.7.0     	A Helm chart for cert-manager-approver-policy
+jetstack/cert-manager-csi-driver       	v0.5.0       	v0.5.0     	A Helm chart for cert-manager-csi-driver
+jetstack/cert-manager-csi-driver-spiffe	v0.4.0       	v0.4.0     	cert-manager csi-driver-spiffe is a CSI plugin ...
+jetstack/cert-manager-google-cas-issuer	v0.7.1       	v0.7.1     	A Helm chart for jetstack/google-cas-issuer
+jetstack/cert-manager-istio-csr        	v0.7.0       	v0.7.0     	istio-csr enables the use of cert-manager for i...
+jetstack/cert-manager-trust            	v0.2.1       	v0.2.0     	DEPRECATED: The old name for trust-manager. Use...
+jetstack/trust-manager                 	v0.6.0       	v0.6.0     	trust-manager is the easiest way to manage TLS ...
+jetstack/version-checker               	v0.2.6       	v0.2.6     	A Helm chart for version-checker
+
+# 可以看到 cert-manager 对应的 Chart 名字是 jetstack/cert-manager，直接安装就好
+➜ helm install \
+  cert-manager jetstack/cert-manager \
+  --namespace cert-manager \
+  --create-namespace \
+  --version v1.13.0 \
+  --set installCRDs=true 
+NAME: cert-manager
+LAST DEPLOYED: Sat Sep 16 21:16:22 2023
+NAMESPACE: cert-manager
+STATUS: deployed
+REVISION: 1
+TEST SUITE: None
+NOTES:
+cert-manager v1.13.0 has been deployed successfully!
+
+In order to begin issuing certificates, you will need to set up a ClusterIssuer
+or Issuer resource (for example, by creating a 'letsencrypt-staging' issuer).
+
+More information on the different types of issuers and how to configure them
+can be found in our documentation:
+
+https://cert-manager.io/docs/configuration/
+
+For information on how to configure cert-manager to automatically provision
+Certificates for Ingress resources, take a look at the `ingress-shim`
+documentation:
+
+https://cert-manager.io/docs/usage/ingress/
+
+# 确认组件状态
+➜ kubectl -n cert-manager get all
+NAME                                           READY   STATUS    RESTARTS   AGE
+pod/cert-manager-64d969474b-dlsqj              1/1     Running   0          5m38s
+pod/cert-manager-cainjector-646d9649d9-wxfpd   1/1     Running   0          5m38s
+pod/cert-manager-webhook-5995b68bf7-npjqb      1/1     Running   0          5m38s
+
+NAME                           TYPE        CLUSTER-IP        EXTERNAL-IP   PORT(S)    AGE
+service/cert-manager           ClusterIP   192.168.57.154    <none>        9402/TCP   5m38s
+service/cert-manager-webhook   ClusterIP   192.168.249.184   <none>        443/TCP    5m38s
+
+NAME                                      READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/cert-manager              1/1     1            1           5m39s
+deployment.apps/cert-manager-cainjector   1/1     1            1           5m39s
+deployment.apps/cert-manager-webhook      1/1     1            1           5m39s
+
+NAME                                                 DESIRED   CURRENT   READY   AGE
+replicaset.apps/cert-manager-64d969474b              1         1         1       5m39s
+replicaset.apps/cert-manager-cainjector-646d9649d9   1         1         1       5m39s
+replicaset.apps/cert-manager-webhook-5995b68bf7      1         1         1       5m39s
+
+NAME                             ALBID                    DNSNAME                                              PORT&PROTOCOL   CERTID   AGE
+albconfig.alibabacloud.com/alb   alb-jfbc0gfao3ox1oezcj   alb-jfbc0gfao3ox1oezcj.cn-beijing.alb.aliyuncs.com                            17d
+
+NAME                                                                                             AGE
+containernetworkfilesystem.storage.alibabacloud.com/cnfs-nas-c4b76f485f21d4e769e0a2ffed67dcd2b   51d
+```
+
+
+### 5. Webhook部署运行
+
+已经准备好了 [Webhook 代码](https://github.com/ahwhy/clusterops-operator)，接着就部署到环境中来看一下运行结果。
+
+**a. 构建并推送镜像**
+
+执行以下两行命令来构建镜像，并把镜像上传到之前准备好的仓库中：
+```shell
+➜ make docker-build IMG=registry.cn-hangzhou.aliyuncs.com/ahwhya/clusterops-operator:v0.0.1
+
+➜ docker push registry.cn-hangzhou.aliyuncs.com/ahwhya/clusterops-operator:v0.0.1
+```
+
+**b. 部署CRD**
+
+CRD的部署很简单，执行以下命令
+```shell
+➜ make install
+```
+
+**c. 证书相关配置**
+
+在前面的步骤中部署了 cert-manager，但是要使用 cert-manager 还需要做一些配置。
+
+首先 `config/default/kustomization.yaml` 文件需要做一些调整，打开几行注释内容，最后看起来应该是这样的：
+```yaml
+
+namespace: clusterops-operator-system
+
+namePrefix: clusterops-operator-
+
+resources:
+- ../crd
+- ../rbac
+- ../manager
+- ../webhook
+- ../certmanager
+
+patchesStrategicMerge:
+- manager_auth_proxy_patch.yaml
+- manager_webhook_patch.yaml
+- webhookcainjection_patch.yaml
+
+replacements:
+ - source: # Add cert-manager annotation to ValidatingWebhookConfiguration, MutatingWebhookConfiguration and CRDs
+     kind: Certificate
+     group: cert-manager.io
+     version: v1
+     name: serving-cert # this name should match the one in certificate.yaml
+     fieldPath: .metadata.namespace # namespace of the certificate CR
+   targets:
+     - select:
+         kind: ValidatingWebhookConfiguration
+       fieldPaths:
+         - .metadata.annotations.[cert-manager.io/inject-ca-from]
+       options:
+         delimiter: '/'
+         index: 0
+         create: true
+     - select:
+         kind: MutatingWebhookConfiguration
+       fieldPaths:
+         - .metadata.annotations.[cert-manager.io/inject-ca-from]
+       options:
+         delimiter: '/'
+         index: 0
+         create: true
+     - select:
+         kind: CustomResourceDefinition
+       fieldPaths:
+         - .metadata.annotations.[cert-manager.io/inject-ca-from]
+       options:
+         delimiter: '/'
+         index: 0
+         create: true
+ - source:
+     kind: Certificate
+     group: cert-manager.io
+     version: v1
+     name: serving-cert # this name should match the one in certificate.yaml
+     fieldPath: .metadata.name
+   targets:
+     - select:
+         kind: ValidatingWebhookConfiguration
+       fieldPaths:
+         - .metadata.annotations.[cert-manager.io/inject-ca-from]
+       options:
+         delimiter: '/'
+         index: 1
+         create: true
+     - select:
+         kind: MutatingWebhookConfiguration
+       fieldPaths:
+         - .metadata.annotations.[cert-manager.io/inject-ca-from]
+       options:
+         delimiter: '/'
+         index: 1
+         create: true
+     - select:
+         kind: CustomResourceDefinition
+       fieldPaths:
+         - .metadata.annotations.[cert-manager.io/inject-ca-from]
+       options:
+         delimiter: '/'
+         index: 1
+         create: true
+ - source: # Add cert-manager annotation to the webhook Service
+     kind: Service
+     version: v1
+     name: webhook-service
+     fieldPath: .metadata.name # namespace of the service
+   targets:
+     - select:
+         kind: Certificate
+         group: cert-manager.io
+         version: v1
+       fieldPaths:
+         - .spec.dnsNames.0
+         - .spec.dnsNames.1
+       options:
+         delimiter: '.'
+         index: 0
+         create: true
+ - source:
+     kind: Service
+     version: v1
+     name: webhook-service
+     fieldPath: .metadata.namespace # namespace of the service
+   targets:
+     - select:
+         kind: Certificate
+         group: cert-manager.io
+         version: v1
+       fieldPaths:
+         - .spec.dnsNames.0
+         - .spec.dnsNames.1
+       options:
+         delimiter: '.'
+         index: 1
+         create: true
+```
+
+接着还需要调整 `config/crd/kustomization.yaml` 文件
+```yaml
+resources:
+- bases/apps.clusterops.io_applications.yaml
+#+kubebuilder:scaffold:crdkustomizeresource
+
+patches:
+- path: patches/webhook_in_applications.yaml
+#+kubebuilder:scaffold:crdkustomizewebhookpatch
+
+- path: patches/cainjection_in_applications.yaml
+#+kubebuilder:scaffold:crdkustomizecainjectionpatch
+
+configurations:
+- kustomizeconfig.yaml
+```
+
+**b. 部署控制器**
+
+接下来可以部署控制器
+```shell
+➜ make deploy
+```
+
+**e. 查看结果**
+最后查看Pod是否正常运行
+```shell
+➜ kubectl -n clusterops-operator-system get deployment,pod
+NAME                                                     READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/clusterops-operator-controller-manager   2/2     2            2           11h
+
+NAME                                                          READY   STATUS    RESTARTS   AGE
+pod/clusterops-operator-controller-manager-86d548cb6f-pptkz   2/2     Running   0          11h
+pod/clusterops-operator-controller-manager-86d548cb6f-th5hh   2/2     Running   0          11h
+```
+
+
+### 6. Webhook测试
+
+准备一个yaml，这里的replicas给了12，然后 appky 一下看看 Validator 是否生效
+```shell
+➜ cat application/appdemo.yaml | grep replicas
+    replicas: 12
+➜ kubectl apply -f application/appdemo.yaml
+Warning: Replicas Warning
+Error from server (Forbidden): error when creating "application/appdemo.yaml": admission webhook "vapplication.kb.io" denied the request: replicas too many error
+```
+符合预期，得到了一个 replicas too many error 错误
+
+接着将 replicas 字段删除，使用同样的方式可以验证 Defaulter 能否正常工作
+```shell
+➜ cat application/appdemo.yaml | grep replica
+
+➜ kubectl apply -f application/appdemo.yaml
+application.apps.clusterops.io/appdemo created
+
+➜ kubectl get pod -l app=demoapp
+NAME                       READY   STATUS    RESTARTS   AGE
+appdemo-6954b8cbd8-4ts7m   1/1     Running   0          51s
+appdemo-6954b8cbd8-bzw4t   1/1     Running   0          51s
+appdemo-6954b8cbd8-tx98r   1/1     Running   0          51s
+```
+结果是在不设置Replicas的情况下，Replicas默认值会变成3
