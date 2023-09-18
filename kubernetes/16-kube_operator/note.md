@@ -39,6 +39,7 @@
     - [podtato-head](https://github.com/podtato-head/podtato-head)
     - [kubebuilder](https://github.com/kubernetes-sigs/kubebuilder)
     - [kubebuilder quick-start](https://book.kubebuilder.io/quick-start.html)
+    - [kubebuilder 进阶使用](https://zhuanlan.zhihu.com/p/144978395)
 
 
 ## 二、环境准备
@@ -202,7 +203,7 @@ Initialized empty Git repository in /Users/workspace/MyOperatorProjects/clustero
  create mode 100644 go.sum
  create mode 100644 hack/boilerplate.go.txt
 
-# 添加api apps/v1/Application
+# 添加api /apis/apps.clusterops.io/v1/namespaces/<namespace>/applications/<name>
 ➜ kubebuilder create api --group apps --version v1 --kind Application
 Create Resource [y/n]
 y
@@ -223,6 +224,22 @@ test -s /Users/workspace/MyOperatorProjects/clusterops-operator/bin/controller-g
 	GOBIN=/Users/workspace/MyOperatorProjects/clusterops-operator/bin go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.12.0
 /Users/workspace/MyOperatorProjects/clusterops-operator/bin/controller-gen object:headerFile="hack/boilerplate.go.txt" paths="./..."
 Next: implement your new API and generate the manifests (e.g. CRDs,CRs) with:
+$ make manifests
+
+# 添加webhook
+➜ kubebuilder create webhook --group apps --version v1 --kind Application --defaulting --programmatic-validation
+Writing kustomize manifests for you to edit...
+Writing scaffold for you to edit...
+api/v1/application_webhook.go
+api/v1/webhook_suite_test.go
+Update dependencies:
+$ go mod tidy
+Running make:
+$ make generate
+test -s /Users/workspace/MyOperatorProjects/clusterops-operator/bin/controller-gen && /Users/workspace/MyOperatorProjects/clusterops-operator/bin/controller-gen --version | grep -q v0.12.0 || \
+	GOBIN=/Users/workspace/MyOperatorProjects/clusterops-operator/bin go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.12.0
+/Users/workspace/MyOperatorProjects/clusterops-operator/bin/controller-gen object:headerFile="hack/boilerplate.go.txt" paths="./..."
+Next: implement your new Webhook and generate the manifests with:
 $ make manifests
 
 ➜ git add . && git commit -m "add api apps/v1/Application" --author "ahwhya <ahwhya@outlook.com>"
@@ -247,4 +264,13 @@ $ make manifests
 ➜ git remote add origin https://github.com/ahwhy/clusterops-operator.git
 ➜ git branch -M main
 ➜ git push -u origin main
+
+# 生成配置
+➜ make manifests
+
+# 安装crd
+➜ make install
+
+# 部署项目
+➜ make deploy
 ```
