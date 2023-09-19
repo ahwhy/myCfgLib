@@ -406,3 +406,8 @@ appdemo-6954b8cbd8-bzw4t   1/1     Running   0          51s
 appdemo-6954b8cbd8-tx98r   1/1     Running   0          51s
 ```
 结果是在不设置Replicas的情况下，Replicas默认值会变成3
+
+
+### 7. 文档案例
+
+- [准入控制器：ValidatingAdmissionWebhook 实现](https://andblog.cn/3061)
