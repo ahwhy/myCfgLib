@@ -27,6 +27,7 @@
 - [Kubernetes API 简介](./kubernetes/doc/Kubernetes-API简介.md)
 - [Kubernetes Webhook](./kubernetes/doc/Kubernetes-Webhook.md)
 - [Kubernetes Client-go 源码分析](./kubernetes/client-go/README.md)
+- [Kubernetes Deployment 源码分析](./kubernetes/kube-controller-manager/02-kubernetes-deployment源码分析.md)
 
 ## Jenkins
 - [Jenkinsfile](./jenkins/pipe/Jenkinsfile)
