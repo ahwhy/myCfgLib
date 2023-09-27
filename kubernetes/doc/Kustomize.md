@@ -391,3 +391,175 @@ metadata:
   name: app-config
 ```
 可以看到这次得到的资源名字变成了没有后缀的 app-config，同时这里演示了 generatorOptions 可以给资源统一添加 labels 和 annotations
+
+
+## 四、 使用Kustomize管理公共配置项
+
+经常有需要在不同的资源配置文件中配置相同的字段，比如：
+
+- 给所有的资源配置相同的namespace
+- 给多个资源的name字段加上相同的前缀或者后缀
+- 给多个资源配置相同的labels或annotations
+
+这时，可以通过 Kustomize 统一管理这种公共配置项
+```shell
+➜ cat <<EOF >deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demoapp
+  labels:
+    app: demoapp
+spec:
+  selector:
+    matchLabels:
+      app: demoapp
+  template:
+    metadata:
+      labels:
+        app: demoapp
+    spec:
+      containers:
+      - name: demoapp
+        image: ikubernetes/demoapp:v1.0
+EOF
+
+➜ cat <<EOF >kustomization.yaml
+namespace: kustomize
+namePrefix: test-
+nameSuffix: -v1
+commonLabels:
+  version: v1
+commonAnnotations:
+  user: ahwhy
+resources:
+- deployment.yaml
+EOF
+
+# 最后构建出的资源模版
+➜ kustomize build .
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    user: ahwhy
+  labels:
+    app: demoapp
+    version: v1
+  name: test-demoapp-v1
+  namespace: kustomize
+spec:
+  selector:
+    matchLabels:
+      app: demoapp
+      version: v1
+  template:
+    metadata:
+      annotations:
+        user: ahwhy
+      labels:
+        app: demoapp
+        version: v1
+    spec:
+      containers:
+      - image: ikubernetes/demoapp:v1.0
+        name: demoapp
+```
+可以看到定义的 namespace、name前后缀、label 和 annotation 都生效了。使用这种方式就可以将多个资源的一些公共配置抽取出来，以便于管理。
+
+
+## 五、 使用Kustomize组合资源
+
+通过Kustomize可以灵活组合多个资源或者给多个资源"打补丁"从而拓展配置。
+
+### 1. 多个资源的组合
+
+很多时候在 Kubernetes 上部署一个应用时需要用到多个资源类型的配置，比如 Deployment 和Service，它们往往通过不同的文件来保存，比如deployment.yaml和 service.yaml
+```shell
+➜ cat <<EOF >deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demoapp
+  labels:
+    app: demoapp
+spec:
+  selector:
+    matchLabels:
+      app: demoapp
+  template:
+    metadata:
+      labels:
+        app: demoapp
+    spec:
+      containers:
+      - name: demoapp
+        image: ikubernetes/demoapp:v1.0
+        ports:
+        - containerPort: 80
+          name: http
+EOF
+
+➜ cat <<EOF >service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: demoapp-svc
+spec:
+  selector:
+    app: demoapp
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
+EOF
+
+➜ cat <<EOF >kustomization.yaml
+resources:
+- deployment.yaml
+- service.yaml
+EOF
+
+# 最后构建出的资源模版
+➜ kustomize build .
+kind: Service
+metadata:
+  name: demoapp-svc
+spec:
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
+  selector:
+    app: demoapp
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: demoapp
+  name: demoapp
+spec:
+  selector:
+    matchLabels:
+      app: demoapp
+  template:
+    metadata:
+      labels:
+        app: demoapp
+    spec:
+      containers:
+      - image: ikubernetes/demoapp:v1.0
+        name: demoapp
+        ports:
+        - containerPort: 80
+          name: http
+```
+
+### 2. 给资源配置打补丁
+
+很多时候需要给同一个资源针对不同使用场景配置不同的配置项。比如同样一个 nginx 应用，可能在开发环境需要 100MB 的内存就可以，但是在生产环境则需要 1GB，这时如果分别使用两个配置文件来保存开发环境和生产环境的 nginx 配置，明显是不够优雅的。可以通过 Kustomize 给一个资源 "打不同的补丁" 来实现 "多环境配置灵活管理"。
+
+## 六、 Base和Overlay
+
+前面已经介绍过 Base 和 Overlay 的概念，这里再补充一些信息。首先 Base 对 Overlay 的存在是无感的，Overlay 引用的 Base也不一定是一个本地目录，远程代码库的目录也可以，一个 Overlay 也可以有多个 Base。只需要给 `kustomize build` 命令传递不同的 kustomization 目录路径，就可以得到相对应的配置渲染输出。
