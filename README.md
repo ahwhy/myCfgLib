@@ -23,6 +23,7 @@
 - [Ingress yaml](./kubernetes/all-lib/12-ingress)
 - [Hpa yaml](./kubernetes/all-lib/14-monitor/hpa/)
 - [Kustomize 的使用](./kubernetes/kustomize)
+- [Helm 的使用](./kubernetes/helm)
 
 ## Kubernetes Doc
 - [Kubernetes API 简介](./kubernetes/doc/Kubernetes-API简介.md)
