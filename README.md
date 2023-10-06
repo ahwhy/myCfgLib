@@ -14,14 +14,14 @@
 - [Dockerfile](./docker/Dockerfile)
 
 ## Kubernetes Yaml
-- [Pod yaml](./kubernetes/03-pod/)
-- [PV && PVC yaml](./kubernetes/04-storage)
-- [Configmap && Secret yaml](./kubernetes/05-configuration)
-- [Service yaml](./kubernetes/06-service)
-- [Workload yaml](./kubernetes/07-workload)
-- [Affinity yaml](./kubernetes/10-affinity)
-- [Ingress yaml](./kubernetes/12-ingress)
-- [Hpa yaml](./kubernetes/14-monitor/hpa/)
+- [Pod yaml](./kubernetes/all-lib/03-pod/)
+- [PV && PVC yaml](./kubernetes/all-lib/04-storage)
+- [Configmap && Secret yaml](./kubernetes/all-lib/05-configuration)
+- [Service yaml](./kubernetes/all-lib/06-service)
+- [Workload yaml](./kubernetes/all-lib/07-workload)
+- [Affinity yaml](./kubernetes/all-lib/10-affinity)
+- [Ingress yaml](./kubernetes/all-lib/12-ingress)
+- [Hpa yaml](./kubernetes/all-lib/14-monitor/hpa/)
 - [Kustomize 的使用](./kubernetes/kustomize)
 
 ## Kubernetes Doc
