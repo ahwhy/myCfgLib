@@ -22,6 +22,7 @@
 - [Affinity yaml](./kubernetes/10-affinity)
 - [Ingress yaml](./kubernetes/12-ingress)
 - [Hpa yaml](./kubernetes/14-monitor/hpa/)
+- [Kustomize 的使用](./kubernetes/kustomize)
 
 ## Kubernetes Doc
 - [Kubernetes API 简介](./kubernetes/doc/Kubernetes-API简介.md)
