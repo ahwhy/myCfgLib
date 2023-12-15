@@ -159,7 +159,7 @@ Kubernetes 里一个非常有用的特性:cpuset 的设置。
 事实上，cpuset 方式，是生产环境里部署在线应用类型的 Pod 时， 非常常用的一种方式。 
 首先，Pod 必须是 Guaranteed 的 QoS 类型; 
 然后，只需要将 Pod 的 CPU 资源的 requests 和 limits 设置为同一个相等的整数值即可。 
-这时候，该 Pod 就会被绑定在 2 个独占的 CPU 核上。当然，具体是哪两个 CPU 核，是由 kubelet 为Pod分配的。 
+这时候，该 Pod 就会被绑定在 2 个独占的 CPU 核上。当然，具体是哪两个 CPU 核，是由 kubelet 为 Pod 分配的。 
 
 
 
@@ -171,13 +171,13 @@ Service代理模式：
     ipvs
 
 Service的类型
-  ClusterIP：通过集群内部IP地址暴露服务，但该地址仅在集群内部可见、可达，它无法被集群外部的客户端访问；默认类型；                          #Cluster：  Client -> ClusterIP:ServicePort -> PodIP:targetPort
-  NodePort：NodePort是ClusterIP的增强类型，它会于ClusterIP的功能之外，在每个节点上使用一个相同的端口号将外部流量引入到该Service上来。      #Out Cluster: Client -> NodeIP:NodePort -> PodIP:targetPort
+  ClusterIP：通过集群内部IP地址暴露服务，但该地址仅在集群内部可见、可达，它无法被集群外部的客户端访问；默认类型；                            #Cluster：    Client -> ClusterIP:ServicePort -> PodIP:targetPort
+  NodePort：NodePort是ClusterIP的增强类型，它会于ClusterIP的功能之外，在每个节点上使用一个相同的端口号将外部流量引入到该Service上来。      #Out Cluster: Client -> NodeIP:NodePort ->       PodIP:targetPort
   LoadBalancer：LB是NodePort的增强类型，要借助于底层IaaS云服务上的LBaaS产品来按需管理LoadBalancer。
   ExternalName：借助集群上KubeDNS来实现，服务的名称会被解析为一个CNAME记录，而CNAME名称会被DNS解析为集群外部的服务的IP地址； 这种Service既不会有ClusterIP，也不会有NodePort；
 
     ClusterIP：建议由K8S动态指定一个； 也支持用户手动明确指定； 
-    ServicePort：被映射进Pod上的应用程序监听的端口； 而且如果后端Pod有多个端口，并且每个端口都想通过SErvice暴露的话，每个都要单独定义。
+    ServicePort：被映射进Pod上的应用程序监听的端口； 而且如果后端Pod有多个端口，并且每个端口都想通过Service暴露的话，每个都要单独定义。
       最终接收请求的是PodIP和containerPort；
 
 ExternalName。ExternalName Service类型不执行任何类型的负载均衡或代理。相反，ExternalName Service主要是在集群的DNS中实现的服务中断结构。ExternalName Service将集群Service映射到一个DNS名称。由于不涉及负载均衡，这种类型的服务缺乏集群IP。
@@ -212,8 +212,10 @@ spec:
   loadBalancerIP  <string>  # 外部负载均衡器使用的IP地址，仅适用于LoadBlancer
   externalName <string>  # 外部服务名称，该名称将作为Service的DNS CNAME值
    
-  如果不显式地声明 nodePort 字段，Kubernetes 就会分配随机的可用端口来 设置代理。这个端口的范围默认是 30000-32767，可以通过 kube-apiserver 的– service-node-port-range 参数来修改它 
+  如果不显式地声明 nodePort 字段，Kubernetes 就会分配随机的可用端口来 设置代理。这个端口的范围默认是 30000-32767，可以通过 kube-apiserver 的 service-node-port-range 参数来修改它 
 
+https://kubernetes.io/zh-cn/docs/reference/networking/virtual-ips/#session-affinity
+外部流量策略
   在使用NodePort Service和LoadBalancer Service时，要考虑的一个关键问题是Service的外部流量规则设置。外部流量规则决定了该Service是将外部流量路由到节点本地端点（externalTrafficPolicy:Local）还是集群范围的端点（externalTrafficPolicy:Cluster）。每种规则都有好处和权衡。
   当规则被设置为Local时，Service将流量路由到接收流量的节点上运行的端点（Pod）。路由到本地端点有两个重要的好处。首先，没有涉及SNAT，所以源IP被保留下来，使其可用于工作负载。其次，在将流量转发到另一个节点时，不会产生额外的网络跳转。
   话虽如此，Local策略也有弊端。主要是到达缺乏Service端点的节点的流量会被放弃。出于这个原因，Local策略通常与外部负载均衡器相结合，对节点进行健康检查。当节点没有Service端点时，考虑到健康检查失败，负载均衡器不会向该节点发送流量。图6-6展示了这个功能。
@@ -221,6 +223,12 @@ spec:
 
   Service 的 spec.externalTrafficPolicy 字段设置为 local，这就 保证了所有 Pod 通过 Service 收到请求之后，一定可以看到真正的、外部 client 的源地址。 
   在local的配置下，一台宿主机上的 iptables 规则，会设置为只将 IP 包转发给运行在这台宿主机上的 Pod。 
+
+内部流量策略
+  特性状态： Kubernetes v1.26 [stable]
+  可以设置 .spec.internalTrafficPolicy 字段来控制来自内部源的流量如何被路由。 有效值同样为 Cluster 和 Local。
+  将字段设置为 Cluster 会将内部流量路由到所有准备就绪的端点， 将字段设置为 Local 仅会将流量路由到本地节点准备就绪的端点。
+  如果流量策略为 Local 但没有本地节点端点，那么 kube-proxy 会丢弃该流量。
 
   公有云提供的 Kubernetes 服务里，都使用了一个叫作 CloudProvider 的转接层，来跟 公有云本身的 API 进行对接。所以，在上述 LoadBalancer 类型的 Service 被提交后， Kubernetes 就会调用 CloudProvider 在公有云上创建一个负载均衡服务，并且把被 代理的 Pod 的 IP 地址配置给负载均衡服务做后端 
   一种典型问题，就是 Pod 没办法通过 Service 访问到自己。这往往就是因为 kubelet 的 hairpin-mode 没有被正确设置。关于 Hairpin 的原理我在前面已经介绍过， 这里就不再赘述了。你只需要确保将 kubelet 的 hairpin-mode 设置为 hairpin-veth 或者 promiscuous-bridge 即可。 
@@ -446,12 +454,12 @@ PVC和PV
     在哪儿找：
       二者要么都不属于任何StorageClass资源，要么属于同一个StorageClass资源；
     怎么找：
-	  标签、
+	  标签
 
   在 Kubernetes 中，实际上存在着一个专门处理持久化存储的控制器，叫作 Volume Controller。这个 Volume Controller 维护着多个控制循环，其中有一个循环，扮演的就 是撮合 PV 和 PVC 的 "红娘"的角色。它的名字叫作 PersistentVolumeController。 
   PersistentVolumeController 会不断地查看当前每一个 PVC，是不是已经处于 Bound(已绑定)状态。如果不是，那它就会遍历所有的、可用的 PV，并尝试将其与这 个 "单身" 的 PVC 进行绑定。这样，Kubernetes 就可以保证用户提交的每一个 PVC，只 要有合适的 PV 出现，它就能够很快进入绑定状态，从而结束 "单身" 之旅。 
 
-PV创建的 "两阶段处理 "
+PV创建的 "两阶段处理"
    "第一阶段" (Attach)，虚拟机挂载远程磁盘的操作，Kubernetes 提供的可用参数是 nodeName，即宿主机的名字。 
    "第二阶段" (Mount)，将磁盘设备格式化并挂载到 Volume 宿主机目录的操作，Kubernetes 提供的可用参数是 dir，即 Volume 的宿主机目录。 
   对应地，在删除一个 PV 的时候，Kubernetes 也需要 Unmount 和 Dettach 两个阶段来处理 
@@ -551,7 +559,7 @@ StorageClass资源的期望状态直接与apiVersion、kind和metadata定义于�
  mountOptions <[]string>：由当前类动态创建的PV资源的默认挂载选项列表。
 
 Local Persistent Volume
-(对于常规的 PV 来说，Kubernetes 都是先调度 Pod 到某个节 点上，再通过 "两阶段处理" 来 "持久化" 这台机器上的 Volume 目录，进而完成 Volume 目录与容器的绑定挂载)
+(对于常规的 PV 来说，Kubernetes 都是先调度 Pod 到某个节点上，再通过 "两阶段处理" 来 "持久化" 这台机器上的 Volume 目录，进而完成 Volume 目录与容器的绑定挂载)
 StorageClass可以配置 volumeBindingMode=WaitForFirstConsumer 的属性
 它是 Local Persistent Volume 里一个非常重要的特性，即:延迟绑定，将绑定推迟到POD调度的时候。
 
@@ -571,19 +579,19 @@ StorageClass 里的 volumeBindingMode=WaitForFirstConsumer 的含义，就是告
 
 
 部署 CSI 插件的常用原则是: 
-第一，通过 DaemonSet 在每个节点上都启动一个 CSI 插件，来为 kubelet 提供 CSI Node 服务。这是因为，CSI Node 服务需要被 kubelet 直接调用，所以它要和 kubelet "一对一" 地部署起来。 
-此外，在上述 DaemonSet 的定义里面，除了 CSI 插件，我们还以 sidecar 的方式运行着 driver-registrar 这个外部组件。它的作用，是向 kubelet 注册这个 CSI 插件。这个注册过 程使用的插件信息，则通过访问同一个 Pod 里的 CSI 插件容器的 Identity 服务获取到。 
-需要注意的是，由于 CSI 插件运行在一个容器里，那么 CSI Node 服务在 "Mount 阶 段" 执行的挂载操作，实际上是发生在这个容器的 Mount Namespace 里的。可是，我们真正希望执行挂载操作的对象，都是宿主机 /var/lib/kubelet 目录下的文件和目录。 
-所以，在定义 DaemonSet Pod 的时候，我们需要把宿主机的 /var/lib/kubelet 以 Volume 的方式挂载进 CSI 插件容器的同名目录下，然后设置这个 Volume 的 mountPropagation=Bidirectional，即开启双向挂载传播，从而将容器在这个目录下进行 的挂载操作 "传播" 给宿主机，反之亦然。 
-第二，通过 StatefulSet 在任意一个节点上再启动一个 CSI 插件，为 External Components 提供 CSI Controller 服务。所以，作为 CSI Controller 服务的调用者， External Provisioner 和 External Attacher 这两个外部组件，就需要以 sidecar 的方式和 这次部署的 CSI 插件定义在同一个 Pod 里。 
+  第一，通过 DaemonSet 在每个节点上都启动一个 CSI 插件，来为 kubelet 提供 CSI Node 服务。这是因为，CSI Node 服务需要被 kubelet 直接调用，所以它要和 kubelet "一对一" 地部署起来。 
+  此外，在上述 DaemonSet 的定义里面，除了 CSI 插件，我们还以 sidecar 的方式运行着 driver-registrar 这个外部组件。它的作用，是向 kubelet 注册这个 CSI 插件。这个注册过 程使用的插件信息，则通过访问同一个 Pod 里的 CSI 插件容器的 Identity 服务获取到。 
+  需要注意的是，由于 CSI 插件运行在一个容器里，那么 CSI Node 服务在 "Mount 阶 段" 执行的挂载操作，实际上是发生在这个容器的 Mount Namespace 里的。可是，我们真正希望执行挂载操作的对象，都是宿主机 /var/lib/kubelet 目录下的文件和目录。 
+  所以，在定义 DaemonSet Pod 的时候，我们需要把宿主机的 /var/lib/kubelet 以 Volume 的方式挂载进 CSI 插件容器的同名目录下，然后设置这个 Volume 的 mountPropagation=Bidirectional，即开启双向挂载传播，从而将容器在这个目录下进行 的挂载操作 "传播" 给宿主机，反之亦然。 
+  第二，通过 StatefulSet 在任意一个节点上再启动一个 CSI 插件，为 External Components 提供 CSI Controller 服务。所以，作为 CSI Controller 服务的调用者， External Provisioner 和 External Attacher 这两个外部组件，就需要以 sidecar 的方式和 这次部署的 CSI 插件定义在同一个 Pod 里。 
 
 举个例子，对于一个部署了 CSI 存储插件的 Kubernetes 集群来说: 
-当用户创建了一个 PVC 之后，你前面部署的 StatefulSet 里的 External Provisioner 容器，就会监听到这个 PVC 的诞生，然后调用同一个 Pod 里的 CSI 插件的 CSI Controller 服务的 CreateVolume 方法，为你创建出对应的 PV。 
-这时候，运行在 Kubernetes Master 节点上的 Volume Controller，就会通过 PersistentVolumeController 控制循环，发现这对新创建出来的 PV 和 PVC，并且看到它 们声明的是同一个 StorageClass。所以，它会把这一对 PV 和 PVC 绑定起来，使 PVC 进 入 Bound 状态。 
-然后，用户创建了一个声明使用上述 PVC 的 Pod，并且这个 Pod 被调度器调度到了宿主机 A 上。这时候，Volume Controller 的 AttachDetachController 控制循环就会发现，上述 PVC 对应的 Volume，需要被 Attach 到宿主机 A 上。所以，AttachDetachController 会创建一个 VolumeAttachment 对象，这个对象携带了宿主机 A 和待处理的 Volume 的名字。 
-这样，StatefulSet 里的 External Attacher 容器，就会监听到这个 VolumeAttachment 对象的诞生。于是，它就会使用这个对象里的宿主机和 Volume 名字，调用同一个 Pod 里的 CSI 插件的 CSI Controller 服务的 ControllerPublishVolume 方法，完成 "Attach 阶段" 。 
-上述过程完成后，运行在宿主机 A 上的 kubelet，就会通过 VolumeManagerReconciler 控制循环，发现当前宿主机上有一个 Volume 对应的存储设备(比如磁盘)已经被 Attach 到了某个设备目录下。于是 kubelet 就会调用同一台宿主机上的 CSI 插件的 CSI Node 服务的 NodeStageVolume 和 NodePublishVolume 方法，完成这个 Volume 的 "Mount 阶段" 。 
-至此，一个完整的持久化 Volume 的创建和挂载流程就结束了。 
+  当用户创建了一个 PVC 之后，你前面部署的 StatefulSet 里的 External Provisioner 容器，就会监听到这个 PVC 的诞生，然后调用同一个 Pod 里的 CSI 插件的 CSI Controller 服务的 CreateVolume 方法，为你创建出对应的 PV。 
+  这时候，运行在 Kubernetes Master 节点上的 Volume Controller，就会通过 PersistentVolumeController 控制循环，发现这对新创建出来的 PV 和 PVC，并且看到它 们声明的是同一个 StorageClass。所以，它会把这一对 PV 和 PVC 绑定起来，使 PVC 进 入 Bound 状态。 
+  然后，用户创建了一个声明使用上述 PVC 的 Pod，并且这个 Pod 被调度器调度到了宿主机 A 上。这时候，Volume Controller 的 AttachDetachController 控制循环就会发现，上述 PVC 对应的 Volume，需要被 Attach 到宿主机 A 上。所以，AttachDetachController 会创建一个 VolumeAttachment 对象，这个对象携带了宿主机 A 和待处理的 Volume 的名字。 
+  这样，StatefulSet 里的 External Attacher 容器，就会监听到这个 VolumeAttachment 对象的诞生。于是，它就会使用这个对象里的宿主机和 Volume 名字，调用同一个 Pod 里的 CSI 插件的 CSI Controller 服务的 ControllerPublishVolume 方法，完成 "Attach 阶段" 。 
+  上述过程完成后，运行在宿主机 A 上的 kubelet，就会通过 VolumeManagerReconciler 控制循环，发现当前宿主机上有一个 Volume 对应的存储设备(比如磁盘)已经被 Attach 到了某个设备目录下。于是 kubelet 就会调用同一台宿主机上的 CSI 插件的 CSI Node 服务的 NodeStageVolume 和 NodePublishVolume 方法，完成这个 Volume 的 "Mount 阶段" 。 
+  至此，一个完整的持久化 Volume 的创建和挂载流程就结束了。 
 
 
 相关链接
@@ -738,12 +746,12 @@ downwardAPI存储卷类型，从严格意义上来说，downwardAPI不是存储�
 	数据平面
 
 Kubernetes 的控制节点和计算节点 
-控制节点，即 Master 节点，由三个紧密协作的独立组件组合而成，它们分别是负责 API 服务的 kube-apiserver、负责调度的 kube-scheduler，以及负责容器编排的 kube- controller-manager。整个集群的持久化数据，则由 kube-apiserver 处理后保存在 Etcd 中。 
+控制节点，即 Master 节点，由三个紧密协作的独立组件组合而成，它们分别是负责 API 服务的 kube-apiserver、负责调度的 kube-scheduler，以及负责容器编排的 kube-controller-manager。整个集群的持久化数据，则由 kube-apiserver 处理后保存在 Etcd 中。 
 
 计算节点上最核心的部分，则是一个叫作 kubelet 的组件 
-在 Kubernetes 项目中，kubelet 主要负责同容器运行时(比如 Docker 项目)打交道。 依赖的，是一个称作 CRI(Container Runtime Interface)的远程调用接 口，这个接口定义了容器运行时的各项核心操作，比如:启动一个容器需要的所有参数。 
-kubelet 还通过 gRPC 协议同一个叫作 Device Plugin 的插件进行交互。这个插 件，是 Kubernetes 项目用来管理 GPU 等宿主机物理设备的主要组件，也是基于 Kubernetes 项目进行机器学习训练、高性能作业支持等工作必须关注的功能。 
-kubelet 的另一个重要功能，则是调用网络插件和存储插件为容器配置网络和持久化存 储。这两个插件与 kubelet 进行交互的接口，分别是 CNI(Container Networking Interface)和 CSI(Container Storage Interface)。 
+在 Kubernetes 项目中，kubelet 主要负责同容器运行时(比如 Docker 项目)打交道。 依赖的，是一个称作 CRI(Container Runtime Interface)的远程调用接口，这个接口定义了容器运行时的各项核心操作，比如:启动一个容器需要的所有参数。 
+kubelet 还通过 gRPC 协议同一个叫作 Device Plugin 的插件进行交互。这个插件，是 Kubernetes 项目用来管理 GPU 等宿主机物理设备的主要组件，也是基于 Kubernetes 项目进行机器学习训练、高性能作业支持等工作必须关注的功能。 
+kubelet 的另一个重要功能，则是调用网络插件和存储插件为容器配置网络和持久化存储。这两个插件与 kubelet 进行交互的接口，分别是 CNI(Container Networking Interface) 和 CSI(Container Storage Interface)。 
 
 
 kubelet 的工作核心，就是一个控制循环，即: SyncLoop 
@@ -751,17 +759,17 @@ kubelet 的工作核心，就是一个控制循环，即: SyncLoop
 1. Pod 更新事件;
 2. Pod 生命周期变化;
 3. kubelet本身设置的执行周期; 
-4. 定时的清理事件。 
+4. 定时的清理事件。
 
 kubelet 还负责维护着很多其他的子控制循环(也就是图中的小圆圈)。这些控制循环的名字，一般被称作某某 Manager，比如 Volume Manager、Image Manager、 Node Status Manager 等等 
 这些控制循环的责任，就是通过控制器模式，完成 kubelet 的某项具体职责。 比如 Node Status Manager，就负责响应 Node 的状态变化，然后将 Node 的状态收集起来，并通过 Heartbeat 的方式上报给 APIServer。
 再比如 CPU Manager，就负责维护该 Node 的 CPU 核的信息，以便在 Pod 通过 cpuset 的方式请求 CPU 核的时候，能够正确地管理 CPU 核的使用量和可用量。 
- 
+
 kubelet 也是通过 Watch 机制，监听了与自己相关的 Pod 对象的变化。当然，这个 Watch 的过滤条件是该 Pod 的 nodeName 字段与自己相同。kubelet 会把这些 Pod 的信息缓存在自己的内存里 
 当一个 Pod 完成调度、与一个 Node 绑定起来之后， 这个 Pod 的变化就会触发 kubelet 在控制循环里注册的 Handler，也就是上图中的 HandlePods 部分。此时，通过检查该 Pod 在 kubelet 内存里的状态，kubelet 就能够判断出这是一个新调度过来的 Pod，从而触发 Handler 里 ADD 事件对应的处理逻辑 
 
 在具体的处理过程当中，kubelet 会启动一个名叫 Pod Update Worker 的、单独的 Goroutine 来完成对 Pod 的处理工作 
-比如，如果是 ADD 事件的话，kubelet 就会为这个新的 Pod 生成对应的 Pod Status，检 查 Pod 所声明使用的 Volume 是不是已经准备好。然后，调用下层的容器运行时(比如 Docker)，开始创建这个 Pod 所定义的容器。 
+比如，如果是 ADD 事件的话，kubelet 就会为这个新的 Pod 生成对应的 Pod Status，检查 Pod 所声明使用的 Volume 是不是已经准备好。然后，调用下层的容器运行时(比如 Docker)，开始创建这个 Pod 所定义的容器。 
 如果是 UPDATE 事件的话，kubelet 就会根据 Pod 对象具体的变更情况，调用下层容器 运行时进行容器的重建工作。 
 
 kubelet 调用下层容器运行时的执行过程，并不会直接调用 Docker 的 API，而是通过一组叫作 CRI(Container Runtime Interface，容器运行时接口)的 gRPC 接口来间接执行的。 
@@ -1085,6 +1093,7 @@ XtraBackup 是业界主要使用的开源 MySQL 备份和恢复工具
     kind: ServiceAccount  # 资源类型标识
     metadata:
       name <string>  # 资源名称
+      
       namespace <string>  # ServiceAccount是名称空间级别的资源
     automountServiceAccountToken <boolean>  # 是否让Pod自动挂载API令牌
     secrets <[]Object>   # 以该SA运行的Pod所要使用的Secret对象组成的列表
