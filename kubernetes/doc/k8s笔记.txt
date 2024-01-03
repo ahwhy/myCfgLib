@@ -2489,3 +2489,51 @@ Linkerd、Istio
 
 代理节点模式 一个节点部署一个envoy
 遵循这种架构的服务网格包括Consul Connect（https://www.consul.io/docs/connect）和Maesh（https://containo.us/maesh）。
+
+
+20、相关问题
+
+a、PodSandbox是什么？
+
+在 Kubernetes 源码中，术语 "PodSandbox" 是指容器运行时的一个抽象概念，用来表示一个 Pod 的运行环境。这通常涵盖了网络、存储以及与容器生命周期管理相关的一系列基础设施。PodSandbox 是 CRI（Container Runtime Interface）中的一个概念，CRI 是 Kubernetes 与容器运行时进行交互的接口。
+
+CreatePodSandbox 是 CRI 中的一个调用，在 kubelet 启动一个新 Pod 的时候，它会调用容器运行时的这个方法来创建一个新的 PodSandbox。PodSandbox 实际上就是一个特殊的容器，它为 Pod 中的所有容器提供共享的环境。不同的容器运行时（如 Docker, containerd, CRI-O 等）会有不同的实现方式。
+
+在 Kubernetes 的代码库中，并没有直接的 "CreatePodSandbox" 函数实现，因为 Kubernetes 通过 CRI 来与具体的容器运行时通信。不过，可以在 pkg/kubelet/dockershim（如果在查看较旧的 Kubernetes 版本）或者在其他与 CRI 实现相关的目录中找到相关的调用。
+
+CreatePodSandbox 主要做如下动作：
+
+  创建网络命名空间：这是 PodSandbox 最重要的一个组成部分，确保 Pod 内的容器共享同一个网络环境。
+  设置存储：为 Pod 分配和设置存储，包括持久化存储和临时存储。
+  调用容器运行时接口创建一个容器：这个容器通常不运行任何应用程序代码，而是作为持有网络命名空间和存储挂载点的容器。
+  安全上下文的设置：为 PodSandbox 设置必要的安全上下文。
+  日志目录的创建和管理：为 PodSandbox 设置日志收集。
+  设置资源限制：比如 CPU 和内存等资源的限制。
+  标记和注解：将相关的标记和注解应用到 PodSandbox 上。
+  在 Kubernetes 源码中，具体的 CreatePodSandbox 实现会依赖于选择的容器运行时。对于 Docker，这可能涉及到调用 Docker API 创建一个容器；对于其他 CRI 兼容的容器运行时，如 containerd 或 CRI-O，则是通过 gRPC 调用相应的 CRI 方法。
+
+要了解更多详细信息，可以查看 Kubernetes 的 kubelet 代码库中与容器运行时通信的部分，或者查看使用的具体容器运行时的文档和源码。由于 Kubernetes 项目经常更新，具体的实现细节可能会有所变化，可以直接参考最新的 Kubernetes 代码库中的实现。
+
+
+
+b、linux中的 "watermark"，可以触发 容器中的 内存cache回收吗？
+
+在Linux系统中，"watermark"（水位标记）也内核中进行内存管理的一种机制
+
+  min_watermark：是保证内核最基本功能所需的最小内存量，当某个区的空闲内存低于此水位时，内核会进行内存回收操作。
+  low_watermark：当内存下降到这个水位时，内核开始更积极地回收内存，比如唤醒kswapd守护进程来释放内存页。
+  high_watermark：内存达到该水位时，表示内存处于相对充足的状态。内核可以允许某些内存分配操作发生，而不需要过于频繁地进行内存回收。
+
+而一般情况下，关于容器的内存限制，都是通过cgroup进行的。即 当容器的内存使用超过其配置的限制时，cgroups机制会触发OOM（Out of Memory）Killer。
+
+上面说到的 low_watermark 是一种内核的机制，而这个只能说可以影响到容器的内存cache，但不能进行控制
+
+因为容器的内核一般情况下也是继承宿主机的，比如上面说的 cat /proc/zoneinfo 这个文件，在容器中看和宿主机是一样的。这里并不能为容器，单独设置一个 low_watermark
+
+当内核 因为 low_watermark ，触发内存cache回收时，也是回收的宿主机整体内存；只不过 这部分cache内存，可能包含了容器的 cache。
+
+并且 low_watermark 数值也是基于 宿主机的。除非 一个容器独占宿主机，不然一个容器的cache，可能不足以触发low_watermark机制
+
+当节点上的容器数量众多时，控制内存的手段也只有cgroup了，更多的还是靠业务服务自行控制内存。
+
+如果一定需要回收cache的话，目前目前遇到的各种场景，最后都是靠脚本 或者 定时任务，执行命令触发的回收
