@@ -106,10 +106,34 @@ $ vmstat 2
 
 这四者的⼤⼩关系是：VSS >= RSS >= PSS >= USS
 
-进程的内存使⽤情况可以从 `/proc/PID/status` 中读取，⽐如
-  - VmSize: 当前的Virtual Memory Size
-  - VmRSS: Resident Set Size
-  - VmLib: 进程所加载的动态库所占⽤的内存⼤⼩
+进程的内存使⽤情况可以从 `/proc/PID/status` 中读取，相关字段含义：
+  - Name: 进程的名称。
+  - Umask: 进程的文件创建掩码。
+  - State: 进程的状态，如运行（R）、睡眠（S）、僵尸（Z）等。
+  - Tgid: 线程组ID，用于标识线程组。
+  - Ngid: NUMA组ID，用于非一致内存访问（NUMA）系统的进程间通信。
+  - Pid: 进程的ID。
+  - PPid: 父进程的ID。
+  - TracerPid: 如果进程正在被调试，此字段表示调试进程的ID。
+  - Uid: 进程的实际用户ID（Ruid）、有效用户ID（Euid）、保存的设置用户ID（Suid）和文件系统用户ID（Fsuid）。
+  - Gid: 进程的实际组ID（Rgid）、有效组ID（Egid）、保存的设置组ID（Sgid）和文件系统组ID（Fsgid）。
+  - FDSize: 进程打开文件描述符的数量。
+  - Groups: 进程所属的组ID列表。
+  - VmPeak: 进程使用的虚拟内存的峰值。
+  - VmSize: 进程使用的虚拟内存的大小。
+  - VmLck: 进程锁定的内存大小。
+  - VmPin: 进程固定的内存大小。
+  - VmHWM: 进程使用的最高物理内存的大小。
+  - VmRSS: 进程使用的当前物理内存的大小。
+  - RssAnon: 进程使用的匿名内存的大小。
+  - RssFile: 进程使用的文件缓存的大小。
+  - RssShmem: 进程使用的共享内存的大小。
+  - VmData: 进程使用的数据段的大小。
+  - VmStk: 进程使用的栈的大小。
+  - VmExe: 进程使用的可执行文件的大小。
+  - VmLib: 进程使用的共享库的大小，即 加载的动态库所占⽤的内存⼤⼩。
+  - VmPTE: 进程使用的页表项的大小。
+  - VmSwap: 进程使用的交换空间的大小。
 ```shell
 # 以 kubelet进程为例
 $ cat /proc/377598/status
