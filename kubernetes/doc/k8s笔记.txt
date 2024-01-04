@@ -2537,3 +2537,24 @@ b、linux中的 "watermark"，可以触发 容器中的 内存cache回收吗？
 当节点上的容器数量众多时，控制内存的手段也只有cgroup了，更多的还是靠业务服务自行控制内存。
 
 如果一定需要回收cache的话，目前目前遇到的各种场景，最后都是靠脚本 或者 定时任务，执行命令触发的回收
+
+c、k8s 在弹性缩容或滚动更新时默认的pod删除规则 
+
+● 第一步:判断pod是否被分配到节点上，优先删除未分配节点的pod
+● 第二步:判断已调度的pod中，优先删除的顺序为 Pending, Unknown, Running
+● 第三步:判断Running的pod中，优先删除未Ready的
+● 第四步:判断pod的 pod-deletion-cost (k8s v0.22新特性)，用于手动指定pod的删除优先级
+● 第五步:判断Ready且pod-deletion-cost相同的pod，则优先删除pod所在Node中同一个RS控制器控制的pod数量较多的pod
+● 第六步:判断优先删除Ready时间更晚的pod
+● 第七步:判断Ready时间相同时，优先删除Container的重启次数较多的
+● 第八步:判断当上述条件相同时，优先删除创建时间较新的pod
+
+1 如果pod没分配到节点，先被删除 
+2 如果pod的状态是 Pending>PodUnknown>PodRunning，则Pending优先被删除，PodUnknown次之，PodRunning最后被删除。 
+3 不是Ready状态的Pod先被删除。 
+4 如果Pod都是Ready状态，则最后一个变成Ready状态的Pod先被删除（Ready时间最短的）。 
+5 重启次数大的Pod先被删除。
+6 创建时间最新的Pod先被删除。
+
+参考文档：更新应用时，如何实现 K8s 零中断滚动更新？(https://mp.weixin.qq.com/s?__biz=MzUzNzYxNjAzMg==&mid=100007371&idx=1&sn=473f13d9cddda0a8ee3210081da10ccb&chksm=7ae516044d929f12272f96d0e91c0b04682c7a01b5147f1b3dca796cb621103663418c3ceaf7#rd)
+
