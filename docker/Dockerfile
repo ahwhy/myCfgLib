@@ -2,7 +2,8 @@
 ################构建容器的基础信息
 # FROM 定义基础镜像，后面的本地有效的镜像名，如果本地没有会从远处仓库下载;
 # as 定义别名为 base
-FROM ubuntu as base
+ARG VERSION
+FROM ubuntu:${VERSION} as base
 
 ################具体执行的命令
 RUN apt-get update && apt-get install -y git gcc
