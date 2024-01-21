@@ -1042,7 +1042,81 @@ VmRSS:   5120108 kB/1024 = 5000mB /1024 = 4.88gB
   - Java容器内java进程，VmRSS 为 4.88gB，说明该java进程的内存使用量基本占用了，Java容器全部的已使用内存
   - 而此时jvm只有1.3GB，需要根据代码分析，其余内存是如何消耗的，是否有泄漏现象
 
-### 3. 参考文档
+### 3. java容器进程占用问题
+
+#### 问题描述
+- 场景一 
+  - 用户容器内的java进程，使用了约 5.3g的内存
+  - 但是从Java的应用监控看，堆内存4454M，非堆内存426M 
+  - 这两个加起来还差 5.3g-4.8g=0.5g 左右
+  - 下图，是通过 `jstat -class {pid}` 拿的数据
+
+- 场景二
+  - 场景一的pod，第二天凌晨出现了 fullgc，Java的jvm堆栈监控显示内存下降 2G左右，但是容器中的java进程内存消耗还是约 5.3g
+  - 即 Java进程实际使用的物理内存，没有释放。查看内核问题，实际也是这样。
+
+- 排查过程
+  - 可以使用 pmap 命令
+  - 关于 pmap 命令的介绍，可以参考这个文档 [pmap，linux工具pmap原理？](https://www.cnblogs.com/Chary/p/16719738.html)
+  - 下面是基于 `pmap -x 1` 命令，打印的容器 java主进程的内存消耗 
+  - 可以看到rss总数是可以对上的，而第一个内存地址 00000006a0000000 有 4502168，即 4.29GB，看起来就是jvm的占用
+```shell
+➜ pmap -x 1
+1:   java -jar -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/home/logs/${HOSTNAME}-dump.log -XX:NewRatio=2 -XX:InitialRAMPercentage=75.0 -XX:MinRAMPercentage=75.0 -XX:MaxRAMPercentage=75.0 -Xss512K -XX:+UseConcMarkSweepGC -Dspring.profiles.active=pro -Darthas.telnetPort=3659 -Darthas.httpPort=8564 -Darthas.agent-id=sch-inventory-start demp-xxxxx.jar
+Address           Kbytes     RSS   Dirty Mode  Mapping
+00000006a0000000 4750420 4502168 4502168 rw---   [ anon ]
+00000007c1f15000 1016748       0       0 -----   [ anon ]
+0000561e5793b000       4       4       0 r-x-- java
+0000561e57b3b000       4       4       4 r---- java
+0000561e57b3c000       4       4       4 rw--- java
+0000561e58949000    4156    4136    4136 rw---   [ anon ]
+00007fb12b6a2000      12       0       0 -----   [ anon ]
+00007fb12b6a5000     504      24      24 rw---   [ anon ]
+00007fb12b723000      12       0       0 -----   [ anon ]
+00007fb12b726000     504      28      28 rw---   [ anon ]
+00007fb12b7a4000      12       0       0 -----   [ anon ]
+00007fb12b7a7000     504      28      28 rw---   [ anon ]
+00007fb12b825000      12       0       0 -----   [ anon ]
+...
+00007fb2731bd000       4       4       4 rw--- libpthread-2.31.so
+00007fb2731be000      24      12      12 rw---   [ anon ]
+00007fb2731c4000       4       4       0 r---- LC_MEASUREMENT
+00007fb2731c5000       4       4       0 r---- LC_IDENTIFICATION
+00007fb2731c6000       4       4       4 rw---   [ anon ]
+00007fb2731c7000       4       4       0 r---- ld-2.31.so
+00007fb2731c8000     128     128       0 r-x-- ld-2.31.so
+00007fb2731e8000      32      32       0 r---- ld-2.31.so
+00007fb2731f0000       4       0       0 r----   [ anon ]
+00007fb2731f1000       4       4       4 r---- ld-2.31.so
+00007fb2731f2000       4       4       4 rw--- ld-2.31.so
+00007fb2731f3000       4       4       4 rw---   [ anon ]
+00007fff0ca3d000     144      48      48 rw---   [ stack ]
+00007fff0ca66000      12       0       0 r----   [ anon ]
+00007fff0ca69000       8       4       0 r-x--   [ anon ]
+ffffffffff600000       4       0       0 r-x--   [ anon ]
+---------------- ------- ------- -------
+total kB         11135288 5517748 5499792%
+```
+
+#### 问题结论
+- 场景一
+  - Java进程除了 Jvm内存（包括堆内存 Heap、堆外内存 Non-Heap），还有非Jvm内存，包括本地运行库、JNI本地代码
+  - 参考文档 [JVM监控内存详情说明](https://help.aliyun.com/zh/arms/application-monitoring/developer-reference/jvm-monitoring-memory-details)
+
+- 场景二
+  - Java的jvm堆栈监控看到fullgc后内存降下来，但是Java进程实际上并没有释放，这个是因为jvm申请的堆内存会回收，但是并不会归还给操作系统，从操作系统角度看内存是不会下降的
+  - jvm在回收了堆中的内存之后，并不会立刻将这部分内存归还给操作系统
+  - 相反，它会保留这些内存以备将来再次使用，这样做可以减少因为频繁地向操作系统申请和释放内存而带来的性能开销
+
+- 业务侧动作
+  - 将JVM堆的 limit占比从75%改为60%
+  - 从代码层面去减少对象的创建和长时间内存占用，减少长时间执行的代码和长时间的引用
+
+- 其他排查文件
+  - [持续剖析功能](https://help.aliyun.com/zh/arms/application-monitoring/user-guide/enable-continuous-profiling)
+  - [慢调用链诊断利器-ARMS 代码热点](https://mp.weixin.qq.com/s/_fzVzCX4bts7RByanU_Feg)
+
+## 三. 参考文档
 
 - [关于Linux性能调优之内存负载调优 ](https://blog.51cto.com/liruilong/5930543)
 - [Linux中进程内存RSS与cgroup内存的RSS统计 - 差异](https://developer.aliyun.com/article/54407)
@@ -1053,3 +1127,7 @@ VmRSS:   5120108 kB/1024 = 5000mB /1024 = 4.88gB
 - [Java进程内存分析](https://www.nxest.com/bits-pieces/java/jvm/)
 - [FullGC实战](https://mp.weixin.qq.com/s?__biz=MzU5ODUwNzY1Nw==&mid=2247484533&idx=1&sn=6f6adbccadb3742934dc49901dac76af&chksm=fe426d93c935e4851021c49e5a9eb5a2a9d3c564623e7667e1ef3a8f35cb98717041d0bbccff&scene=0&xtrack=1#rd)
 - [JVM调优系列----NewRatio与SurvivorRatio](https://it.cha138.com/php/show-47569.html)
+- [pmap，linux工具pmap原理？](https://www.cnblogs.com/Chary/p/16719738.html)
+- [JVM监控内存详情说明](https://help.aliyun.com/zh/arms/application-monitoring/developer-reference/jvm-monitoring-memory-details)
+- [持续剖析功能](https://help.aliyun.com/zh/arms/application-monitoring/user-guide/enable-continuous-profiling)
+- [慢调用链诊断利器-ARMS 代码热点](https://mp.weixin.qq.com/s/_fzVzCX4bts7RByanU_Feg)
