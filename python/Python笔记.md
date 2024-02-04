@@ -463,3 +463,902 @@ a = a + b + c  =>  a += b + c
     - continue和break只影响循环，所以if cond：break不是跳出if，而是终止if外的break所在的循环
     - break 语句可以跳出 for 和 while 的循环体。如果你从 for # 或 while 循环中终止，任何对应的循环 else 块将不执行。
     - continue 语句被用来告诉 Python 跳过当前循环块中的剩余语句，然后继续进行下一轮循环。
+
+#### b、练习
+
+- 给定一个不超过5位的正整数，判断该数的位数，依次打印出万位、千位、百位、十位、个位的数字
+```python
+# 思路：每一趟中，整除就能获得最高位置的数，取模就能获得除去最高位的数的剩余数字，且取模后的数字作为下一趟的待处理数字
+# 	c = 54321  w = 10000
+# 	第一趟 out = c // w   c = c % w   w = w // 10
+# 	第二趟 out = c // w   c = c % w   w = w // 10
+# 	......
+c = int('54321')
+w = 10000
+for i in range(5):
+	print(c // w)
+	c %=  w
+	w //= 10
+```
+
+- 给定一个不超过5位的正整数，判断该数是几位数，依次从万位打印到个位的数字
+```python
+# 思路：用上面的程序处理，从左到右处理数据，遇到0则长度减1，遇到第一个非0数字才开始打印并不再减1
+c = int('54001')  # 00451,01230
+w = 10000  # 拿10000来试验
+length = 5  # 假设长度为5
+flag = False  # 开关量，打标记
+while w：
+	x = c // w
+	if not flag:
+		if x:  # 找到第一个非0数字，从此开始打印
+			flag = True
+		else:
+			length -= 1
+	if flag:
+		prinf(x)
+	c = c % w
+	w //= 10
+print ('The length of number is', length)
+```
+
+- 给一个半径，求圆的面积和周长。圆周率3.14
+```python
+r = int(input('半径=:'))
+print('面积=',int(3.14*r*r))
+print('周长=',int(2*3.14*r))
+```
+
+- 输入两个数，比较大小后，从小到大升序打印
+```python
+a = int(input('please input a number:'))
+b = int(input('please input a number:'))
+if a > b:
+	print(b)
+	print(a)
+else:
+	print(a)
+	print(b)
+
+# 或
+print(b,a) if a>b else print(a,b)  #三元表达式：真值 if 条件 else 假值
+```
+
+- 依次输入若干个整数，打印出最大值。如果输入为空，则退出程序。
+```python
+a = int(input('please input a number:'))
+if a == 0:   # 或if not a(a = none)
+	print('不能为空，程序退出')
+	exit(-1)
+while a > 0:
+	b = int(input('please input a number:'))
+	if b == 0:
+		print('不能为空，程序退出')
+		exit(-1)
+	elif a > b:
+		print('最大值为',a)
+		break
+	elif b > a:
+		print('最大值为',b)
+		break
+```
+
+- 依次输入若干个整数，求每次输入后的算术平均数。
+```python
+sum = int(input('输入一个正整数:'))
+count = 1
+
+while True:
+	a = input('再输入一个正整数:')
+	if not a:
+		print('Bye')
+		break
+	n = int(a)
+	sum += n
+	avg = sum / count
+	print("Avg is "，avg)
+```
+
+- 打印一个边长为n的正方形
+```python
+n = int(input('please input a number:'))
+print('*'*n)
+for i in range(n-2):
+	print('*',' '*(n-2),'*')
+print('*'*n)
+
+# 或 
+for i in range(n):
+	if i == 0 or i == n - 1:  # 或 if i % (n - 1) == 0:
+		print('*'*n)
+	else
+		print('*',' '*(n - 2),'*')
+
+# 或
+for i in range(n):
+	print('*'*n) if i == 0 or i == n - 1 else print('*',' '*(n - 2),'*') #三元表达式
+
+# 或
+n = int(input('please input a number:'))
+a = '*'
+b = '*'
+for i in range(n):
+	a += '\t*'
+	b += '\t'
+else:
+	b += '*'
+	c = a + '\n' + (b + '\n')*(n-1) + a
+	print(c)
+```
+
+- 求100以内所有奇数的和
+```python
+b = 0
+for i in range(100):   # 或  range(1,100,2)
+	if i % 2 :         # 或  if i % 2 == 1:
+	    b += i
+print(i)   
+print(b)
+```
+
+- 判断学生成绩,成绩等级A-E, 其中 90 以上为A, 80-89为B ,70-79为C, 60-69为D, 60以下为E
+```python
+a = int(input("请输入成绩:"))
+if a >= 90:
+    print('成绩为A')
+elif a >= 80:
+    print('成绩为B')
+elif a >= 70:
+    print('成绩为C')
+elif a >= 60:
+    print('成绩为D')
+else:
+    print('成绩为E')
+```
+
+- 求1到5阶乘之和
+```python
+a = 1
+b = 0
+c = 1
+for i in range(5):
+	c *= a
+	b += c
+	a += 1
+	print(c)
+print(b)
+```
+
+- 给一个数，判断它是否是素数(质数，一个大于1的自然数只能被1和它本身整除)
+```python
+n = int(input('please input a number:'))
+for i in range(2,a):
+	if (a % i) == 0:
+		print('不是素数')
+		break
+else
+	print('是素数')
+```
+
+- 打印九九乘法表
+```python
+for i in range(1,10):
+	line = ''
+	for j in range(1,i+1):
+		spaces = '  ' if j == 2 and i < 5 else ' '
+		line += str(j) + '*' + str(i) + '=' + str(i * j) + spaces 
+	print(line)
+	
+for i in range(1,10):
+	for j in range(1, i+1):
+		print("{}*{}={:<{}}".format(j, i, i*j, 3 if j > 1 else 2), end='\n' if j == i else '')
+# "{0}*{1}={2:<2}".format(a,b,a*b)  {2:<2} 第一个2为索引, :为分隔符号, <为向左对齐, 第二个2为宽度
+
+# 右对齐
+for i in range(1,10):
+	line = ''
+	for j in range(i, 10):
+		line += "{}*{}={:<{}}".format(j, i, i*j, 2 if j < 4 else 3)
+	print("{:>62}".format(line))
+
+a=1
+while a < 10:
+	b=1
+	while b <= a:
+		c = a * b
+		print("%d*%d=%d"%(a,b,c), end="  ")
+		b += 1 
+	a += 1
+	print("")
+
+# 原九九乘法表逆时针输出
+for i in range(9,0,-1):
+    for j in range (1,i):
+        print("\t",end="")
+    for k in range (i,10):
+        print("%dx%d=%d" % (i,k,k*i), end="\t")
+    print()
+```
+
+- 用户登录验证,用户错误# 或密码错误都显示用户# 或密码错误,错误3次,则退出程序,验证成功显示登录信息
+```python
+name = str('qwer')
+ps = str(123456)
+cs = 0
+while True:
+    n = str(input('请输入账号:'))
+    p = str(input('请输入密码:'))
+    if n == name and p == ps:
+        print('恭喜你登录成功了!')
+        break
+    else:
+        print('账号# 或密码错误')
+        cs += 1
+        if cs == 3:
+            print('你已经错误3次,程序退出')
+            exit(-1)
+```
+            
+- 打印出下列图形
+```python
+#    *
+#   ***
+#  *****
+# *******
+#  *****
+#   ***
+#    *
+n = 7
+e = n // 2
+
+for i in range(-e, n-e):
+	prespaces = -i if i < 0 else i  
+	print(' ' * prespaces, end='')
+	print((n - 2 * prespaces) * '*')
+	
+for i in range(-e, n-e):
+	print(' ' * abs(i) + (n - 2 * abs(i)) * '*')
+	
+for i in range(-e, n-e):
+	line = (n - 2 * abs(i)) * '*'
+	print("{:^{}}".format(line,n))
+	
+# *******
+#  *****
+#   ***
+#    *
+#   ***
+#  *****
+# *******
+n = 7
+e = n // 2
+
+for i in range(-e, n-e):
+	print((3-abs(i))*' ' + (2 * abs(i) + 1) * '*')
+
+for i in range(-e, n-e):
+	print("{:^{}}".format((2 * abs(i) + 1) * '*', n))
+
+#    *
+#   **
+#  ***
+# *******
+#    ***
+#    **
+#    *
+n = 7
+e = n // 2
+x = n - e
+
+for i in range(-e, x):
+	if i < 0:
+		line = (-i) * ' ' + (x + i) * '*'
+	elif i == 0:
+		line = '*' * n
+	elif i > 0:
+		line = ' ' * e + (x - i) * '*'
+	print(line)
+```
+
+- 打印出100以内的斐波那契数列
+```python
+a = 0
+b = 1
+print(a)
+print(b)
+while True:
+	c = a + b
+	if c > 100:
+		break
+	a = b
+	b = c
+	print(c)
+
+#!/usr/bin/python3
+# Fibonacci series: 斐波纳契数列
+# 两个元素的总和确定了下一个数
+a, b = 0, 1
+while b < 1000:
+    print(b, end=',')            #关键字end可以用于将结果输出到同一行，# 或者在输出的末尾添加不同的字符
+    a, b = b, a+b
+# 结果：1,1,2,3,5,8,13,21,34,55,89,144,233,377,610,987,
+
+# PS:
+# print() sep 参数使用：
+# >>> a=10;b=388;c=98
+# >>> print(a,b,c,sep='@')
+# 10@388@98
+```
+
+- 求斐波那契数列第101项
+```python
+a = 0
+b = 1
+print(a)
+print(b)
+while True:
+	c = a + b
+	if c > 102:
+		break
+	a = b
+	b = c
+print(c)
+
+a = 0
+b = 1
+# 手动打印前两项
+print('{},{}'.format(0, a))
+print('{},{}'.format(1, b))
+index = 1
+while True:
+    c = a + b
+    a = b
+    b = c
+    index += 1
+    print('{},{}'.format(index, c))
+    if index == 101:
+        break
+
+import functools
+@functools.lru_cache()
+def fib(n,a=0,b=1):
+    return 1 if n < 3 else fib(n-1) + fib(n-2)
+fib(101)
+#573147844013817084101
+```
+
+- 求10W以内的质数
+```python
+n = int(input('please input a number:'))
+for i in range(2,n): # 或(2,int(n ** 0.5) + 1)
+	if (n % i) == 0:
+		print('不是素数')
+		break
+else:
+	print('是素数')
+
+n = 1
+a = 3
+print('质数:'1)
+while True:	
+	if a >= 100001:
+		break
+	for i in range(2,a)
+		if a % i == 0:
+			pass
+		else
+			print(a)
+			n += a
+	a += 1
+```
+			
+- 计算杨辉三角前6行,并打印出来
+```python
+num = input('请输入行数：')
+num = int(num)
+list1 =[] #list 用来保存杨辉三角
+for n in range(num):
+	row =[1] #保存行
+	list1.append(row)
+ 	if n == 0:
+    	print(row)
+    	continue
+	for m in range(1,n):
+		row.append(list1[n - 1][m - 1] + list1[n - 1][m])
+	row.append(1)
+	print(row)
+```
+
+- a = 60 其二进制值为0b00111100
+```python
+n = 0 #用于计数
+while a: #用移位方法求解，直到a移位为0为止
+    if a & 1 == 1:
+        n += 1 #将a与1进行位与操作，即可知道a的最后1位是否为1，若为1，则计数n增1，不然则无需变化n的值
+    a >>= 1 #测试了a的最后一位后，将最后一位右移移除，重新赋值给a
+print(n) #打印最后的计数数据
+```
+
+- 彩票游戏
+```python
+import random
+
+t1="开始游戏"
+t2="结束游戏"
+print(t1.center(50,"*"))
+data1=[]
+money=int(input("输入投入的金额："))
+print("你现在余额为：%d元"%money)
+while 1:
+    for i in range(6):
+        n = random.choice([0, 1])
+        data1.append(n)
+    if money<2:
+        print("你的余额不足，请充值")
+        m=input("输入投入的金额：")
+        if int(m)==0:
+            break
+        else:
+            money=int(m)
+    while 1:
+        j=int(input("输入购买彩票数量"))
+        if money-j*2<0:
+            print("购买后余额不足，请重新输入")
+        else:
+            money = money - j * 2
+            print("你现在余额为：%d元" % money)
+            break
+    print("提示：中奖数据有六位数，每位数为0# 或者1")
+    n2=input("请猜测中奖数据：(输入的数字为0# 或1)")
+    print(str(data1))
+    f=[]
+    for x in n2:
+        f.append(x)
+    f1 = str(f)
+    f2 = f1.split("'")
+    f3 = "".join(f2)
+    print("你猜测的数据为：", f3)
+    if f3==str(data1):
+        print("中奖数字为：",data1)
+        print("恭喜你中大奖啦")
+        money=money+j*100
+        print("你现在余额为：%d元" % money)
+    else:
+        print("中奖数字为：", data1)
+        print("没有中奖，请继续加油")
+    con = input("请问还要继续么？结束请输入no,继续请任意输入字符：")
+    if con=="no":
+        break
+    data1=[]
+print(t2.center(50,"*"))
+print("你的余额为：%d元"%money)
+```
+
+- 生成直观的九连环解法：
+```python
+#!/usr/bin/python
+x = ["-θ","-θ","-θ","-θ","-θ","-θ","-θ","-θ","-θ"]
+y = ["—","—","—","—","—","—","—","—","—"]
+def down(n, l): #拆解
+    v = len(l) #计算数列个数用于改变数列对应位置
+    if n>2:
+        down(n-2, l) #拆下n-2的环
+        l[v-n] = "—" #将v-n位"-θ"改为"—" 表示拆下
+        for x in l:  #输出列表每一个元素
+            print(x,end=' ')
+        print() #换行
+        up(n-2, l) #装上n-2位
+        down(n-1, l)#拆下n-1位， 后面同理
+    if n==2:
+        l[v-2], l[v-1] ="—","—"
+        for x in l:
+            print(x,end=' ')
+        print()
+    if n<2:
+        l[v-1] = "—"
+        for x in l:
+            print(x,end=' ')
+        print()
+def up(n, l):
+    v = len(l)
+    if n>2:
+        up(n-1, l)
+        down(n-2, l)
+        l[v-n] = "-θ"
+        for x in l:
+            print(x,end=' ')
+        print()
+        up(n-2, l)
+    if n==2:
+        l[v-2], l[v-1] = "-θ","-θ"
+        for x in l:
+            print(x,end=' ')
+        print()
+    if n<2:
+        l[v-1] ="-θ"
+        for x in l:
+            print(x,end=' ')
+        print()
+print("拆解\n")
+for i in x:
+    print(i,end=' ')
+print()
+down(9, x)
+print('---------------------------------\n','装上\n')
+for i in y:
+    print(i,end=' ')
+print()
+up(9, y)
+print("结束")
+
+# 九连环拆解，递归算法
+def down(n):
+    if n>2:
+        down(n-2)
+        print('卸下',n,'环')
+        up(n-2)
+        down(n-1)
+    if n==2:
+        print('卸下 {},{} 环'.format(n,n-1))    
+    if n<2:
+        print('卸下',n,'环') 
+        
+def up(n):
+    if n>2:
+        up(n-1)
+        down(n-2)
+        print("装上",n,"环")
+        up(n-2)
+    if n==2:
+        print("装上 %d,%d 环" % (n,n-1))
+        
+    if n<2:
+        print("装上",n,"环")
+print("拆解")
+down(2)
+print('---------------------------------\n','装上')
+up(3)
+print("结束")
+```
+
+
+### 8、迭代器与生成器
+迭代器有两个基本的方法：iter() 和 next()。
+https://www.runoob.com/python3/python3-iterator-generator.html
+使用了 yield 的函数被称为生成器(generator)。   # 加了yield的函数，每次执行到有yield的时候，会返回yield后面的值 并且函数会暂停，直到下次调用# 或迭代终止；
+https://www.runoob.com/w3cnote/python-yield-used-analysis.html
+return  #在一个 generator function 中，如果没有 return，则默认执行至函数完毕，如果在执行过程中 return，则直接抛出 StopIteration 终止迭代。
+
+迭代、迭代器、生成器三个概念的联系和区别。
+a、可迭代概念范围最大，生成器和迭代器肯定都可迭代，但可迭代不一定都是迭代器和生成器，比如上面说到的内置集合类数据类型。可以认为，在 Python 中，只要有集合特性的，都可迭代。
+b、迭代器，迭代器特点是，均可以使用 for in 和 next 逐一遍历。
+c、生成器，生成器一定是迭代器，也一定可迭代。
+
+### 9、定义一个函数
+函数代码块以 def 关键词开头，后接函数标识符名称和圆括号 ()。
+任何传入参数和自变量必须放在圆括号中间，圆括号之间可以用于定义参数。
+函数的第一行语句可以选择性地使用文档字符串—用于存放函数说明。
+函数内容以冒号起始，并且缩进。
+
+def 函数名(参数列表):
+    函数体
+    return [表达式]        #结束函数，选择性地返回一个值给调用方。不带表达式的return相当于返回 None。
+
+参数，以下是调用函数时可使用的正式参数类型：
+必需参数
+关键字参数
+默认参数    # 默认参数不在最后，会报错
+不定长参数
+
+def(**kwargs) 把N个关键字参数转化为字典
+
+对于变量作用域，变量的访问以 L(Local) –> E(Enclosing) –> G(Global) –>B(Built-in) 的规则查找，即：在局部找不到，便会去局部外的局部找(例如闭包)，再找不到就会去全局找，再者去内建中找。
+内部函数，不修改全局变量可以访问全局变量；修改同名全局变量，则python会认为它是一个局部变量；在内部函数修改同名全局变量之前调用变量名称(如print sum)，则引发Unbound-LocalError
+
+装饰器 装饰器的作用就是为已经存在的对象添加额外的功能。 https://www.runoob.com/w3cnote/python-func-decorators.html
+
+
+
+数字处理函数
+round() 四舍六入取偶；4舍6入5看齐,奇进偶不进
+floor()向下取整；
+ceil() 向上取整；
+int() 取整数部分；
+//整除且向下取整；
+min()
+max()
+pow(x,y)    等于x**y
+math.sqrt() 等于x**0.5
+进制函数，返回值是字符串
+	bin()
+	oct()
+	hex()
+math.pi Π
+math.e 自如常数    #math模块中还有对数函数、三角函数等
+
+类型判断：
+type(obj)  返回类型，而不是字符串
+isinstance(obj,class_or_tuple)  返回布尔值  
+    区别:
+        1、type 是用于求一个未知数据类型对象，而 isinstance 是用于判断一个对象是否是已知类型;
+        2、type 不认为子类是父类的一种类型，而 isinstance 会认为子类是父类的一种类型;
+        3、可以用 isinstance 判断子类对象是否继承于父类，type 不行。
+
+
+8、
+pickle 模块
+python的pickle模块实现了基本的数据序列和反序列化。
+
+通过pickle模块的序列化操作我们能够将程序中运行的对象信息保存到文件中去，永久存储。
+
+通过pickle模块的反序列化操作，我们能够从文件中创建上一次程序保存的对象。
+
+基本接口：
+
+pickle.dump(obj, file, [,protocol])
+有了 pickle 这个对象, 就能对 file 以读取的形式打开:
+
+x = pickle.load(file)
+注解：从 file 中读取一个字符串，并将它重构为原来的python对象。
+
+file: 类文件对象，有read()和readline()接口。
+
+实例 1
+#!/usr/bin/python3
+import pickle
+
+# 使用pickle模块将数据对象保存到文件
+data1 = {'a': [1, 2.0, 3, 4+6j],
+         'b': ('string', u'Unicode string'),
+         'c': None}
+
+selfref_list = [1, 2, 3]
+selfref_list.append(selfref_list)
+
+output = open('data.pkl', 'wb')
+
+# Pickle dictionary using protocol 0.
+pickle.dump(data1, output)
+
+# Pickle the list using the highest protocol available.
+pickle.dump(selfref_list, output, -1)
+
+output.close()
+实例 2
+#!/usr/bin/python3
+import pprint, pickle
+
+#使用pickle模块从文件中重构python对象
+pkl_file = open('data.pkl', 'rb')
+
+data1 = pickle.load(pkl_file)
+pprint.pprint(data1)
+
+data2 = pickle.load(pkl_file)
+pprint.pprint(data2)
+
+pkl_file.close()
+
+通过 pickle 序列化实现一个简单联系人信息管理：
+import pickle
+import os
+
+datafile = 'person.data'
+line = '======================================='
+message = '''
+=======================================
+Welcome bookmark:
+    press 1 to show list
+    press 2 to add pepole
+    press 3 to edit pepole
+    press 4 to delete pepole
+    press 5 to search pepole
+    press 6 to show menu
+    press 0 to quit
+=======================================
+'''
+print(message)
+
+class Person(object):
+    """通讯录联系人"""
+    def __init__(self, name, number):
+        self.name = name
+        self.number = number
+
+# 获取数据
+def get_data(filename=datafile):
+    # 文件存在且不为空
+    if os.path.exists(filename) and os.path.getsize(filename):
+        with open(filename,'rb') as f:
+            return pickle.load(f)
+    return None
+        
+# 写入数据
+def set_data(name, number, filename=datafile):
+
+    personList = {} if get_data() == None else get_data()
+
+    with open(filename,'wb') as f:
+        personList[name] = Person(name,number)
+        pickle.dump(personList,f)
+
+# 保存字典格式的数据到文件
+def save_data(dictPerson, filename=datafile):
+    with open(filename,'wb') as f:
+        pickle.dump(dictPerson,f)
+
+# 显示所有联系人
+def show_all():
+    personList = get_data()
+    if personList:
+        for v in personList.values():
+            print(v.name,v.number)
+        print(line)
+    else:
+        print('not yet person,please add person')
+        print(line)
+
+# 添加联系人
+def add_person(name,number):
+    set_data(name,number)
+    print('success add person')
+    print(line)
+
+# 编辑联系人
+def edit_person(name,number):
+    personList = get_data()
+    if personList:
+        personList[name] = Person(name,number)
+        save_data(personList)
+        print('success edit person')
+        print(line)
+
+# 删除联系人
+def delete_person(name):
+    personList = get_data()
+    if personList:
+        if name in personList:
+            del personList[name]
+            save_data(personList)
+            print('success delete person')
+        else:
+            print(name,' is not exists in dict')
+        print(line)
+
+
+# 搜索联系人
+def search_person(name):
+    personList = get_data()
+    if personList:
+        if name in personList.keys():
+            print(personList.get(name).name, personList.get(name).number)
+        else:
+            print('No this person of ',name)
+        print(line)
+        
+
+while True:
+    num = input('>>')
+
+    if num == '1':
+        print('show all personList:')
+        show_all()
+    elif num == '2':
+        print('add person:')    
+        name = input('input name>>')
+        number = input('input number>>')
+        add_person(name,number)
+    elif num == '3':
+        print('edit person:')
+        name = input('input name>>')
+        number = input('input number>>')
+        edit_person(name,number)
+    elif num == '4':
+        print('delete person:')
+        name = input('input name>>')
+        delete_person(name)
+    elif num == '5':
+        print('search :')
+        name = input('input name>>')
+        search_person(name)
+    elif num == '6':
+        print(message)
+    elif num == '0':
+        break
+    else:
+        print('input error, please retry')
+
+
+文本中替换字符串：
+
+"""replace strings in text"""
+
+import os
+
+def Replace(file_name, rep_word, new_word):
+    with open(file_name) as f:
+        content = []
+        count = 0
+
+        for eachline in f:
+            if rep_word in eachline:
+                count += eachline.count(rep_word)
+                eachline = eachline.replace(rep_word, new_word)
+            content.append(eachline)
+
+        decide = input('文件 {0} 中共有{1}个【{2}】\n您确定要把所有的【{3}】替换为【{4}】吗？\n【YES/NO】：'.format\
+                (file_name, count, rep_word, rep_word, new_word))
+
+        if decide in ['YES', 'Yes', 'yes']:
+            with open(file_name, 'w') as f:
+                f.writelines(content)
+            print('Succeed!')
+        else:
+            print('Exit!')
+
+if __name__ == '__main__':
+    while True:
+        file_name = input('请输入文件名：')
+
+        if file_name in os.listdir():
+            rep_word = input('请输入需要替换的单词# 或字符：')
+            new_word = input('请输入新的单词# 或字符：')
+            Replace(file_name, rep_word, new_word)
+            break
+        else:
+            print('Do not find such a file {}'.format(file_name))
+
+
+格式化输出
+1、整数的输出
+
+语法说明
+
+格式化符号格式说明备注 %o 八进制 oct%d 十进制 dec%x 十六进制 hex。
+
+举个栗子
+
+print('%o' % 20) # 八进制24
+print('%d' % 20) # 十进制20
+print('%x' % 24) # 十六进制18
+2、浮点数输出
+
+语法说明
+
+格式化符号说明备注 %f 保留小数点后面六位有效数字 float%e 保留小数点后面六位有效数字 %g 在保证六位有效数字的前提下，使用小数方式，否则使用科学计数法。
+
+举个栗子：
+
+print('%f' % 1.11)         # 默认保留6位小数1.110000
+print('%.1f' % 1.11)       # 取1位小数1.1
+print('%e' % 1.11)         # 默认6位小数，用科学计数法1.110000e+00
+print('%.3e' % 1.11)       # 取3位小数，用科学计数法1.110e+00
+print('%g' % 1111.1111)    # 默认6位有效数字1111.11
+print('%.7g' % 1111.1111)  # 取7位有效数字1111.111
+print('%.2g' % 1111.1111)  # 取2位有效数字，自动转换为科学计数法1.1e+03
+3、字符串输出
+
+语法说明
+
+格式化符号说明备注 %s 字符串输出 string%10s 右对齐，占位符 10位%-10s 左对齐，占位符 10 位 %.2s 截取 2 位字符串 %10.2s10 位占位符，截取两位字符串。
+
+举个栗子：
+
+print('%s' % 'hello world')       # 字符串输出hello world
+print('%20s' % 'hello world')     # 右对齐，取20位，不够则补位         hello world
+print('%-20s' % 'hello world')    # 左对齐，取20位，不够则补位hello world         
+print('%.2s' % 'hello world')     # 取2位he
+print('%10.2s' % 'hello world')   # 右对齐，取2位        he
+print('%-10.2s' % 'hello world')  # 左对齐，取2位he
+
+
+python 
+start = datetime.datetime.now()
+delta = (datetime.datetime.now() - start).total_seconds()
+print(delta)
+
+
+#判断当前系统是否为 Linux，如果不满足条件则直接触发异常
+import sys
+assert ('linux' in sys.platform), "该代码只能在 Linux 下执行"
+
