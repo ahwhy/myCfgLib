@@ -37,7 +37,11 @@ $ deactivate
 - [Python2.7 library](http://docs.python.org/2/library/)
 - [Python3 library](https://docs.python.org/3/library/index.html)
 - [Python Modules](https://wiki.python.org/moin/UsefulModules)
+- [Python WebFrameworks](https://wiki.python.org/moin/WebFrameworks)
 - [Python Packages](https://pypi.org/)
+- [Python Excel](https://www.python-excel.org/)
+- [SQLAlchemy](https://www.sqlalchemy.org/)
+- [SQLite](https://www.sqlite.org/index.html)
 
 ### 3、其他概念
 
@@ -200,6 +204,20 @@ $ deactivate
     - `import module` 导入整个标准库，python会查看所有包含在Python路径下的文件夹
     - `help(module)` 显示一个模块的帮助文档
 
+- 文件
+    - `open('test.txt', 'r+w')` 打开test.txt文件
+    - `open('test.txt').readlines()` 把test.txt文件内容保存到一个列表中
+    - `open('test.txt').writelines(lines)` 接收一个列表lines，把lines中的每一项写入到这个文件中
+    - `open('test.txt').close()` 关闭test.txt文件
+
+- `os`
+    - `os.getcmd()` 获取当前目录
+    - `os.listdir('/tmp')` 获取目录/tmp下的内容
+    - `os.walk('/tmp')` 接受一个路径，创建一个对象
+    - `os.walk('/tmp').next()` 返回一个数组，包含：目录的路径、该目录中的子目录以及该目录中的文件
+    - `os.makedirs('newfolder')` 创建一个目录
+    - `os.stat('test.txt')` 获取test.txt文件属性
+
 - `random`
     - `import random`
     - `random.randint(1, 100)` 返回一个 1 到 100 之间的随机数
@@ -213,6 +231,12 @@ $ deactivate
     - `datetime.time(11, 30)` 11:30
     - `datetime.datetime(year=2024, day=26, month=1)` 可以做加减，得到 `datetime.timedelta(xxx)` 
     - `datetime.timedelta(xxx)` 包含了以天和秒为单位的时间量
+
+- `json`
+    - `import json`
+    - `json.dump()` 用来把JSON传送到一个数据流
+    - `json.dumps()` 以字符串形式返回一个有效的JSON
+    - `vars()` 把一个对象中所存储的所有属性返回到一个字典中
 
 ### 4、进制
 
@@ -1023,342 +1047,5 @@ print("结束")
 
 
 ### 8、迭代器与生成器
-迭代器有两个基本的方法：iter() 和 next()。
-https://www.runoob.com/python3/python3-iterator-generator.html
-使用了 yield 的函数被称为生成器(generator)。   # 加了yield的函数，每次执行到有yield的时候，会返回yield后面的值 并且函数会暂停，直到下次调用# 或迭代终止；
-https://www.runoob.com/w3cnote/python-yield-used-analysis.html
-return  #在一个 generator function 中，如果没有 return，则默认执行至函数完毕，如果在执行过程中 return，则直接抛出 StopIteration 终止迭代。
 
-迭代、迭代器、生成器三个概念的联系和区别。
-a、可迭代概念范围最大，生成器和迭代器肯定都可迭代，但可迭代不一定都是迭代器和生成器，比如上面说到的内置集合类数据类型。可以认为，在 Python 中，只要有集合特性的，都可迭代。
-b、迭代器，迭代器特点是，均可以使用 for in 和 next 逐一遍历。
-c、生成器，生成器一定是迭代器，也一定可迭代。
-
-### 9、定义一个函数
-函数代码块以 def 关键词开头，后接函数标识符名称和圆括号 ()。
-任何传入参数和自变量必须放在圆括号中间，圆括号之间可以用于定义参数。
-函数的第一行语句可以选择性地使用文档字符串—用于存放函数说明。
-函数内容以冒号起始，并且缩进。
-
-def 函数名(参数列表):
-    函数体
-    return [表达式]        #结束函数，选择性地返回一个值给调用方。不带表达式的return相当于返回 None。
-
-参数，以下是调用函数时可使用的正式参数类型：
-必需参数
-关键字参数
-默认参数    # 默认参数不在最后，会报错
-不定长参数
-
-def(**kwargs) 把N个关键字参数转化为字典
-
-对于变量作用域，变量的访问以 L(Local) –> E(Enclosing) –> G(Global) –>B(Built-in) 的规则查找，即：在局部找不到，便会去局部外的局部找(例如闭包)，再找不到就会去全局找，再者去内建中找。
-内部函数，不修改全局变量可以访问全局变量；修改同名全局变量，则python会认为它是一个局部变量；在内部函数修改同名全局变量之前调用变量名称(如print sum)，则引发Unbound-LocalError
-
-装饰器 装饰器的作用就是为已经存在的对象添加额外的功能。 https://www.runoob.com/w3cnote/python-func-decorators.html
-
-
-
-数字处理函数
-round() 四舍六入取偶；4舍6入5看齐,奇进偶不进
-floor()向下取整；
-ceil() 向上取整；
-int() 取整数部分；
-//整除且向下取整；
-min()
-max()
-pow(x,y)    等于x**y
-math.sqrt() 等于x**0.5
-进制函数，返回值是字符串
-	bin()
-	oct()
-	hex()
-math.pi Π
-math.e 自如常数    #math模块中还有对数函数、三角函数等
-
-类型判断：
-type(obj)  返回类型，而不是字符串
-isinstance(obj,class_or_tuple)  返回布尔值  
-    区别:
-        1、type 是用于求一个未知数据类型对象，而 isinstance 是用于判断一个对象是否是已知类型;
-        2、type 不认为子类是父类的一种类型，而 isinstance 会认为子类是父类的一种类型;
-        3、可以用 isinstance 判断子类对象是否继承于父类，type 不行。
-
-
-8、
-pickle 模块
-python的pickle模块实现了基本的数据序列和反序列化。
-
-通过pickle模块的序列化操作我们能够将程序中运行的对象信息保存到文件中去，永久存储。
-
-通过pickle模块的反序列化操作，我们能够从文件中创建上一次程序保存的对象。
-
-基本接口：
-
-pickle.dump(obj, file, [,protocol])
-有了 pickle 这个对象, 就能对 file 以读取的形式打开:
-
-x = pickle.load(file)
-注解：从 file 中读取一个字符串，并将它重构为原来的python对象。
-
-file: 类文件对象，有read()和readline()接口。
-
-实例 1
-#!/usr/bin/python3
-import pickle
-
-# 使用pickle模块将数据对象保存到文件
-data1 = {'a': [1, 2.0, 3, 4+6j],
-         'b': ('string', u'Unicode string'),
-         'c': None}
-
-selfref_list = [1, 2, 3]
-selfref_list.append(selfref_list)
-
-output = open('data.pkl', 'wb')
-
-# Pickle dictionary using protocol 0.
-pickle.dump(data1, output)
-
-# Pickle the list using the highest protocol available.
-pickle.dump(selfref_list, output, -1)
-
-output.close()
-实例 2
-#!/usr/bin/python3
-import pprint, pickle
-
-#使用pickle模块从文件中重构python对象
-pkl_file = open('data.pkl', 'rb')
-
-data1 = pickle.load(pkl_file)
-pprint.pprint(data1)
-
-data2 = pickle.load(pkl_file)
-pprint.pprint(data2)
-
-pkl_file.close()
-
-通过 pickle 序列化实现一个简单联系人信息管理：
-import pickle
-import os
-
-datafile = 'person.data'
-line = '======================================='
-message = '''
-=======================================
-Welcome bookmark:
-    press 1 to show list
-    press 2 to add pepole
-    press 3 to edit pepole
-    press 4 to delete pepole
-    press 5 to search pepole
-    press 6 to show menu
-    press 0 to quit
-=======================================
-'''
-print(message)
-
-class Person(object):
-    """通讯录联系人"""
-    def __init__(self, name, number):
-        self.name = name
-        self.number = number
-
-# 获取数据
-def get_data(filename=datafile):
-    # 文件存在且不为空
-    if os.path.exists(filename) and os.path.getsize(filename):
-        with open(filename,'rb') as f:
-            return pickle.load(f)
-    return None
-        
-# 写入数据
-def set_data(name, number, filename=datafile):
-
-    personList = {} if get_data() == None else get_data()
-
-    with open(filename,'wb') as f:
-        personList[name] = Person(name,number)
-        pickle.dump(personList,f)
-
-# 保存字典格式的数据到文件
-def save_data(dictPerson, filename=datafile):
-    with open(filename,'wb') as f:
-        pickle.dump(dictPerson,f)
-
-# 显示所有联系人
-def show_all():
-    personList = get_data()
-    if personList:
-        for v in personList.values():
-            print(v.name,v.number)
-        print(line)
-    else:
-        print('not yet person,please add person')
-        print(line)
-
-# 添加联系人
-def add_person(name,number):
-    set_data(name,number)
-    print('success add person')
-    print(line)
-
-# 编辑联系人
-def edit_person(name,number):
-    personList = get_data()
-    if personList:
-        personList[name] = Person(name,number)
-        save_data(personList)
-        print('success edit person')
-        print(line)
-
-# 删除联系人
-def delete_person(name):
-    personList = get_data()
-    if personList:
-        if name in personList:
-            del personList[name]
-            save_data(personList)
-            print('success delete person')
-        else:
-            print(name,' is not exists in dict')
-        print(line)
-
-
-# 搜索联系人
-def search_person(name):
-    personList = get_data()
-    if personList:
-        if name in personList.keys():
-            print(personList.get(name).name, personList.get(name).number)
-        else:
-            print('No this person of ',name)
-        print(line)
-        
-
-while True:
-    num = input('>>')
-
-    if num == '1':
-        print('show all personList:')
-        show_all()
-    elif num == '2':
-        print('add person:')    
-        name = input('input name>>')
-        number = input('input number>>')
-        add_person(name,number)
-    elif num == '3':
-        print('edit person:')
-        name = input('input name>>')
-        number = input('input number>>')
-        edit_person(name,number)
-    elif num == '4':
-        print('delete person:')
-        name = input('input name>>')
-        delete_person(name)
-    elif num == '5':
-        print('search :')
-        name = input('input name>>')
-        search_person(name)
-    elif num == '6':
-        print(message)
-    elif num == '0':
-        break
-    else:
-        print('input error, please retry')
-
-
-文本中替换字符串：
-
-"""replace strings in text"""
-
-import os
-
-def Replace(file_name, rep_word, new_word):
-    with open(file_name) as f:
-        content = []
-        count = 0
-
-        for eachline in f:
-            if rep_word in eachline:
-                count += eachline.count(rep_word)
-                eachline = eachline.replace(rep_word, new_word)
-            content.append(eachline)
-
-        decide = input('文件 {0} 中共有{1}个【{2}】\n您确定要把所有的【{3}】替换为【{4}】吗？\n【YES/NO】：'.format\
-                (file_name, count, rep_word, rep_word, new_word))
-
-        if decide in ['YES', 'Yes', 'yes']:
-            with open(file_name, 'w') as f:
-                f.writelines(content)
-            print('Succeed!')
-        else:
-            print('Exit!')
-
-if __name__ == '__main__':
-    while True:
-        file_name = input('请输入文件名：')
-
-        if file_name in os.listdir():
-            rep_word = input('请输入需要替换的单词# 或字符：')
-            new_word = input('请输入新的单词# 或字符：')
-            Replace(file_name, rep_word, new_word)
-            break
-        else:
-            print('Do not find such a file {}'.format(file_name))
-
-
-格式化输出
-1、整数的输出
-
-语法说明
-
-格式化符号格式说明备注 %o 八进制 oct%d 十进制 dec%x 十六进制 hex。
-
-举个栗子
-
-print('%o' % 20) # 八进制24
-print('%d' % 20) # 十进制20
-print('%x' % 24) # 十六进制18
-2、浮点数输出
-
-语法说明
-
-格式化符号说明备注 %f 保留小数点后面六位有效数字 float%e 保留小数点后面六位有效数字 %g 在保证六位有效数字的前提下，使用小数方式，否则使用科学计数法。
-
-举个栗子：
-
-print('%f' % 1.11)         # 默认保留6位小数1.110000
-print('%.1f' % 1.11)       # 取1位小数1.1
-print('%e' % 1.11)         # 默认6位小数，用科学计数法1.110000e+00
-print('%.3e' % 1.11)       # 取3位小数，用科学计数法1.110e+00
-print('%g' % 1111.1111)    # 默认6位有效数字1111.11
-print('%.7g' % 1111.1111)  # 取7位有效数字1111.111
-print('%.2g' % 1111.1111)  # 取2位有效数字，自动转换为科学计数法1.1e+03
-3、字符串输出
-
-语法说明
-
-格式化符号说明备注 %s 字符串输出 string%10s 右对齐，占位符 10位%-10s 左对齐，占位符 10 位 %.2s 截取 2 位字符串 %10.2s10 位占位符，截取两位字符串。
-
-举个栗子：
-
-print('%s' % 'hello world')       # 字符串输出hello world
-print('%20s' % 'hello world')     # 右对齐，取20位，不够则补位         hello world
-print('%-20s' % 'hello world')    # 左对齐，取20位，不够则补位hello world         
-print('%.2s' % 'hello world')     # 取2位he
-print('%10.2s' % 'hello world')   # 右对齐，取2位        he
-print('%-10.2s' % 'hello world')  # 左对齐，取2位he
-
-
-python 
-start = datetime.datetime.now()
-delta = (datetime.datetime.now() - start).total_seconds()
-print(delta)
-
-
-#判断当前系统是否为 Linux，如果不满足条件则直接触发异常
-import sys
-assert ('linux' in sys.platform), "该代码只能在 Linux 下执行"
 
