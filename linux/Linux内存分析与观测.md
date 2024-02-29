@@ -788,6 +788,13 @@ $ cat memory.stat  |grep total_active_file
 total_active_file 61095936                  # 61095936/1024/1024/1024 = 0.056GB
 ```
 
+- 临时方案
+  - 先执行 `sync` ，用于将文件系统的缓冲区数据立即写入磁盘，以确保数据的持久性。
+  - 然后再执行下面的命令
+    - 清除pagecache `echo 1 > /proc/sys/vm/drop_caches`
+    - 回收slab分配器 `echo 2 > /proc/sys/vm/drop_caches`
+  - 执行 `sync` 会把内存数据落盘；回收slab分配器会释放页缓存，回收期间会对系统性能产生一些影响，但影响不大
+
 - 最终方案
   - 集群新增使用高内核版本系统的节点
   - 服务迁移，逐渐替换老节点
