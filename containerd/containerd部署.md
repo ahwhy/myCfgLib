@@ -132,4 +132,10 @@ $ sudo systemctl start containerd
 
 $ crictl config runtime-endpoint unix:///var/run/containerd/containerd.sock
 $ crictl -h
+
+# 查看 containerd 启动日志
+$ journalctl -xe -u containerd --no-pager
+
+# 拉取私仓镜像
+$ crictl  pull --creds  $username:$password registry.cn-hangzhou.aliyuncs.com/test-cri/busybox:latest
 ```
