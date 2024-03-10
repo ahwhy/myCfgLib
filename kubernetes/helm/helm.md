@@ -163,6 +163,63 @@ NAMESPACE: kube-system
 STATUS: deployed
 REVISION: 1
 TEST SUITE: None
+
+# 查看资源部署状态
+# helm status releasename --show-resources 
+➜ helm -n kube-system status ack-node-problem-detector --show-resources
+NAME: ack-node-problem-detector
+LAST DEPLOYED: Wed Feb 21 01:57:39 2024
+NAMESPACE: kube-system
+STATUS: deployed
+REVISION: 2
+RESOURCES:
+==> v1/Deployment
+NAME                                READY   UP-TO-DATE   AVAILABLE   AGE
+ack-node-problem-detector-eventer   1/1     1            1           46d
+
+==> v1/ServiceAccount
+NAME                        SECRETS   AGE
+ack-node-problem-detector   0         46d
+
+==> v1/ConfigMap
+NAME                               DATA   AGE
+ack-node-problem-detector-config   16     46d
+
+==> v1/ClusterRole
+NAME                             CREATED AT
+ack-node-problem-detector-role   2024-01-24T01:20:25Z
+
+==> v1/ClusterRoleBinding
+NAME                                     ROLE                                         AGE
+ack-node-problem-detector-role-binding   ClusterRole/ack-node-problem-detector-role   46d
+
+==> v1/DaemonSet
+NAME                                  DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR   AGE
+ack-node-problem-detector-daemonset   20        20        20      20           20          <none>          46d
+
+==> v1/Pod(related)
+NAME                                        READY   STATUS    RESTARTS       AGE
+ack-node-problem-detector-daemonset-42rdf   1/1     Running   1 (20d ago)    20d
+ack-node-problem-detector-daemonset-6br6m   1/1     Running   0              5d1h
+ack-node-problem-detector-daemonset-6tq2v   1/1     Running   0              28h
+ack-node-problem-detector-daemonset-7ggk5   1/1     Running   2 (4d5h ago)   21d
+ack-node-problem-detector-daemonset-9g4cf   1/1     Running   0              21d
+ack-node-problem-detector-daemonset-cwnbc   1/1     Running   0              28h
+ack-node-problem-detector-daemonset-dl8fq   1/1     Running   1 (10d ago)    46d
+ack-node-problem-detector-daemonset-ftzcm   1/1     Running   0              5d10h
+ack-node-problem-detector-daemonset-gbjfj   1/1     Running   0              28h
+ack-node-problem-detector-daemonset-ldtx9   1/1     Running   0              28h
+ack-node-problem-detector-daemonset-m9d78   1/1     Running   0              7d5h
+ack-node-problem-detector-daemonset-mgsh7   1/1     Running   0              16d
+ack-node-problem-detector-daemonset-qn2c2   1/1     Running   0              28h
+ack-node-problem-detector-daemonset-rjtwq   1/1     Running   0              30h
+ack-node-problem-detector-daemonset-rnxzp   1/1     Running   0              6d4h
+ack-node-problem-detector-daemonset-svthf   1/1     Running   0              30h
+ack-node-problem-detector-daemonset-t2v5j   1/1     Running   0              13d
+ack-node-problem-detector-daemonset-vl6vv   1/1     Running   0              20d
+ack-node-problem-detector-daemonset-wlhr9   1/1     Running   0              21d
+ack-node-problem-detector-daemonset-z9b9r   1/1     Running   0              28h
+ack-node-problem-detector-eventer-595cb447c7-fhkdq   1/1   Running   0     35h
 ```
 
 - `helm install` 每个参数的对应含义
