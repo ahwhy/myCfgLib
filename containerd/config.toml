@@ -70,6 +70,7 @@ oom_score = -999
       [plugins."io.containerd.grpc.v1.cri".registry.configs]
         [plugins."io.containerd.grpc.v1.cri".registry.configs."harbor.test-cri.com".tls] # 如果是自签证书， 只需要设置不校验证书即可
           insecure_skip_verify = true
+          # ca_file = "/opt/ssl/ca.crt" # 或者上传ca证书
 
   [plugins."io.containerd.internal.v1.opt"]
     path = "/opt/containerd"

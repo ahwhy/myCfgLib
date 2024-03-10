@@ -136,6 +136,27 @@ $ crictl -h
 # 查看 containerd 启动日志
 $ journalctl -xe -u containerd --no-pager
 
-# 拉取私仓镜像
+# 通过 --creds 参数，可以直接拉取私有镜像，其中username和password需要替换真实用户名和密码
 $ crictl  pull --creds  $username:$password registry.cn-hangzhou.aliyuncs.com/test-cri/busybox:latest
+
+# 如果开启 config_path = "/etc/containerd/cert.d" 的配置方法
+# http方式
+$ mkdir -p /etc/containerd/cert.d/192.168.66.42:5000
+$ cat << EOF > /etc/containerd/cert.d/192.168.66.42:5000/hosts.toml
+server = "http://192.168.66.42:5000"
+
+[host."http://192.168.66.42:5000"]
+  capabilities = ["pull", "resolve", "push"]
+EOF
+
+# 自签证书
+$ mkdir -p /etc/containerd/cert.d/harbor.test-cri.com
+$ cat << EOF > /etc/containerd/cert.d/harbor.test-cri.com/hosts.toml
+server = "https://harbor.test-cri.com"
+
+[host."https://harbor.test-cri.com"]
+  capabilities = ["pull", "resolve", "push"]
+  skip_verify = true
+  # ca = "/opt/ssl/ca.crt"  # 或者上传ca证书
+EOF
 ```
