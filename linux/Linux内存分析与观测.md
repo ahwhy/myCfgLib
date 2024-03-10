@@ -350,7 +350,7 @@ nonvoluntary_ctxt_switches:	9
 
 前面也提到过，cgroup是组成容器的基石，它被用来制造容器的边界，是约束容器资源的主要手段。​Linux Cgroups 的全称是 Linux Control Group ，是 Linux 内核中用来为进程设置资源限制的一个重要功能。它最主要的作用，就是限制一个进程 组能够使用的资源上限，包括 CPU、内存、磁盘、网络带宽等等。此外，还能够对进程进行优先级设置，以及将进程挂起和恢复等操作。
 
-    cgroups 具体实现
+    cgroups 包含的 subsys:
     blkio，为块设备设定 I/O 限制，一般用于磁盘等设备；
     cpu，使用调度程序为 cgroup 任务提供 cpu 的访问；
     cpuacct， 产生 cgroup 任务的 cpu 资源报告；
@@ -361,6 +361,49 @@ nonvoluntary_ctxt_switches:	9
     net_cls，标记每个网络包以供 cgroup 方便使用；
     ns，命名空间子系统；
     perf_event，增加了对每 group 的监测跟踪的能力，可以检测属于某个特定的group的所有线程以及运行在特定CPU上的线程。
+
+```shell
+# nginx pod 里的cgroup目录
+nginx-ingress-controller-7558c4f8f5-nbjhb:/sys/fs/cgroup$ pwd
+/sys/fs/cgroup
+
+nginx-ingress-controller-7558c4f8f5-nbjhb:/sys/fs/cgroup$ ls -l
+total 0
+drwxr-xr-x    2 root     root             0 Mar  1 14:22 blkio
+lrwxrwxrwx    1 root     root            11 Mar  1 14:22 cpu -> cpu,cpuacct
+drwxr-xr-x    2 root     root             0 Mar  1 14:22 cpu,cpuacct
+lrwxrwxrwx    1 root     root            11 Mar  1 14:22 cpuacct -> cpu,cpuacct
+drwxr-xr-x    2 root     root             0 Mar  1 14:22 cpuset
+drwxr-xr-x    2 root     root             0 Mar  1 14:22 devices
+drwxr-xr-x    2 root     root             0 Mar  1 14:22 freezer
+drwxr-xr-x    2 root     root             0 Mar  1 14:22 hugetlb
+dr-xr-xr-x    2 root     root             0 Feb 23 13:09 ioasids
+drwxr-xr-x    2 root     root             0 Mar  1 14:22 memory
+lrwxrwxrwx    1 root     root            16 Mar  1 14:22 net_cls -> net_cls,net_prio
+drwxr-xr-x    2 root     root             0 Mar  1 14:22 net_cls,net_prio
+lrwxrwxrwx    1 root     root            16 Mar  1 14:22 net_prio -> net_cls,net_prio
+drwxr-xr-x    2 root     root             0 Mar  1 14:22 perf_event
+drwxr-xr-x    2 root     root             0 Mar  1 14:22 pids
+drwxr-xr-x    2 root     root             0 Mar  1 14:22 rdma
+drwxr-xr-x    2 root     root             0 Mar  1 14:22 systemd
+
+nginx-ingress-controller-7558c4f8f5-nbjhb:/sys/fs/cgroup$ cat /proc/cgroups
+#subsys_name	hierarchy	num_cgroups	enabled
+cpuset	8	100	1
+cpu	9	181	1
+cpuacct	9	181	1
+blkio	5	176	1
+memory	12	251	1
+devices	3	100	1
+freezer	7	100	1
+net_cls	2	100	1
+perf_event	10	100	1
+net_prio	2	100	1
+hugetlb	4	100	1
+pids	6	178	1
+ioasids	11	1	1
+rdma	13	100	1
+```
 
 ⼀个容器的某类资源(例如：内存)对应系统中⼀个cgroup⼦系统(subsystem)hierachy中的节点。当节点容器运行时为 docker 时，该目录即为 `/sys/fs/cgroup/memory/docker/` 下的子目录和文件。在这个⽬录中有很多⽂件，都提供了容器对系统资源使⽤状况的信息。
 
@@ -445,13 +488,74 @@ Linux 中 关于cgroup中memory的文档
 
 容器的内存监控⼯具 cAdvisor 就是通过读取 cgroup 信息来获取容器的内存使⽤信息。其中有⼀个监控指标 container_memory_usage_bytes(Current memory usage in bytes, including allmemory regardless of when it was accessed)，如果只看名字和注解，很⾃然就认为它是容器所使⽤的内存。但是这⾥所谓的 usage 和通过free指令输出的 used memory 的含义是不同的，前者实际上是cgroup的 rss、cache的和，⽽后者不包含 cache。
 
-我们常用的命令，`kubectl top pod` 命令展示的就是 通过使用 `/metrics.k8s.io/` 的api，访问 Metrics-Server 服务，从而获取 cAdvisor 提供的 cgroup指标，这里内存的指标名为 container_memory_working_set_bytes。
+
+
+我们常用的命令，`kubectl top`命令就类似于linux 系统中的`top`命令，可以查看集群node节点或pod的cpu、内存的使用量。
+
+使用`kubectl top`命令，依赖于集群中部署的[Metrics-Server服务](https://github.com/kubernetes-sigs/metrics-server)。
+
+在我们执行`kubectl top`命令后，会根据集群中配置的 apiservice 资源`v1beta1.metrics.k8s.io`，由集群的 kube-apiserver 向 Metrics-Server 服务转发调用请求。
+```shell
+# 查看apiservice 资源 v1beta1.metrics.k8s.io
+➜ kubectl get apiservice v1beta1.metrics.k8s.io -oyaml
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  name: v1beta1.metrics.k8s.io
+spec:
+  group: metrics.k8s.io
+  groupPriorityMinimum: 100
+  insecureSkipTLSVerify: true
+  service:
+    name: metrics-server        # 转发给service: metrics-server
+    namespace: kube-system
+    port: 443
+  version: v1beta1
+  versionPriority: 100
+```
+
+具体的api请求路径为 `/apis/metrics.k8s.io/v1beta1/nodes/xxxxx` 和 `/apis/metrics.k8s.io/v1beta1/namespaces/xxxxx/pods/xxxxx`，通过 `kubectl get --raw`命令，可以直接调用该接口。
+
+这里可以看下具体的执行结果，可以看到通过 `kubectl top` 和 `kubectl get --raw` 调用接口，获取到的资源数值都是一样的。
+```shell
+➜ kubectl -n kube-system top pod nginx-ingress-controller-7558c4f8f5-f4v7w
+NAME                                        CPU(cores)   MEMORY(bytes)
+nginx-ingress-controller-7558c4f8f5-f4v7w   7m           336Mi
+
+# 通过 jq 管道处理以便于阅读
+➜ kubectl get --raw /apis/metrics.k8s.io/v1beta1/namespaces/kube-system/pods/nginx-ingress-controller-7558c4f8f5-f4v7w | jq '.'
+{
+  "kind": "PodMetrics",
+  "apiVersion": "metrics.k8s.io/v1beta1",
+  "metadata": {
+    "name": "nginx-ingress-controller-7558c4f8f5-f4v7w",
+    "namespace": "kube-system",
+    "selfLink": "/apis/metrics.k8s.io/v1beta1/namespaces/kube-system/pods/nginx-ingress-controller-7558c4f8f5-f4v7w",
+    "creationTimestamp": "2024-03-06T15:15:36Z"
+  },
+  "timestamp": "2024-03-06T15:15:15Z",
+  "window": "30s",
+  "containers": [
+    {
+      "name": "nginx-ingress-controller",
+      "usage": {
+        "cpu": "9101731n",
+        "memory": "343616Ki"  # 344588Ki/1024 = 336.5Mi
+      }
+    }
+  ]
+}
+```
 
 ![Metrics-Server](./images/Metrics-Server.jpg)
 
     需要注意的是 Metrics-Server 并不是 kube-apiserver 的一部分，而是通过 Aggregator 这种插件机制，在独立部署的情况下同 kube-apiserver 一起统一对外服务的。 
 
     当 Kubernetes 的 API Server 开启了 Aggregator 模式之后，再访问 `/apis/metrics.k8s.io/v1beta1` 的时候，实际上访问到的是一个叫作 kube-aggregator 的代理。而 kube-apiserver，正是这个代理的一个后端， Metrics-Server 则是另一个后端。 
+
+通过上面的接口访问Metrics-Server服务，最后会获取到由 cAdvisor 提供的 cgroup数据，这里对应的内存指标名为 container_memory_working_set_bytes。其代表的含义是容器真实使用的内存量，也是资源限制limit时的重启判断依据，超过limit会导致oom。
+
+关于`kubectl top`命令，本文也就不做更详细的介绍了，有兴趣的大家可以移步[从kubectl top看K8S监控原理](http://www.xuyasong.com/?p=1781#41_kubectl_top)进行翻阅。
 
 上面提到监控指标的计算公式为
   - `container_memory_usage_bytes = container_memory_rss + container_memory_cache + kernel memory(kernel可以忽略)`
@@ -1138,3 +1242,5 @@ total kB         11135288 5517748 5499792%
 - [JVM监控内存详情说明](https://help.aliyun.com/zh/arms/application-monitoring/developer-reference/jvm-monitoring-memory-details)
 - [持续剖析功能](https://help.aliyun.com/zh/arms/application-monitoring/user-guide/enable-continuous-profiling)
 - [慢调用链诊断利器-ARMS 代码热点](https://mp.weixin.qq.com/s/_fzVzCX4bts7RByanU_Feg)
+
+helm status releasename --show-resources # 查看资源部署状态
