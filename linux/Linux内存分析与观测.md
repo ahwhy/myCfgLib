@@ -346,68 +346,110 @@ nonvoluntary_ctxt_switches:	9
 
 #### 通过cgroup观察容器内存
 
-在遵循one docker one process的原⽣容器中，主进程基本反应了容器的内存使⽤状况，但这毕竟不完整，在目前的环境下⼀个容器中运⾏多个进程的情况也是很常见的。所以，下面我们采用一种更优雅的容器内存查看⽅式，即 cgroup。
+在遵循one docker one process的原⽣容器中，主进程基本反应了容器的内存使⽤状况，但这毕竟不完整，在目前的环境下⼀个容器中运⾏多个进程的情况也是很常见的。所以，下面我们采用一种更优雅的容器内存查看⽅式，即 Cgroups。
 
-前面也提到过，cgroup是组成容器的基石，它被用来制造容器的边界，是约束容器资源的主要手段。​Linux Cgroups 的全称是 Linux Control Group ，是 Linux 内核中用来为进程设置资源限制的一个重要功能。它最主要的作用，就是限制一个进程 组能够使用的资源上限，包括 CPU、内存、磁盘、网络带宽等等。此外，还能够对进程进行优先级设置，以及将进程挂起和恢复等操作。
+前面也提到过，Cgroups 是组成容器的基石，它被用来制造容器的边界，是约束容器资源的主要手段。​Linux Cgroups 的全称是 Linux Control Group ，是 Linux 内核中用来为进程设置资源限制的一个重要功能。它最主要的作用，就是限制一个进程 组能够使用的资源上限，包括 CPU、内存、磁盘、网络带宽等等。此外，还能够对进程进行优先级设置，以及将进程挂起和恢复等操作。
 
-    cgroups 包含的 subsys:
-    blkio，为块设备设定 I/O 限制，一般用于磁盘等设备；
-    cpu，使用调度程序为 cgroup 任务提供 cpu 的访问；
-    cpuacct， 产生 cgroup 任务的 cpu 资源报告；
-    cpuset，为进程分配单独的 CPU 核和对应的内存节点；
-    memory，设置每个 cgroup 的内存限制以及产生内存资源报告；
-    devices，允许或拒绝 cgroup 任务对设备的访问；
-    freezer，暂停和恢复 cgroup 任务；
-    net_cls，标记每个网络包以供 cgroup 方便使用；
+Cgroups 中的相关概念
+  - 任务(task): 在cgroup中，使⽤ task 来表示系统的⼀个进程或线程。
+  - 控制组(control group): Cgroups 中的资源控制以 Cgroup 为单位实现。Cgroup 表示按某种资源控制标准划分⽽成的任务组，包含⼀个或多个⼦系统。⼀个任务可以加⼊某个 cgroup，也可以从某个 cgroup 迁移到另⼀个 cgroup。
+  - 层级(hierarchy): hierarchy由⼀系列cgroup以⼀个树状结构排列⽽成，每个hierarchy通过绑定对应的subsystem进⾏资源调度。hierarchy中的cgroup节点可以包含零或多个⼦节点，⼦节点继承⽗节点的属性(资源配额、限制等)。整个系统可以有多个hierarchy。
+  - ⼦系统(subsystem): Cgroups中的subsystem就是⼀个资源调度控制器(Resource Controller)，⽐如CPU⼦系统可以控制CPU时间分配、memory⼦系统可以控制进程内存的使⽤。⼦系统需要加⼊到某个层级，然后该层级的所有控制组，均受到这个⼦系统的控制。、
+
+Cgroups 包含的 subsystem:
+
+    blkio，用于限制和监控进程组对块设备I/O的使用，包括磁盘读写和I/O调度；
+    cpu，用于限制和监控进程组对CPU的使用，可以设置CPU的时间片、使用率等限制；
+    cpuacct，统计CPU的使用情况，产生 cgroup 任务的 cpu 资源报告；
+    cpuset，用于将进程组绑定到特定的CPU和内存节点上，以实现对CPU和内存资源的分配；
+    devices，用于限制和监控进程组对设备的访问，可以控制进程组对特定设备的访问权限；
+    freezer，用于暂停和恢复进程组的运行状态，可以用于冻结和恢复进程组的运行；
+    hugetlb，限制HugeTLB的使用；
+    memory，用于限制和监控进程组对内存的使用，可以设置进程组的内存限制、内存重分配等；
+    net_cls，标记cgroups中进程的网络数据包，配合tc（traffic controller）限制网络带宽；
+    net_prio，设置进程的网络流量优先级；
     ns，命名空间子系统；
     perf_event，增加了对每 group 的监测跟踪的能力，可以检测属于某个特定的group的所有线程以及运行在特定CPU上的线程。
 
 ```shell
-# nginx pod 里的cgroup目录
-nginx-ingress-controller-7558c4f8f5-nbjhb:/sys/fs/cgroup$ pwd
-/sys/fs/cgroup
-
-nginx-ingress-controller-7558c4f8f5-nbjhb:/sys/fs/cgroup$ ls -l
+# 查看Linux系统中 /sys/fs/cgroup 目录
+➜ ls -l /sys/fs/cgroup/
 total 0
-drwxr-xr-x    2 root     root             0 Mar  1 14:22 blkio
-lrwxrwxrwx    1 root     root            11 Mar  1 14:22 cpu -> cpu,cpuacct
-drwxr-xr-x    2 root     root             0 Mar  1 14:22 cpu,cpuacct
-lrwxrwxrwx    1 root     root            11 Mar  1 14:22 cpuacct -> cpu,cpuacct
-drwxr-xr-x    2 root     root             0 Mar  1 14:22 cpuset
-drwxr-xr-x    2 root     root             0 Mar  1 14:22 devices
-drwxr-xr-x    2 root     root             0 Mar  1 14:22 freezer
-drwxr-xr-x    2 root     root             0 Mar  1 14:22 hugetlb
-dr-xr-xr-x    2 root     root             0 Feb 23 13:09 ioasids
-drwxr-xr-x    2 root     root             0 Mar  1 14:22 memory
-lrwxrwxrwx    1 root     root            16 Mar  1 14:22 net_cls -> net_cls,net_prio
-drwxr-xr-x    2 root     root             0 Mar  1 14:22 net_cls,net_prio
-lrwxrwxrwx    1 root     root            16 Mar  1 14:22 net_prio -> net_cls,net_prio
-drwxr-xr-x    2 root     root             0 Mar  1 14:22 perf_event
-drwxr-xr-x    2 root     root             0 Mar  1 14:22 pids
-drwxr-xr-x    2 root     root             0 Mar  1 14:22 rdma
-drwxr-xr-x    2 root     root             0 Mar  1 14:22 systemd
+dr-xr-xr-x 4 root root  0 Feb 29 12:51 blkio
+lrwxrwxrwx 1 root root 11 Feb 29 12:51 cpu -> cpu,cpuacct
+lrwxrwxrwx 1 root root 11 Feb 29 12:51 cpuacct -> cpu,cpuacct
+dr-xr-xr-x 9 root root  0 Feb 29 12:51 cpu,cpuacct
+dr-xr-xr-x 3 root root  0 Feb 29 12:51 cpuset
+dr-xr-xr-x 3 root root  0 Feb 29 12:51 devices
+dr-xr-xr-x 3 root root  0 Feb 29 12:51 freezer
+dr-xr-xr-x 3 root root  0 Feb 29 12:51 hugetlb
+dr-xr-xr-x 2 root root  0 Feb 29 12:51 ioasids
+dr-xr-xr-x 6 root root  0 Feb 29 12:51 memory
+lrwxrwxrwx 1 root root 16 Feb 29 12:51 net_cls -> net_cls,net_prio
+dr-xr-xr-x 3 root root  0 Feb 29 12:51 net_cls,net_prio
+lrwxrwxrwx 1 root root 16 Feb 29 12:51 net_prio -> net_cls,net_prio
+dr-xr-xr-x 3 root root  0 Feb 29 12:51 perf_event
+dr-xr-xr-x 5 root root  0 Feb 29 12:51 pids
+dr-xr-xr-x 3 root root  0 Feb 29 12:51 rdma
+dr-xr-xr-x 6 root root  0 Feb 29 12:51 systemd
 
-nginx-ingress-controller-7558c4f8f5-nbjhb:/sys/fs/cgroup$ cat /proc/cgroups
-#subsys_name	hierarchy	num_cgroups	enabled
-cpuset	8	100	1
-cpu	9	181	1
-cpuacct	9	181	1
-blkio	5	176	1
-memory	12	251	1
-devices	3	100	1
-freezer	7	100	1
-net_cls	2	100	1
-perf_event	10	100	1
-net_prio	2	100	1
-hugetlb	4	100	1
-pids	6	178	1
-ioasids	11	1	1
-rdma	13	100	1
+# 查看Linux系统中，各subsystem下hierarchy和cgroups的数量
+➜ cat /proc/cgroups
+#subsys_name    hierarchy       num_cgroups     enabled
+cpuset  13      114     1
+cpu     8       201     1
+cpuacct 8       201     1
+blkio   10      196     1
+memory  7       266     1
+devices 4       113     1
+freezer 6       114     1
+net_cls 2       114     1
+perf_event      11      114     1
+net_prio        2       114     1
+hugetlb 3       114     1
+pids    9       206     1
+ioasids 5       1       1
+rdma    12      114     1
 ```
 
-⼀个容器的某类资源(例如：内存)对应系统中⼀个cgroup⼦系统(subsystem)hierachy中的节点。当节点容器运行时为 docker 时，该目录即为 `/sys/fs/cgroup/memory/docker/` 下的子目录和文件。在这个⽬录中有很多⽂件，都提供了容器对系统资源使⽤状况的信息。
+以本文的主题，容器内存为例，⼀个容器的某类资源对应系统中⼀个cgroup⼦系统(subsystem)hierachy中的节点。 我们可以在系统 `/sys/fs/cgroup/memory/kubepods.slice/` 目录，找到对应pod以及pod下容器的cgroup的子目录和文件。在这个⽬录中有很多⽂件，都提供了容器对系统资源使⽤状况的信息。
 
-而在容器内部，我们这直接在 `/sys/fs/cgroup/memory/memory.stat` 文件中，查看容器的内存状况:
+```shell
+# 找到 Pod 的uid
+➜ kubectl -n kube-system get pod migrate-controller-557b5478db-bz5gk -o jsonpath='{.metadata.uid}'
+09e1170c-c6db-4f24-9038-046f98938c5c%
+
+# 找到 Pod 的容器id
+➜ kubectl -n kube-system get pod migrate-controller-557b5478db-bz5gk -o jsonpath='{.status.containerStatuses[0].containerID}'
+containerd://7604a2bae46302b8aa9df8fa1d236b47e841ed53c2a14638158c5cb5cc560532%
+
+# 在Pod宿主机找到对应cgroup目录
+➜ ls /sys/fs/cgroup/memory/kubepods.slice/kubepods-burstable.slice/kubepods-burstable-pod09e1170c_c6db_4f24_9038_046f98938c5c.slice/cri-containerd-7604a2bae46302b8aa9df8fa1d236b47e841ed53c2a14638158c5cb5cc560532.scope/
+cgroup.clone_children                 memory.direct_swapout_global_latency  memory.kmem.max_usage_in_bytes      memory.memsw.failcnt             memory.pagecache_limit.size  memory.text_unevictable_percent  memory.wmark_min_adj
+cgroup.event_control                  memory.direct_swapout_memcg_latency   memory.kmem.slabinfo                memory.memsw.limit_in_bytes      memory.pagecache_limit.sync  memory.thp_reclaim               memory.wmark_ratio
+cgroup.procs                          memory.exstat                         memory.kmem.tcp.failcnt             memory.memsw.max_usage_in_bytes  memory.pressure_level        memory.thp_reclaim_ctrl          memory.wmark_scale_factor
+memory.allow_duptext                  memory.failcnt                        memory.kmem.tcp.limit_in_bytes      memory.memsw.usage_in_bytes      memory.priority              memory.thp_reclaim_stat          notify_on_release
+memory.allow_text_unevictable         memory.force_empty                    memory.kmem.tcp.max_usage_in_bytes  memory.min                       memory.reap_background       memory.usage_in_bytes            pool_size
+memory.async_fork                     memory.high                           memory.kmem.tcp.usage_in_bytes      memory.move_charge_at_immigrate  memory.soft_limit_in_bytes   memory.use_hierarchy             tasks
+memory.direct_compact_latency         memory.idle_page_stats                memory.kmem.usage_in_bytes          memory.numa_stat                 memory.stat                  memory.use_priority_oom
+memory.direct_reclaim_global_latency  memory.idle_page_stats.local          memory.limit_in_bytes               memory.oom_control               memory.swap.events           memory.use_priority_swap
+memory.direct_reclaim_memcg_latency   memory.kmem.failcnt                   memory.low                          memory.oom.group                 memory.swap.high             memory.wmark_high
+memory.direct_swapin_latency          memory.kmem.limit_in_bytes            memory.max_usage_in_bytes           memory.pagecache_limit.enable    memory.swappiness            memory.wmark_low
+```
+
+关于`/sys/fs/cgroup/memory/` 目录，下面列举了部分文件的作用
+  - memory.usage_in_bytes 已使用的内存总量(包含cache和buffer)(字节)，相当于Linux的used_meme
+  - memory.limit_in_bytes 限制的内存总量(字节)，相当于linux的total_mem
+  - memory.failcnt 申请内存失败(被限制)次数计数
+  - memory.max_usage_in_bytes 查看内存最⼤使⽤量
+  - memory.memsw.usage_in_bytes 已使用的内存总量和swap(字节)
+  - memory.memsw.limit_in_bytes 限制的内存总量和swap(字节)
+  - memory.memsw.failcnt 申请内存和swap失败次数计数
+  - memory.use_hierarchy 设置或查看层级统计的功能
+  - memory.oom_control 设置or查看内存超限控制信息(OOM killer)
+  - memory.stat 内存统计信息
+
+而在容器内部，可以直接查看对应容器的`/sys/fs/cgroup/memory/`目录，也是一样的效果，可以查看容器的内存状况:
 ```shell
 root@mysql-0:/proc/1# cat /sys/fs/cgroup/memory/memory.stat
 cache 118407168                       # 页缓存，包括 tmpfs(shmem)，单位为字节
@@ -468,7 +510,7 @@ memory.limit_in_bytes        # 限制的内存总量(字节)，相当于linux的
 memory.failcnt               # 申请内存失败次数计数
 memory.memsw.usage_in_bytes  # 已使用的内存总量和swap(字节)
 memory.memsw.limit_in_bytes  # 限制的内存总量和swap(字节)
-memory.memsw.ailcnt          # 申请内存和swap失败次数计数
+memory.memsw.failcnt          # 申请内存和swap失败次数计数
 memory.stat                  # 内存相关状态
 ```
 
@@ -480,9 +522,10 @@ memory.stat                  # 内存相关状态
 
 就像进程的USS最准确的反映了进程⾃身使⽤的内存，cgroup 的 rss 也最真实的反映了容器所占⽤的内存空间。而我们一遍查看整体容器的cgroup 情况，就是查看查看 `/sys/fs/cgroup/memory/memory.stat` 中的 rss + cache 的值
 
-Linux 中 关于cgroup中memory的文档
+Linux 中 关于cgroup的文档
   - [Linux kernel memory](https://www.kernel.org/doc/Documentation/cgroup-v1/memory.txt)
   - [CGroup的原理和使用](https://blog.csdn.net/m0_72502585/article/details/128013318)
+  - [带你了解linux cgroups](https://blog.csdn.net/weixin_47465999/article/details/130454716)
 
 #### 容器内存常用的监控工具以及指标
 
