@@ -520,7 +520,7 @@ memory.stat                  # 内存相关状态
   - 两者都不包含⽂件cache
   - cgroup cache包含⽂件cache和共享内存
 
-就像进程的USS最准确的反映了进程⾃身使⽤的内存，cgroup 的 rss 也最真实的反映了容器所占⽤的内存空间。而我们一遍查看整体容器的cgroup 情况，就是查看查看 `/sys/fs/cgroup/memory/memory.stat` 中的 rss + cache 的值
+就像进程的USS最准确的反映了进程⾃身使⽤的内存，cgroup 的 rss 也最真实的反映了容器所占⽤的内存空间。而我们一般查看整体容器的cgroup 情况，就是查看 `/sys/fs/cgroup/memory/memory.stat` 中的 rss + cache 的值
 
 Linux 中 关于cgroup的文档
   - [Linux kernel memory](https://www.kernel.org/doc/Documentation/cgroup-v1/memory.txt)
@@ -607,167 +607,54 @@ nginx-ingress-controller-7558c4f8f5-f4v7w   7m           336Mi
 
 有时候查看容器本身的内存使用量是一方面，而容器内进程实际资源占用的情况，也需要我们在node宿主机上，看对应进程的资源消耗情况。
 
-指标源码
-  - [cadvisor的指标说明](https://github.com/google/cadvisor/blob/master/docs/storage/prometheus.md)
+container_memory_usage_bytes指标可以直接从 cgroup 中的 memory.usage_in_bytes文件获取，但container_memory_working_set_bytes指标并没有具体的文件，它的计算逻辑在 cadvisor 的代码中，具体如下：
 ```golang
-  // https://github.com/kubernetes/kubernetes/blob/d0814fa476c72201dcc599297171fe65fb657908/pkg/kubelet/cadvisor/cadvisor_linux.go#L84
-  // New creates a new cAdvisor Interface for linux systems.
-  func New(imageFsInfoProvider ImageFsInfoProvider, rootPath string, cgroupRoots []string, usingLegacyStats, localStorageCapacityIsolation bool) (Interface, error) {
-    ...
-    includedMetrics := cadvisormetrics.MetricSet{
-      cadvisormetrics.CpuUsageMetrics:     struct{}{},
-      cadvisormetrics.MemoryUsageMetrics:  struct{}{},
-      cadvisormetrics.CpuLoadMetrics:      struct{}{},
-      cadvisormetrics.DiskIOMetrics:       struct{}{},
-      cadvisormetrics.NetworkUsageMetrics: struct{}{},
-      cadvisormetrics.AppMetrics:          struct{}{},
-      cadvisormetrics.ProcessMetrics:      struct{}{},
-      cadvisormetrics.OOMMetrics:          struct{}{},
-    }
-    ...
-  }
-
+  // cAdvisor中描述容器状态的数据结构 ContainerStats
+  // https://github.com/google/cadvisor/blob/master/info/v1/container.go#L933
   type ContainerStats struct {
-    // The time of this stat point.
-    Timestamp time.Time               `json:"timestamp"`
+    ...
     Cpu       CpuStats                `json:"cpu,omitempty"`
     DiskIo    DiskIoStats             `json:"diskio,omitempty"`
     Memory    MemoryStats             `json:"memory,omitempty"`
-    Hugetlb   map[string]HugetlbStats `json:"hugetlb,omitempty"`
-    Network   NetworkStats            `json:"network,omitempty"`
-    // Filesystem statistics
-    Filesystem []FsStats `json:"filesystem,omitempty"`
-
-    // Task load stats
-    TaskStats LoadStats `json:"task_stats,omitempty"`
-
-    // Metrics for Accelerators. Each Accelerator corresponds to one element in the array.
-    Accelerators []AcceleratorStats `json:"accelerators,omitempty"`
-
-    // ProcessStats for Containers
-    Processes ProcessStats `json:"processes,omitempty"`
-
-    // Custom metrics from all collectors
-    CustomMetrics map[string][]MetricVal `json:"custom_metrics,omitempty"`
-
-    // Statistics originating from perf events
-    PerfStats []PerfStat `json:"perf_stats,omitempty"`
-
-    // Statistics originating from perf uncore events.
-    // Applies only for root container.
-    PerfUncoreStats []PerfUncoreStat `json:"perf_uncore_stats,omitempty"`
-
-    // Referenced memory
-    ReferencedMemory uint64 `json:"referenced_memory,omitempty"`
-
-    // Resource Control (resctrl) statistics
-    Resctrl ResctrlStats `json:"resctrl,omitempty"`
-
-    CpuSet CPUSetStats `json:"cpuset,omitempty"`
-
-    OOMEvents uint64 `json:"oom_events,omitempty"`
+    ...
   }
 
-  // https://github.com/google/cadvisor/blob/248756c00d29c5524dc986d4a3b048640f69a53f/info/v1/container.go#L365
+  // cAdvisor 中容器内存状态的数据结构 MemoryStats
+  // https://github.com/google/cadvisor/blob/master/info/v1/container.go#L365
   type MemoryStats struct {
     // Current memory usage, this includes all memory regardless of when it was
     // accessed.
     // Units: Bytes.
     Usage uint64 `json:"usage"`
 
-    // Maximum memory usage recorded.
-    // Units: Bytes.
-    MaxUsage uint64 `json:"max_usage"`
-
-    // Number of bytes of page cache memory.
-    // Units: Bytes.
-    Cache uint64 `json:"cache"`
-
-    // The amount of anonymous and swap cache memory (includes transparent
-    // hugepages).
-    // Units: Bytes.
-    RSS uint64 `json:"rss"`
-
-    // The amount of swap currently used by the processes in this cgroup
-    // Units: Bytes.
-    Swap uint64 `json:"swap"`
-
-    // The amount of memory used for mapped files (includes tmpfs/shmem)
-    MappedFile uint64 `json:"mapped_file"`
+    ...
 
     // The amount of working set memory, this includes recently accessed memory,
     // dirty memory, and kernel memory. Working set is <= "usage".
     // Units: Bytes.
     WorkingSet uint64 `json:"working_set"`
 
-    Failcnt uint64 `json:"failcnt"`
-
-    ContainerData    MemoryStatsMemoryData `json:"container_data,omitempty"`
-    HierarchicalData MemoryStatsMemoryData `json:"hierarchical_data,omitempty"`
+    ...
   }
 
-  // NewPrometheusCollector returns a new PrometheusCollector. The passed
-  // ContainerLabelsFunc specifies which base labels will be attached to all
-  // exported metrics. If left to nil, the DefaultContainerLabels function
-  // will be used instead.
+  // cAdvisor 中采集容器指标的函数
+  // https://github.com/google/cadvisor/blob/master/metrics/prometheus.go#L109
   func NewPrometheusCollector(i infoProvider, f ContainerLabelsFunc, includedMetrics container.MetricSet, now clock.Clock, opts v2.RequestOptions) *PrometheusCollector {
     ...
     if includedMetrics.Has(container.MemoryUsageMetrics) {
       c.containerMetrics = append(c.containerMetrics, []containerMetric{
         {
-          name:      "container_memory_cache",
-          help:      "Number of bytes of page cache memory.",
-          valueType: prometheus.GaugeValue,
-          getValues: func(s *info.ContainerStats) metricValues {
-            return metricValues{{value: float64(s.Memory.Cache), timestamp: s.Timestamp}}
-          },
-        }, {
-          name:      "container_memory_rss",
-          help:      "Size of RSS in bytes.",
-          valueType: prometheus.GaugeValue,
-          getValues: func(s *info.ContainerStats) metricValues {
-            return metricValues{{value: float64(s.Memory.RSS), timestamp: s.Timestamp}}
-          },
-        }, {
-          name:      "container_memory_mapped_file",
-          help:      "Size of memory mapped files in bytes.",
-          valueType: prometheus.GaugeValue,
-          getValues: func(s *info.ContainerStats) metricValues {
-            return metricValues{{value: float64(s.Memory.MappedFile), timestamp: s.Timestamp}}
-          },
-        }, {
-          name:      "container_memory_swap",
-          help:      "Container swap usage in bytes.",
-          valueType: prometheus.GaugeValue,
-          getValues: func(s *info.ContainerStats) metricValues {
-            return metricValues{{value: float64(s.Memory.Swap), timestamp: s.Timestamp}}
-          },
-        }, {
-          name:      "container_memory_failcnt",
-          help:      "Number of memory usage hits limits",
-          valueType: prometheus.CounterValue,
-          getValues: func(s *info.ContainerStats) metricValues {
-            return metricValues{{
-              value:     float64(s.Memory.Failcnt),
-              timestamp: s.Timestamp,
-            }}
-          },
-        }, {
+          ...
+        },{
           name:      "container_memory_usage_bytes",
           help:      "Current memory usage in bytes, including all memory regardless of when it was accessed",
           valueType: prometheus.GaugeValue,
           getValues: func(s *info.ContainerStats) metricValues {
             return metricValues{{value: float64(s.Memory.Usage), timestamp: s.Timestamp}}
           },
-        },
-        {
-          name:      "container_memory_max_usage_bytes",
-          help:      "Maximum memory usage recorded in bytes",
-          valueType: prometheus.GaugeValue,
-          getValues: func(s *info.ContainerStats) metricValues {
-            return metricValues{{value: float64(s.Memory.MaxUsage), timestamp: s.Timestamp}}
-          },
-        }, {
+        },{
+          ...
+        },{
           name:      "container_memory_working_set_bytes",
           help:      "Current working set in bytes.",
           valueType: prometheus.GaugeValue,
@@ -775,42 +662,35 @@ nginx-ingress-controller-7558c4f8f5-f4v7w   7m           336Mi
             return metricValues{{value: float64(s.Memory.WorkingSet), timestamp: s.Timestamp}}
           },
         },
-        {
-          name:        "container_memory_failures_total",
-          help:        "Cumulative count of memory allocation failures.",
-          valueType:   prometheus.CounterValue,
-          extraLabels: []string{"failure_type", "scope"},
-          getValues: func(s *info.ContainerStats) metricValues {
-            return metricValues{
-              {
-                value:     float64(s.Memory.ContainerData.Pgfault),
-                labels:    []string{"pgfault", "container"},
-                timestamp: s.Timestamp,
-              },
-              {
-                value:     float64(s.Memory.ContainerData.Pgmajfault),
-                labels:    []string{"pgmajfault", "container"},
-                timestamp: s.Timestamp,
-              },
-              {
-                value:     float64(s.Memory.HierarchicalData.Pgfault),
-                labels:    []string{"pgfault", "hierarchy"},
-                timestamp: s.Timestamp,
-              },
-              {
-                value:     float64(s.Memory.HierarchicalData.Pgmajfault),
-                labels:    []string{"pgmajfault", "hierarchy"},
-                timestamp: s.Timestamp,
-              },
-            }
-          },
-        },
       }...)
     }
+  }
+
+  // ContainerStats.Memory.Usage 与 ContainerStats.Memory.workingSet 的计算方式
+  // https://github.com/google/cadvisor/blob/master/container/libcontainer/handler.go#L801
+  func setMemoryStats(s *cgroups.Stats, ret *info.ContainerStats) {
+    ret.Memory.Usage = s.MemoryStats.Usage.Usage  // container_memory_usage_bytes
+    ...
+
+    inactiveFileKeyName := "total_inactive_file"
+    if cgroups.IsCgroup2UnifiedMode() {
+      inactiveFileKeyName = "inactive_file"
+    }
+
+    workingSet := ret.Memory.Usage // container_memory_usage_bytes
+    if v, ok := s.MemoryStats.Stats[inactiveFileKeyName]; ok {
+      if workingSet < v {
+        workingSet = 0
+      } else {
+        workingSet -= v // container_memory_working_set_bytes = container_memory_usage_bytes - total_inactive_file
+      }
+    }
+    ret.Memory.WorkingSet = workingSet
+  }
 ```
 
-- 
-  - https://kubernetes.io/zh-cn/docs/concepts/scheduling-eviction/node-pressure-eviction/
+相关文档
+  - [cadvisor的指标说明](https://github.com/google/cadvisor/blob/master/docs/storage/prometheus.md)
 
 
 ## 二、案例分析  
@@ -1272,7 +1152,7 @@ total kB         11135288 5517748 5499792%
 
 ## 三. 参考文档
 
-- [关于Linux性能调优之内存负载调优 ](https://blog.51cto.com/liruilong/5930543)
+- [关于Linux性能调优之内存负载调优](https://blog.51cto.com/liruilong/5930543)
 - [Linux中进程内存RSS与cgroup内存的RSS统计 - 差异](https://developer.aliyun.com/article/54407)
 - [Linux cache参数调优](https://www.zhihu.com/column/p/136237953)
 - [Metrics-Server指标获取链路分析](https://developer.aliyun.com/article/1076518)
