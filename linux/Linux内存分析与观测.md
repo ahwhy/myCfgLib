@@ -95,79 +95,52 @@ $ vmstat 2
 
 通过free命令，我们可以看到系统总体的内存使⽤状况。但很多时需要查看特定进程(process)所消耗的内存，这时我们最常⽤的命令是 `ps`，这个命令的输出中有两列与内存相关，分别是VSZ和RSS。此外还有另外两个类似的指标——PSS和USS，这⾥将这四个⼀并讨论：
 
-|缩写|全称|含义|
+|指标缩写|全称|含义|
 |:------:|:------:|:------:|
-|VSZ(VSS)|Virtual Memory Size|虚拟内存⼤⼩，表明了该进程可以访问的所有内存，包括被交换的内存和共享库内。VSZ对于判断一个进程实际占用的内存并没有什么帮助。|
-|RSS|Resident Set Size|常驻内存集合⼤⼩，表示相应进程在RAM中占⽤了多少内存，并不包含在Swap中占⽤的虚拟内存。包括进程所使⽤的共享库所占⽤的全部内存，即使某个共享库只在内存中加载了⼀次，所有使⽤了它的进程的RSS都会分别把它计算在内。(把所有进程的RSS加到⼀起，通常会⽐实际使⽤的内存⼤，因为⼀些共享库所⽤的内存重复计算了多次。)|
-|PSS|Proportional Set Size|与RSS类似，唯⼀的区别是在计算共享库内存是是按⽐例分配。⽐如某个共享库占用了3M内存，同时被3个进程共享，那么在计算这3个进程的PSS时，该共享库这会贡献1兆内存。|
-|USS|Unique Set Size|进程独⾃占⽤的物理内存，不包含Swap和共享库。|
+|VSZ(VSS)|Virtual Memory Size(Virtual Set Size)|虚拟内存⼤⼩，代表进程可访问的全部虚拟内存大小，包括实际物理内存、共享库和Swap。它反映了进程地址空间的最大值。VSZ对于判断一个进程实际占用的内存并没有什么帮助。|
+|RSS|Resident Set Size|常驻内存集合⼤⼩，代表进程当前实际使用的物理内存大小，即相应进程在RAM中占⽤了多少内存，并不包含在Swap中占⽤的虚拟内存。包括进程所使⽤的共享库所占⽤的全部内存，即使某个共享库只在内存中加载了⼀次，所有使⽤了它的进程的RSS都会分别把它计算在内。(把所有进程的RSS加到⼀起，通常会⽐实际使⽤的内存⼤，因为⼀些共享库所⽤的内存重复计算了多次。)|
+|PSS|Proportional Set Size|比例集大小，与RSS类似，唯⼀的区别是在计算共享库内存是是按⽐例分配。⽐如某个共享库占用了3M内存，同时被3个进程共享，那么在计算这3个进程的PSS时，该共享库这会贡献1兆内存。PSS通过考虑共享内存的比例，对共享内存进行分配，从而更准确地反映了进程占用的实际物理内存。|
+|USS|Unique Set Size|唯一集大小，代表进程独占的物理内存大小，不包含Swap和共享库。也就是说，如果有多个进程共享同一块内存，这部分内存只会计入一个进程的USS。|
 
 ![进程内存的关系](./images/进程内存的关系.jpg)
 
-这四者的⼤⼩关系是：VSS >= RSS >= PSS >= USS
+以上这些指标可以通过`/proc/[pid]/smaps`文件中找到，其中pid是进程的ID。这四者的⼤⼩关系是：VSS >= RSS >= PSS >= USS
 
-进程的内存使⽤情况可以从 `/proc/PID/status` 中读取，相关字段含义：
-  - Name: 进程的名称。
-  - Umask: 进程的文件创建掩码。
-  - State: 进程的状态，如运行（R）、睡眠（S）、僵尸（Z）等。
-  - Tgid: 线程组ID，用于标识线程组。
-  - Ngid: NUMA组ID，用于非一致内存访问（NUMA）系统的进程间通信。
-  - Pid: 进程的ID。
-  - PPid: 父进程的ID。
-  - TracerPid: 如果进程正在被调试，此字段表示调试进程的ID。
-  - Uid: 进程的实际用户ID（Ruid）、有效用户ID（Euid）、保存的设置用户ID（Suid）和文件系统用户ID（Fsuid）。
-  - Gid: 进程的实际组ID（Rgid）、有效组ID（Egid）、保存的设置组ID（Sgid）和文件系统组ID（Fsgid）。
-  - FDSize: 进程打开文件描述符的数量。
-  - Groups: 进程所属的组ID列表。
-  - VmPeak: 进程使用的虚拟内存的峰值。
-  - VmSize: 进程使用的虚拟内存的大小。
-  - VmLck: 进程锁定的内存大小。
-  - VmPin: 进程固定的内存大小。
-  - VmHWM: 进程使用的最高物理内存的大小。
-  - VmRSS: 进程使用的当前物理内存的大小。
-  - RssAnon: 进程使用的匿名内存的大小。
-  - RssFile: 进程使用的文件缓存的大小。
-  - RssShmem: 进程使用的共享内存的大小。
-  - VmData: 进程使用的数据段的大小。
-  - VmStk: 进程使用的栈的大小。
-  - VmExe: 进程使用的可执行文件的大小。
-  - VmLib: 进程使用的共享库的大小，即 加载的动态库所占⽤的内存⼤⼩。
-  - VmPTE: 进程使用的页表项的大小。
-  - VmSwap: 进程使用的交换空间的大小。
+分析进程内存的整体使⽤情况，可以从 `/proc/[pid]/status` 文件中读取信息，显示的内容包括进程的VSS和RSS，下面是相关字段的含义：
 ```shell
-# 以 kubelet进程为例
+# 系统中 kubelet进程为例
 $ cat /proc/377598/status
-Name:	kubelet
-Umask:	0022
-State:	S (sleeping)
-Tgid:	377598
-Ngid:	0
-Pid:	377598
-PPid:	1
-TracerPid:	0
-Uid:	0	0	0	0
-Gid:	0	0	0	0
-FDSize:	256
-Groups:
+Name:	kubelet            # 进程的名称
+Umask:	0022             # 进程的文件创建掩码
+State:	S (sleeping)     # 进程的状态，如运行(R)、睡眠(S)、僵尸(Z)等
+Tgid:	377598             # 线程组ID，用于标识线程组
+Ngid:	0                  # NUMA组ID，用于非一致内存访问(NUMA)系统的进程间通信
+Pid:	377598             # 进程的ID
+PPid:	1                  # 父进程的ID
+TracerPid:	0            # 如果进程正在被调试，此字段表示调试进程的ID
+Uid:	0	0	0	0            # 进程的实际用户ID(Ruid)、有效用户ID(Euid)、保存的设置用户ID(Suid)和文件系统用户ID(Fsuid)
+Gid:	0	0	0	0            # 进程的实际组ID(Rgid)、有效组ID(Egid)、保存的设置组ID(Sgid)和文件系统组ID(Fsgid)
+FDSize:	256              # 进程打开文件描述符的数量
+Groups:                  # 进程所属的组ID列表
 NStgid:	377598
 NSpid:	377598
 NSpgid:	377598
 NSsid:	377598
-VmPeak:	 1601700 kB
-VmSize:	 1548904 kB
-VmLck:	       0 kB
-VmPin:	       0 kB
-VmHWM:	  148400 kB
-VmRSS:	  145188 kB
-RssAnon:	   74756 kB
-RssFile:	   70432 kB
-RssShmem:	       0 kB
-VmData:	  262180 kB
-VmStk:	     132 kB
-VmExe:	   55220 kB
-VmLib:	       0 kB
-VmPTE:	     612 kB
-VmSwap:	       0 kB
+VmPeak:	 1601700 kB      # 进程使用的虚拟内存的峰值
+VmSize:	 1548904 kB      # 进程使用的虚拟内存的大小
+VmLck:	       0 kB      # 进程锁定的内存大小
+VmPin:	       0 kB      # 进程固定的内存大小
+VmHWM:	  148400 kB      # 进程使用的最高物理内存的大小
+VmRSS:	  145188 kB      # 进程使用的当前物理内存的大小
+RssAnon:	   74756 kB    # 进程使用的匿名内存的大小
+RssFile:	   70432 kB    # 进程使用的文件缓存的大小
+RssShmem:	       0 kB    # 进程使用的共享内存的大小
+VmData:	  262180 kB      # 进程使用的数据段的大小
+VmStk:	     132 kB      # 进程使用的栈的大小
+VmExe:	   55220 kB      # 进程使用的可执行文件的大小
+VmLib:	       0 kB      # 进程使用的共享库的大小，即 加载的动态库所占⽤的内存⼤⼩
+VmPTE:	     612 kB      # 进程使用的页表项的大小
+VmSwap:	       0 kB      # 进程使用的交换空间的大小
 HugetlbPages:	       0 kB
 CoreDumping:	0
 THP_enabled:	1
@@ -515,12 +488,14 @@ memory.stat                  # 内存相关状态
 ```
 
 在Linux内核中，对于进程的内存使⽤与Cgroup的内存使⽤统计有⼀些相同和不同的地⽅
-  - 进程的RSS为进程使⽤的所有物理内存，不包含Swap，包含共享内存
-  - cgroup RSS 包含 Swap，不包含共享内存；所以，没有swap的情况下，cgroup的RSS更像是进程的USS
-  - 两者都不包含⽂件cache
-  - cgroup cache包含⽂件cache和共享内存
+  - 进程的RSS为进程使用的所有物理内存，不包含Swap，包含共享内存；
+  - Cgroup RSS 包含 Swap，不包含共享内存；在没有swap的情况下，Cgroup的RSS更像是进程的USS；
+  - 两者都不包含⽂件系统的Cache；
+  - 在Cgroup中，Cache指的是包括文件系统缓存和共享内存在内的缓存大小；故Cgroup Cache包含⽂件系统的Cache和共享内存。
+  
+关于这两者，Cgroup的内存统计是针对整个容器中的所有进程而言的，而进程的内存统计针对的是单个或者特定的进程。在遵循one docker one process的容器技术中，主进程基本反应了容器的内存使⽤状况，但这毕竟不完整。在很多场景下，⼀个容器中运⾏多个进程甚至大量线程也是很常见的情况，此时进程的内存统计就是一种很好的补充观测手段了。
 
-就像进程的USS最准确的反映了进程⾃身使⽤的内存，cgroup 的 rss 也最真实的反映了容器所占⽤的内存空间。而我们一般查看整体容器的cgroup 情况，就是查看 `/sys/fs/cgroup/memory/memory.stat` 中的 rss + cache 的值
+就像进程的USS最准确的反映了进程⾃身使⽤的内存，Cgroup 的 RSS 也最真实的反映了容器所占⽤的内存空间。而我们一般查看整体容器的Cgroup 情况，就是查看 `/sys/fs/cgroup/memory/memory.stat` 中的 RSS + Cache 的值
 
 Linux 中 关于cgroup的文档
   - [Linux kernel memory](https://www.kernel.org/doc/Documentation/cgroup-v1/memory.txt)
