@@ -389,25 +389,26 @@ rdma    12      114     1
 
 ```shell
 # 找到 Pod 的uid
-➜ kubectl -n kube-system get pod migrate-controller-557b5478db-bz5gk -o jsonpath='{.metadata.uid}'
-09e1170c-c6db-4f24-9038-046f98938c5c%
+➜ kubectl -n kube-system get pod nginx-ingress-controller-75c587dfd5-vwmpz -o jsonpath='{.metadata.uid}'
+a659965c-c065-4d39-8b72-3da69b9b7206%
 
 # 找到 Pod 的容器id
-➜ kubectl -n kube-system get pod migrate-controller-557b5478db-bz5gk -o jsonpath='{.status.containerStatuses[0].containerID}'
-containerd://7604a2bae46302b8aa9df8fa1d236b47e841ed53c2a14638158c5cb5cc560532%
+➜ kubectl -n kube-system get pod nginx-ingress-controller-75c587dfd5-vwmpz -o jsonpath='{.status.containerStatuses[0].containerID}'
+containerd://2dbf8429915e5bd5cd35951ab61438b0ad1213d058a3491799184d76f2481037%
 
-# 在Pod宿主机找到对应cgroup目录
-➜ ls /sys/fs/cgroup/memory/kubepods.slice/kubepods-burstable.slice/kubepods-burstable-pod09e1170c_c6db_4f24_9038_046f98938c5c.slice/cri-containerd-7604a2bae46302b8aa9df8fa1d236b47e841ed53c2a14638158c5cb5cc560532.scope/
-cgroup.clone_children                 memory.direct_swapout_global_latency  memory.kmem.max_usage_in_bytes      memory.memsw.failcnt             memory.pagecache_limit.size  memory.text_unevictable_percent  memory.wmark_min_adj
-cgroup.event_control                  memory.direct_swapout_memcg_latency   memory.kmem.slabinfo                memory.memsw.limit_in_bytes      memory.pagecache_limit.sync  memory.thp_reclaim               memory.wmark_ratio
-cgroup.procs                          memory.exstat                         memory.kmem.tcp.failcnt             memory.memsw.max_usage_in_bytes  memory.pressure_level        memory.thp_reclaim_ctrl          memory.wmark_scale_factor
-memory.allow_duptext                  memory.failcnt                        memory.kmem.tcp.limit_in_bytes      memory.memsw.usage_in_bytes      memory.priority              memory.thp_reclaim_stat          notify_on_release
-memory.allow_text_unevictable         memory.force_empty                    memory.kmem.tcp.max_usage_in_bytes  memory.min                       memory.reap_background       memory.usage_in_bytes            pool_size
-memory.async_fork                     memory.high                           memory.kmem.tcp.usage_in_bytes      memory.move_charge_at_immigrate  memory.soft_limit_in_bytes   memory.use_hierarchy             tasks
-memory.direct_compact_latency         memory.idle_page_stats                memory.kmem.usage_in_bytes          memory.numa_stat                 memory.stat                  memory.use_priority_oom
-memory.direct_reclaim_global_latency  memory.idle_page_stats.local          memory.limit_in_bytes               memory.oom_control               memory.swap.events           memory.use_priority_swap
-memory.direct_reclaim_memcg_latency   memory.kmem.failcnt                   memory.low                          memory.oom.group                 memory.swap.high             memory.wmark_high
-memory.direct_swapin_latency          memory.kmem.limit_in_bytes            memory.max_usage_in_bytes           memory.pagecache_limit.enable    memory.swappiness            memory.wmark_low
+# 在Pod宿主机找到其对应容器的cgroup目录
+➜ ls /sys/fs/cgroup/memory/kubepods.slice/kubepods-burstable.slice/kubepods-burstable-poda659965c_c065_4d39_8b72_3da69b9b7206.slice/cri-containerd-2dbf8429915e5bd5cd35951ab61438b0ad1213d058a3491799184d76f2481037.scope/
+cgroup.clone_children                 memory.direct_swapout_global_latency  memory.kmem.max_usage_in_bytes      memory.memsw.limit_in_bytes      memory.pgtable_bind              memory.thp_control        memory.wmark_ratio
+cgroup.event_control                  memory.direct_swapout_memcg_latency   memory.kmem.slabinfo                memory.memsw.max_usage_in_bytes  memory.pgtable_misplaced         memory.thp_reclaim        memory.wmark_scale_factor
+cgroup.procs                          memory.duptext_nodes                  memory.kmem.tcp.failcnt             memory.memsw.usage_in_bytes      memory.pressure_level            memory.thp_reclaim_ctrl   notify_on_release
+memory.allow_duptext                  memory.exstat                         memory.kmem.tcp.limit_in_bytes      memory.min                       memory.priority                  memory.thp_reclaim_stat   pool_size
+memory.allow_duptext_refresh          memory.failcnt                        memory.kmem.tcp.max_usage_in_bytes  memory.move_charge_at_immigrate  memory.reap_background           memory.usage_in_bytes     tasks
+memory.allow_text_unevictable         memory.force_empty                    memory.kmem.tcp.usage_in_bytes      memory.numa_stat                 memory.soft_limit_in_bytes       memory.use_hierarchy
+memory.async_fork                     memory.high                           memory.kmem.usage_in_bytes          memory.oom_control               memory.stat                      memory.use_priority_oom
+memory.direct_compact_latency         memory.idle_page_stats                memory.limit_in_bytes               memory.oom.group                 memory.swap.events               memory.use_priority_swap
+memory.direct_reclaim_global_latency  memory.idle_page_stats.local          memory.low                          memory.pagecache_limit.enable    memory.swap.high                 memory.wmark_high
+memory.direct_reclaim_memcg_latency   memory.kmem.failcnt                   memory.max_usage_in_bytes           memory.pagecache_limit.size      memory.swappiness                memory.wmark_low
+memory.direct_swapin_latency          memory.kmem.limit_in_bytes            memory.memsw.failcnt                memory.pagecache_limit.sync      memory.text_unevictable_percent  memory.wmark_min_adj
 ```
 
 关于`/sys/fs/cgroup/memory/` 目录，下面列举了部分文件的作用
@@ -424,67 +425,55 @@ memory.direct_swapin_latency          memory.kmem.limit_in_bytes            memo
 
 而在容器内部，可以直接查看对应容器的`/sys/fs/cgroup/memory/`目录，也是一样的效果，可以查看容器的内存状况:
 ```shell
-root@mysql-0:/proc/1# cat /sys/fs/cgroup/memory/memory.stat
-cache 118407168                       # 页缓存，包括 tmpfs(shmem)，单位为字节
-rss 197357568                         # 匿名和 swap 缓存，不包括 tmpfs(shmem)，单位为字节
-rss_huge 138412032
-shmem 0
-mapped_file 405504                    # 映射的文件大小，包括 tmpfs(shmem)，单位为字节
+➜ kubectl -n kube-system exec -it  nginx-ingress-controller-75c587dfd5-vwmpz -c nginx-ingress-controller sh
+kubectl exec [POD] [COMMAND] is DEPRECATED and will be removed in a future version. Use kubectl exec [POD] -- [COMMAND] instead.
+
+/etc/nginx $ cat /sys/fs/cgroup/memory/memory.stat
+cache 11218944                            # 页缓存，包括 tmpfs(shmem)，单位为字节
+rss 94752768                              # 匿名和 swap 缓存，不包括 tmpfs(shmem)，单位为字节
+rss_huge 71303168
+shmem 11083776
+mapped_file 29884416                      # 映射的文件大小，包括 tmpfs(shmem)，单位为字节
 dirty 0
 writeback 0
-swap 0                                # swap用量，单位为字节
-workingset_refault_anon 0
-workingset_refault_file 0
-workingset_activate_anon 0
-workingset_activate_file 0
-workingset_restore_anon 0
-workingset_restore_file 0
-workingset_nodereclaim 0
-pgpgin 701481                         # 存入内存中的页数
-pgpgout 649508                        # 从内存中读取的页数
-pgfault 955251
+swap 0                                    # swap用量，单位为字节
+pgpgin 2653728                            # 存入内存中的页数
+pgpgout 2646707                           # 从内存中读取的页数
+pgfault 2671812
 pgmajfault 0
-inactive_anon 197267456               # 不活跃的 LRU 列表中的中的匿名和 swap 缓存，包括 tmpfs(shmem)，单位为字节
-active_anon 135168                    # 在活跃的最近最少使用(LRU)列表中的匿名和 swap 缓存，包括 tmpfs(shmem)，单位为字节；匿名内存，指没有关联到文件的内存，例如进程的堆、栈、数据段等
-inactive_file 117055488               # 不活跃的 LRU 列表中的 file-backed 内存，单位为字节
-active_file 1216512                   # 在活跃的 LRU 列表中的 file-backed 内存，单位为字节。程序读写文件会产生文件缓存(file cache)，其中最近多次使用的缓存称为active file cache，通常不容易被系统回收。
-unevictable 0                         # 无法再生的内存，单位为字节
-hierarchical_memory_limit 524288000   # 包含 memory cgroup 的层级的内存限制，单位为字节
-hierarchical_memsw_limit 524288000    # 包含 memory cgroup 的层级的内存加 swap 限制，单位为字节
-total_cache 118407168
-total_rss 197357568
-total_rss_huge 138412032
-total_shmem 0
-total_mapped_file 405504
+inactive_anon 107532288                   # 不活跃的 LRU 列表中的中的匿名和 swap 缓存，包括 tmpfs(shmem)，单位为字节
+active_anon 540672                        # 在活跃的最近最少使用(LRU)列表中的匿名和 swap 缓存，包括 tmpfs(shmem)，单位为字节；匿名内存，指没有关联到文件的内存，例如进程的堆、栈、数据段等
+inactive_file 20480                       # 不活跃的 LRU 列表中的 file-backed 内存，单位为字节
+active_file 18919424                      # 在活跃的 LRU 列表中的 file-backed 内存，单位为字节。程序读写文件会产生文件缓存(file cache)，其中最近多次使用的缓存称为active file cache，通常不容易被系统回收。
+unevictable 0                             # 无法再生的内存，单位为字节
+hierarchical_memory_limit 6289965056            # 包含 memory cgroup 的层级的内存限制，单位为字节
+hierarchical_memsw_limit 9223372036854771712    # 包含 memory cgroup 的层级的内存加 swap 限制，单位为字节
+total_cache 11218944
+total_rss 94752768
+total_rss_huge 71303168
+total_shmem 11083776
+total_mapped_file 29884416
 total_dirty 0
 total_writeback 0
 total_swap 0
-total_workingset_refault_anon 0
-total_workingset_refault_file 0
-total_workingset_activate_anon 0
-total_workingset_activate_file 0
-total_workingset_restore_anon 0
-total_workingset_restore_file 0
-total_workingset_nodereclaim 0
-total_pgpgin 701481
-total_pgpgout 649508
-total_pgfault 955251
+total_pgpgin 2653728
+total_pgpgout 2646707
+total_pgfault 2671812
 total_pgmajfault 0
-total_inactive_anon 197267456
-total_active_anon 135168
-total_inactive_file 117055488
-total_active_file 1216512
+total_inactive_anon 107532288
+total_active_anon 540672
+total_inactive_file 20480
+total_active_file 18919424
 total_unevictable 0
 
-# cgroup中部分memory类型的分类(文件)
-root@mysql-0:/proc/1# ls /sys/fs/cgroup/memory/
-memory.usage_in_bytes        # 已使用的内存总量(包含cache和buffer)(字节)，相当于Linux的used_meme
-memory.limit_in_bytes        # 限制的内存总量(字节)，相当于linux的total_mem
-memory.failcnt               # 申请内存失败次数计数
-memory.memsw.usage_in_bytes  # 已使用的内存总量和swap(字节)
-memory.memsw.limit_in_bytes  # 限制的内存总量和swap(字节)
-memory.memsw.failcnt          # 申请内存和swap失败次数计数
-memory.stat                  # 内存相关状态
+# 条件允许的话，container_memory_usage_bytes指标可以直接从 cgroup 中的 memory.usage_in_bytes文件获取
+/etc/nginx $ cat /sys/fs/cgroup/memory/memory.usage_in_bytes
+127254528
+
+# container_memory_working_set_bytes = container_memory_usage_bytes - total_inactive_file(未激活的匿名缓存页)
+#                                    = 127254528 - 20480
+#                                    = 127234048/1024/1024
+#                                    = 121Mi
 ```
 
 在Linux内核中，对于进程的内存使⽤与Cgroup的内存使⽤统计有⼀些相同和不同的地⽅
@@ -536,29 +525,29 @@ spec:
 
 这里可以看下具体的执行结果，可以看到通过 `kubectl top` 和 `kubectl get --raw` 调用接口，获取到的资源数值都是一样的。
 ```shell
-➜ kubectl -n kube-system top pod nginx-ingress-controller-7558c4f8f5-f4v7w
+➜ kubectl -n kube-system top pod nginx-ingress-controller-75c587dfd5-vwmpz
 NAME                                        CPU(cores)   MEMORY(bytes)
-nginx-ingress-controller-7558c4f8f5-f4v7w   7m           336Mi
+nginx-ingress-controller-75c587dfd5-vwmpz   4m           121Mi
 
 # 通过 jq 管道处理以便于阅读
-➜ kubectl get --raw /apis/metrics.k8s.io/v1beta1/namespaces/kube-system/pods/nginx-ingress-controller-7558c4f8f5-f4v7w | jq '.'
+➜ kubectl get --raw /apis/metrics.k8s.io/v1beta1/namespaces/kube-system/pods/nginx-ingress-controller-75c587dfd5-vwmpz | jq '.'
 {
   "kind": "PodMetrics",
   "apiVersion": "metrics.k8s.io/v1beta1",
   "metadata": {
-    "name": "nginx-ingress-controller-7558c4f8f5-f4v7w",
+    "name": "nginx-ingress-controller-75c587dfd5-vwmpz",
     "namespace": "kube-system",
-    "selfLink": "/apis/metrics.k8s.io/v1beta1/namespaces/kube-system/pods/nginx-ingress-controller-7558c4f8f5-f4v7w",
-    "creationTimestamp": "2024-03-06T15:15:36Z"
+    "selfLink": "/apis/metrics.k8s.io/v1beta1/namespaces/kube-system/pods/nginx-ingress-controller-75c587dfd5-vwmpz",
+    "creationTimestamp": "2024-03-17T11:06:33Z"
   },
-  "timestamp": "2024-03-06T15:15:15Z",
+  "timestamp": "2024-03-17T11:06:03Z",
   "window": "30s",
   "containers": [
     {
       "name": "nginx-ingress-controller",
       "usage": {
-        "cpu": "9101731n",
-        "memory": "343616Ki"  # 344588Ki/1024 = 336.5Mi
+        "cpu": "3481509n",
+        "memory": "124172Ki"   # 124172Ki/1024=121Mi
       }
     }
   ]
@@ -576,9 +565,8 @@ nginx-ingress-controller-7558c4f8f5-f4v7w   7m           336Mi
 关于`kubectl top`命令，本文也就不做更详细的介绍了，有兴趣的大家可以移步[从kubectl top看K8S监控原理](http://www.xuyasong.com/?p=1781#41_kubectl_top)进行翻阅。
 
 上面提到监控指标的计算公式为
-  - `container_memory_usage_bytes = container_memory_rss + container_memory_cache + kernel memory(kernel可以忽略)`
-  - `container_memory_working_set_bytes = container_memory_usage_bytes - total_inactive_file(未激活的匿名缓存页)`
-  - container_memory_working_set_bytes 是容器真实使用的内存量，也是资源限制limit时的重启判断依据，超过limit会导致oom
+  - `container_memory_usage_bytes = container_memory_rss + container_memory_cache + kernel memory(kernel可以忽略)` container_memory_working_set_bytes 是容器真实使用的内存量，也是资源限制limit时的重启判断依据，超过limit会导致oom
+  - `container_memory_usage_bytes = container_memory_rss + container_memory_cache + kernel memory(kernel可以忽略)` 需要注意的是，这里公式得出的是一个近似值，可能还受到其他因素的影响，例如内存压缩、内核数据结构的复杂性等。
 
 有时候查看容器本身的内存使用量是一方面，而容器内进程实际资源占用的情况，也需要我们在node宿主机上，看对应进程的资源消耗情况。
 
