@@ -572,6 +572,8 @@ nginx-ingress-controller-75c587dfd5-vwmpz   4m           121Mi
 
 container_memory_usage_bytes指标可以直接从 cgroup 中的 memory.usage_in_bytes文件获取，但container_memory_working_set_bytes指标并没有具体的文件，它的计算逻辑在 cadvisor 的代码中，具体如下：
 ```golang
+  // cadvisor的指标说明
+  // https://github.com/google/cadvisor/blob/master/docs/storage/prometheus.md)
   // cAdvisor中描述容器状态的数据结构 ContainerStats
   // https://github.com/google/cadvisor/blob/master/info/v1/container.go#L933
   type ContainerStats struct {
@@ -652,13 +654,9 @@ container_memory_usage_bytes指标可以直接从 cgroup 中的 memory.usage_in_
   }
 ```
 
-相关文档
-  - [cadvisor的指标说明](https://github.com/google/cadvisor/blob/master/docs/storage/prometheus.md)
-
-
 ## 二、案例分析  
 
-### 1. total_active_file数量级高
+### 1. 低版本内核系统中容器内存 total_active_file 数量级高
 - 问题描述
   - 某集群中的Pod，监控显示 Pod内存使用为 5.5G，但是 Pod中服务本身只使用了1.6G
 
@@ -704,7 +702,7 @@ total_unevictable 0
 $ cat /sys/fs/cgroup/memory/kubepods.slice/kubepods-burstable.slice/kubepods-burstable-pod*.slice/memory.stat |grep total_active_file |awk '{a+=$2}END{print a}'
 35410173952
 
-# 高内核版本的系统
+# 高内核版本的系统 ALinux2 4.19.91-27.7.al7.x86_64 内核
 $ cat /sys/fs/cgroup/memory/kubepods/burstable/poda3726f29-0381-11ee-a39b-5254001450b7/memory.stat
 cache 0
 rss 0
@@ -744,9 +742,9 @@ total_active_file 40095744      # 明显下降
 total_unevictable 0
 ```
 
-- 临时方案
-  - 清理缓存 `echo 1 > /proc/sys/vm/drop_caches`
-  - 升级node节点的系统内核版本，进行验证
+- 验证测试
+  - 清理缓存 `echo 1 > /proc/sys/vm/drop_caches`，有效
+  - 升级node节点的系统内核小版本，进行验证，没有效果
 ```shell
 # 升级内核版本
 # 1、确定当前内核版本
