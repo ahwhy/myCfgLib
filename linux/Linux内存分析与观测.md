@@ -565,8 +565,10 @@ nginx-ingress-controller-75c587dfd5-vwmpz   4m           121Mi
 关于`kubectl top`命令，本文也就不做更详细的介绍了，有兴趣的大家可以移步[从kubectl top看K8S监控原理](http://www.xuyasong.com/?p=1781#41_kubectl_top)进行翻阅。
 
 上面提到监控指标的计算公式为
-  - `container_memory_usage_bytes = container_memory_rss + container_memory_cache + kernel memory(kernel可以忽略)` container_memory_working_set_bytes 是容器真实使用的内存量，也是资源限制limit时的重启判断依据，超过limit会导致oom
+  - `container_memory_working_set_bytes = container_memory_usage_bytes - total_inactive_file(未激活的匿名缓存页)` container_memory_working_set_bytes 是容器真实使用的内存量，也是资源限制limit时的重启判断依据，超过limit会导致oom
   - `container_memory_usage_bytes = container_memory_rss + container_memory_cache + kernel memory(kernel可以忽略)` 需要注意的是，这里公式得出的是一个近似值，可能还受到其他因素的影响，例如内存压缩、内核数据结构的复杂性等。
+  - `rss = total_inactive_anon + total_active_anon`
+  - `cache = total_inactive_file + total_active_file`
 
 有时候查看容器本身的内存使用量是一方面，而容器内进程实际资源占用的情况，也需要我们在node宿主机上，看对应进程的资源消耗情况。
 
@@ -1049,6 +1051,11 @@ VmRSS:   5120108 kB/1024 = 5000mB /1024 = 4.88gB
 - 场景二
   - 场景一的pod，第二天凌晨出现了 fullgc，Java的jvm堆栈监控显示内存下降 2G左右，但是容器中的java进程内存消耗还是约 5.3g
   - 即 Java进程实际使用的物理内存，没有释放。查看内核问题，实际也是这样。
+
+- `jmap`
+  - 使用`jmap -heap pid`输出堆内存中的对象信息，包括产生了哪些对象，对象数量多少等。
+  - 查看堆内存初始化配置信息以及堆内存的使用情况
+  - 使用`jmap -histo[:live] pid`查看堆内存中的对象数目、大小统计直方图，如果带上 live 则只统计活对象
 
 - 排查过程
   - 可以使用 pmap 命令

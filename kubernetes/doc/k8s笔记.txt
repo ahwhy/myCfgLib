@@ -135,7 +135,7 @@ Kubernetes 这种对 CPU 和内存资源限额的设计，实际上参考了 Bor
 
 QoS Class：服务质量类别，代表了Pod的资源被优先满足的类别
   Guaranteed：Pod内的每个容器都分别设定了CPU和Memroy资源需求和资源限制，CPU的需求与限制相等，而且Memory的需求与限制也相等； 
-  Bustable：设置了limit或request，但未达到Guaranteed的条件；
+  Burstable：设置了limit或request，但未达到Guaranteed的条件；
   BestEffort：未为任何一个容器设定任何需求或限制； 
 
 QoS 划分的主要应用场景，是当宿主机资源紧张的时候，kubelet 对 Pod 进行 Eviction(即资源回收)时需要用到的。 
