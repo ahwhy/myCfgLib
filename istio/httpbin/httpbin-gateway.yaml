@@ -1,0 +1,33 @@
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  name: httpbin
+  namespace: default
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+    - hosts:
+        - '*'
+      port:
+        name: test
+        number: 80
+        protocol: HTTP
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: httpbin-vs
+  namespace: default
+spec:
+  gateways:
+    - httpbin
+  hosts:
+    - '*'
+  http:
+    - name: test
+      route:
+        - destination:
+            host: httpbin.default.svc.cluster.local
+            port:
+              number: 8000

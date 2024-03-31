@@ -273,13 +273,78 @@ NAME     VHOST NAME     DOMAINS     MATCH                  VIRTUAL SERVICE
          backend        *           /stats/prometheus*
          backend        *           /healthz/ready*
 
-$ kubectl -n istio-system port-forward grafana 3000
-$ istioctl dashboard grafana
+$ kubectl -n istio-system port-forward svc/grafana 3000
+$ kubectl -n istio-system port-forward svc/kiali 20001
 
-$ istioctl dashboard jaeger 
+$ istioctl dashboard grafana
+$ istioctl dashboard jaeger
+
+$ istioctl analyze
+✔ No validation issues found when analyzing namespace: default.
 ```
 
-### 2. BookInfo
+### 2. 入门案例
+
+#### Bookinfo
+
+Istio的入门案例中，有个经典的BookInfo的案例。通过`kubectl apply -f ./bookinfo`命令，安装下[bookinfo的系列资源](./BookInfo/)。
+
+[BookInfo yaml](https://github.com/istio/istio/blob/master/samples/bookinfo/platform/kube/bookinfo.yaml)
+
+#### Httpbin
+
+httpbin是一个用于测试的开源应用，常用于Web调试。部署[该应用](./httpbin/)后，可以方便地查看HTTP请求的Method、Header和授权等信息。
+
+执行以下命令，访问httpbin的/status/200。
+
+```shell
+$  kubectl apply -f httpbin
+gateway.networking.istio.io/httpbin created
+virtualservice.networking.istio.io/httpbin-vs created
+serviceaccount/httpbin created
+service/httpbin created
+deployment.apps/httpbin created
+
+# curl http://${网关IP}/status/200 -v
+# curl http://${网关IP}/status/418 -v
+# curl http://${网关IP}/status/403 -v
+# curl http://${网关IP}/headers -H test-header:test-value  -v
+$ curl http://2x.x.x.x:80/headers -H test-header:test-value  -v
+*   Trying 2x.x.x.x:80...
+* Connected to 2x.x.x.x (2x.x.x.x) port 443 (#0)
+> GET /headers HTTP/1.1
+> Host: 2x.x.x.x:80
+> User-Agent: curl/7.86.0
+> Accept: */*
+> test-header:test-value
+>
+* Mark bundle as not supporting multiuse
+< HTTP/1.1 200 OK
+< server: istio-envoy
+< date: Thu, 28 Mar 2024 07:45:40 GMT
+< content-type: application/json
+< content-length: 649
+< access-control-allow-origin: *
+< access-control-allow-credentials: true
+< x-envoy-upstream-service-time: 5
+<
+{
+  "headers": {
+    "Accept": "*/*",
+    "Host": "2x.x.x.x:80",
+    "Test-Header": "test-value",
+    "User-Agent": "curl/7.86.0",
+    "X-B3-Parentspanid": "332acd102be11a04",
+    "X-B3-Sampled": "1",
+    "X-B3-Spanid": "9123e3081ef8321e",
+    "X-B3-Traceid": "25a8096b170aec15332acd102be11a04",
+    "X-Envoy-Attempt-Count": "1",
+    "X-Envoy-External-Address": "140.205.11.230",
+    "X-Forwarded-Client-Cert": "By=spiffe://cluster.local/ns/default/sa/httpbin;Hash=f24ddfc1afc2cd85f4c987ec50ae3385ce5fc07f3235d4bf6983b6680a21c848;Subject=\"\";URI=spiffe://cluster.local/ns/istio-system/sa/istio-ingressgateway-service-account"
+  }
+}
+* Connection #0 to host 2x.x.x.x left intact
+```
 
 
 ## 三、Envoy
