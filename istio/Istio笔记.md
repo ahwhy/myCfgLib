@@ -349,9 +349,9 @@ $ curl http://2x.x.x.x:80/headers -H test-header:test-value  -v
 
 ## 三、Envoy
 
-### 1. Envoy的作用与核心功能
+### 1. 什么是Envoy
 
-Envoy是C++编写的，被设计为通过应用程序的进程外运行来避免开发人员受到网络问题的影响。这意味着用任何编程语言或用任何框架编写的任何应用程序都可以利用这些特性。此外，尽管服务架构（SOA、微服务等）是目前流行的架构，但Envoy并不关心是微服务，还是用任何语言编写的单体应用程序，只要它们使用的是Envoy能够理解的协议（如HTTP），Envoy就可以提供价值。
+Envoy是C++编写的，并以Bazel为构建系统。被设计为通过应用程序的进程外运行来避免开发人员受到网络问题的影响。这意味着用任何编程语言或用任何框架编写的任何应用程序都可以利用这些特性。此外，尽管服务架构（SOA、微服务等）是目前流行的架构，但Envoy并不关心是微服务，还是用任何语言编写的单体应用程序，只要它们使用的是Envoy能够理解的协议（如HTTP），Envoy就可以提供价值。
 
 Envoy是一个非常通用的代理，可以扮演不同的角色：作为集群边缘的代理（作为一个入口点），或者作为单个主机或服务组的共享代理，甚至作为我们在Istio中看到的每个服务的代理。通过Istio，每个服务实例都部署一个Envoy代理，以实现最大的灵活性、最佳性能和控制。你使用了一种部署模式（sidecar服务代理），并不意味着你不能使用Envoy提供的优势。事实上，让代理在边缘和应用程序中具有相同的实现，可以使基础设施更容易操作和理解。所以，Envoy可以被部署在集群边缘作为流量入口，也可以被部署在集群内组成服务网格，以充分控制和观察流量的完整调用链路。
 
@@ -360,9 +360,28 @@ Envoy在传递通信方向性时使用的术语与其他代理类似。例如，
 - [请求通过监听器从下游系统进入，然后经过路由规则，最后到达集群，该集群将其发送到上游服务](./images/请求通过监听器从下游系统进入，然后经过路由规则，最后到达集群，该集群将其发送到上游服务.jpg)
 
 - Envoy的核心功能
-    - 监听器（Listener）——向外部公开一个应用程序可以连接的端口。例如，80端口上的监听器接收流量，并将任何配置的行为应用于该流量。
-    - 路由（Route）——如何处理进入监听器的流量的路由规则。例如，如果传入一个请求并匹配/catalog，则将该流量定向到catalog集群。
-    - 集群（Cluster）——特定的上游服务，Envoy可以将流量路由到这些服务。例如，catalog-v1和catalog-v2可以是单独的集群，路由可以指定将流量定向到catalog服务的v1或v2的规则。
+    - 集群(Cluster): 集群是Envoy连接到的一组逻辑上相似的端点;在v2中，RDS通过路由指向集群，CDS提供集群配置，而Envoy通过EDS发现集群成员，即端点;
+    - 下游(Downstream): 下游主机连接到Envoy，发送请求并接收响应，它们是Envoy的客户端;
+    - 上游(Upstream): 上游主机接收来自Envoy的连接和请求并返回响应，它们是Envoy代理的后端服务器;
+    - 端点(Endpoint): 端点即上游主机，是一个或多个集群的成员，可通过EDS发现;
+    - 侦听器(Listener): 侦听器是能够由下游客户端连接的命名网络位置，例如端口或unix域套接字等;例如，80端口上的监听器接收流量，并将任何配置的行为应用于该流量;
+    - 路由(Route): 如何处理进入监听器的流量的路由规则。例如，如果传入一个请求并匹配/catalog，则将该流量定向到catalog集群。
+    - 位置(Locality): 上游端点运行的区域拓扑，包括地域、区域和子区域等;
+    - 管理服务器(Management Server): 实现v2 API的服务器，它支持复制和分片，并且能够在不同的物理机器上实现针对不同xDS API的API服务;
+    - 地域(Region): 区域所属地理位置;
+    - 区域(Zone): AWS中的可用区(AZ)或GCP中的区域等;
+    - 子区域: Envoy实例或端点运行的区域内的位置，用于支持区域内的多个负载均衡目标;
+    - xDS:CDS 、EDS、HDS 、LDS、RLS(Rate Limit)、RDS 、SDS、VHDS和RTDS等API的统称
+
+
+- 性能: 除了大量功能外，Envoy还提供极高的吞吐量和低尾延迟差异，同时消耗相对较少的CPU和RAM;
+
+- 可扩展性: Envoy在L4和L7上提供丰富的可插拔过滤器功能，允许用户轻松添加新功能;
+
+- API可配置性:Envoy提供了一组可由控制平面服务实现的管理API，也称为xDS API
+    - 若控制平面实现了这所有的API，则可以使用通用引导配置在整个基础架构中运行Envoy
+    - 所有进一步的配置更改都可通过管理服务器无缝地进行动态传递，使得Envoy永远不需要重新启动
+    - 于是，这使得Envoy成为一个通用数据平面，当与足够复杂的控制平面相结合时，可大大降低整体操作复杂性
 
 
 ### 2. Envoy的功能特性
@@ -374,6 +393,12 @@ Envoy在传递通信方向性时使用的术语与其他代理类似。例如，
 Envoy是一个很好的构建模块的原因之一是它支持通过gRPC/REST API进行动态配置。
 Envoy之前的开源代理不是为Kubernetes这样的动态环境设计的。它们使用静态的配置文件，需要重新启动才能使配置变化生效。
 另外，Envoy提供xDS（*发现服务）API，用于动态配置。它还支持热重启，这使得Envoy可以在不放弃任何活动连接的情况下重新初始化。
+
+Envoy xDS API存在多个版本
+    - v1 API 仅使用 JSON/REST，本质上是轮询
+    - v2 API 是 v1 的演进，而不是革命，它是 v1 功能的超集，新的API模式使用 proto3 指定，并同时以 gRPC 和 REST + JSON/YAML 端点实现
+    - v1，v2 已经不再支持，v3 xDS API是今后主要最终的主要版本，将永远受到支持。
+    - [api_supported_versions](https://www.envoyproxy.io/docs/envoy/latest/api/api_supported_versions)
 
 Envoy支持通过XDS API进行动态配置。Envoy连接到配置服务器，并使用LDS、RDS、EDS、CDS和其他XDS API请求其配置
 Envoy的xDS是一个API集合，包括监听器发现服务（LDS）、集群发现服务（CDS）、端点发现服务（EDS）、路由发现服务（RDS）等。
@@ -448,9 +473,15 @@ Envoy可以在集群的边缘和服务代理网格的深处终止以特定服务
 Envoy的核心是一个字节处理引擎，可以在其上构建协议（第7层）编解码器（称为过滤器）。Envoy使构建额外的过滤器成为一级用例，并且是为特定用例扩展Envoy的一种令人兴奋的方式。Envoy过滤器是用C++编写的，并编译成Envoy二进制文件。此外，Envoy还支持Lua脚本和WebAssembly（Wasm），以一种侵入性更小的方式扩展Envoy的功能。
 
 
-### 3. Envoy的配置
+### 3. Envoy的配置方式
 
-Envoy也有静态配置和动态配置，两种配置的方式。
+Envoy的架构支持非常灵活的配置方式: 简单部署场景可以使用纯静态配置，而更复杂的部署场景则可以逐步添加需要的动态配置机制;
+    - 纯静态配置: 用户自行提供侦听器、过滤器链、集群及HTTP路由(http代理场景)，上游端点的发现仅可通过DNS服务进行，且配置的重新加载必须通过内置的热重启(hot restart)完成;
+    - 仅使用EDS: EDS提供的端点发现功能可有效规避DNS的限制(响应中的最大记录数等 );
+    - 使用EDS和CDS: CDS能够让Envoy以优雅的方式添加、更新和删除上游集群，于是，初始配置时，Envoy无须事先了解所有上游集群;
+    - EDS、CDS和RDS: 动态发现路由配置;RDS与EDS、CDS一起使用时，为用户提供了构建复杂路由拓扑的能力(流量转移、蓝/绿部署等);
+    - EDS、CDS、RDS和LDS: 动态发现侦听器配置，包括内嵌的过滤器链;启用此四种发现服务后，除了较罕见的配置变动、证书轮替或更新Envoy程序之外，几乎无须再热重启 Envoy;
+    - EDS、CDS、RDS、LDS和SDS: 动态发现侦听器密钥相关的证书、私钥及TLS会话票据，以及对证书验证逻辑的配置(受信任的根证书和撤销机制等);
 
 关于动态配置，Envoy可以使用一组API来执行内联配置更新，而无须重启。它只需要一个简单的引导配置文件，将配置指向正确的发现服务API；其余都是动态配置的。Envoy使用以下API进行动态配置：
     - LDS（Listener Discovery Service）——允许Envoy查询应该在该代理上公开哪些监听器的API。
@@ -462,9 +493,218 @@ Envoy也有静态配置和动态配置，两种配置的方式。
 
 这些API被统称为xDS服务。配置时可以使用其中一种或几种组合；不需要把它们都用上。注意，Envoy的xDS API是建立在最终一致性的前提下的，正确的配置最终会收敛。例如，Envoy可以通过一个新路由来更新RDS，该路由将流量路由到一个还没有在CDS中更新的foo集群。在CDS更新之前，该路由可能会引入路由错误。Envoy引入了ADS来解释这个竞争条件，Istio为代理配置的更改实现ADS。
 
+```yaml
+# https://www.envoyproxy.io/docs/envoy/latest/start/quick-start/configuration-static#configuration-static
+static_resources:
+  listeners:
+  - name: listener_0
+    address:
+      socket_address:
+        address: 0.0.0.0
+        port_value: 10000
+    filter_chains:
+    - filters:
+      - name: envoy.filters.network.http_connection_manager
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+          stat_prefix: ingress_http
+          access_log:
+          - name: envoy.access_loggers.stdout
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.access_loggers.stream.v3.StdoutAccessLog
+          http_filters:
+          - name: envoy.filters.http.router
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+          route_config:
+            name: local_route
+            virtual_hosts:
+            - name: local_service
+              domains: ["*"]
+              routes:
+              - match:
+                  prefix: "/"
+                route:
+                  host_rewrite_literal: www.envoyproxy.io
+                  cluster: service_envoyproxy_io
+  clusters:
+  - name: service_envoyproxy_io
+    type: LOGICAL_DNS
+    # Comment out the following line to test on v6 networks
+    dns_lookup_family: V4_ONLY
+    load_assignment:
+      cluster_name: service_envoyproxy_io
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: www.envoyproxy.io
+                port_value: 443
+    transport_socket:
+      name: envoy.transport_sockets.tls
+      typed_config:
+        "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+        sni: www.envoyproxy.io
+
+# https://www.envoyproxy.io/docs/envoy/latest/start/quick-start/configuration-dynamic-filesystem
+node:
+  cluster: test-cluster
+  id: test-id
+
+dynamic_resources:
+  cds_config:
+    resource_api_version: V3
+    path: /var/lib/envoy/cds.yaml
+  lds_config:
+    resource_api_version: V3
+    path: /var/lib/envoy/lds.yaml
+
+# /var/lib/envoy/lds.yaml
+resources:
+- "@type": type.googleapis.com/envoy.config.listener.v3.Listener
+  name: listener_0
+  address:
+    socket_address:
+      address: 0.0.0.0
+      port_value: 10000
+  filter_chains:
+  - filters:
+    - name: envoy.http_connection_manager
+      typed_config:
+        "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+        stat_prefix: ingress_http
+        http_filters:
+        - name: envoy.router
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+        route_config:
+          name: local_route
+          virtual_hosts:
+          - name: local_service
+            domains:
+            - "*"
+            routes:
+            - match:
+                prefix: "/"
+              route:
+                host_rewrite_literal: www.envoyproxy.io
+                cluster: example_proxy_cluster
+
+# /var/lib/envoy/cds.yaml
+resources:
+- "@type": type.googleapis.com/envoy.config.cluster.v3.Cluster
+  name: example_proxy_cluster
+  type: STRICT_DNS
+  typed_extension_protocol_options:
+    envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+      "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+      explicit_http_config:
+        http2_protocol_options: {}
+  load_assignment:
+    cluster_name: example_proxy_cluster
+    endpoints:
+    - lb_endpoints:
+      - endpoint:
+          address:
+            socket_address:
+              address: www.envoyproxy.io
+              port_value: 443
+  transport_socket:
+    name: envoy.transport_sockets.tls
+    typed_config:
+      "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+      sni: www.envoyproxy.io
+
+# https://www.envoyproxy.io/docs/envoy/latest/start/quick-start/configuration-dynamic-control-plane
+node:
+  cluster: test-cluster
+  id: test-id
+
+dynamic_resources:
+  ads_config:
+    api_type: GRPC
+    transport_api_version: V3
+    grpc_services:
+    - envoy_grpc:
+        cluster_name: xds_cluster
+  cds_config:
+    resource_api_version: V3
+    ads: {}
+  lds_config:
+    resource_api_version: V3
+    ads: {}
+
+static_resources:
+  clusters:
+  - type: STRICT_DNS
+    typed_extension_protocol_options:
+      envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+        "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+        explicit_http_config:
+          http2_protocol_options: {}
+    name: xds_cluster
+    load_assignment:
+      cluster_name: xds_cluster
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: my-control-plane
+                port_value: 18000
+
+# Bootstrap (proto)
+{
+  "node": {...},
+  "static_resources": {...},
+  "dynamic_resources": {...},
+  "cluster_manager": {...},
+  "hds_config": {...},
+  "flags_path": ...,
+  "stats_sinks": [],
+  "deferred_stat_options": {...},
+  "stats_config": {...},
+  "stats_flush_interval": {...},
+  "stats_flush_on_admin": ...,
+  "watchdog": {...},
+  "watchdogs": {...},
+  "tracing": {...},
+  "layered_runtime": {...},
+  "admin": {...},
+  "overload_manager": {...},
+  "enable_dispatcher_stats": ...,
+  "header_prefix": ...,
+  "stats_server_version_override": {...},
+  "use_tcp_for_dns_lookups": ...,
+  "dns_resolution_config": {...},
+  "typed_dns_resolver_config": {...},
+  "bootstrap_extensions": [],
+  "fatal_actions": [],
+  "default_socket_interface": ...,
+  "inline_headers": [],
+  "perf_tracing_file_path": ...,
+  "default_regex_engine": {...},
+  "xds_config_tracker_extension": {...},
+  "application_log_config": {...},
+  "grpc_async_client_manager_config": {...}
+}
+```
+
+### 4. Envoy的工作方式
+
+Envoy使用单进程/多线程的架构模型，一个主线程(Main thread)负责实现各类管理任务，而一些工作线程(Worker threads)则负责执行监听、过滤和转发 等代理服务器的核心功能
+    - 主线程: 负责Envoy程序的启动和关闭、xDS API调用处理(包括DNS、健康状态检测和集群管理等)、运行时 配置、统计数据刷新、管理接口维护和其它线程管理(信号和热重启等)等，相关的所有事件均以异步非阻塞 模式完成;
+    - 工作线程: 默认情况下，Envoy根据当前主机CPU核心数来创建等同数量的工作线程，不过，管理员也可以通过程序选项--concurrency具体指定; 每个工作线程运行一个非阻塞型事件循环，负责为每个侦听器监听指定的套接字、接收新请求、为每个连接初始一个过滤器栈并处理此连接整个生命周期中的所有事件;
+    - 文件刷写线程: Envoy写入的每个文件都有一个专用、独立的阻塞型刷写线程，当工作线程需要写入文件时，数据实际上被移入内存缓冲区，最终通过文件刷写线程同步至文件中
+
+Envoy通过侦听器监听套接字并接收客户端请求，而Envoy的所有工作线程会同时共同监听用户配置的所有套接字，对于某次连接请求，由内核负责将其派发至某个具体的工作线程处理; 随后，相关的工作线程基于特定的处理逻辑分别由相关组件依次完成连接管理;
+
+- [Envoy连接处理](./images/Envoy连接处理.png)
+
 - 常用链接
     - [Envoy代理](https://www.envoyproxy.io)
-    - Envoy被用于Ingress控制器 [Contour](https://projectcontour.io)
+    - [Envoy被用于Ingress控制器 Contour](https://projectcontour.io)
     - [API网关 Amb-assador](https://www.getambassador.io)
     - [Gloo](https://docs.solo.io/gloo/)
     - [OSM](https://github.com/openservicemesh/osm)
