@@ -1679,6 +1679,9 @@ k8s调度是统一调度 也就是业务和资源调度进行统一调度，可�
 
 预选策略（Predicates）优选策略（Priorities）
 https://cloud.tencent.com/developer/article/1734651
+https://cloud.tencent.com/developer/article/2129001?areaId=106001
+https://kubernetes.io/docs/concepts/scheduling-eviction/scheduling-framework/
+https://kubernetes.io/docs/reference/scheduling/config/
 
 Predicates 在调度过程中的作用，可以理解为 Filter，即:它按照调度策略，从当前集群 的所有节点中，"过滤"出一系列符合条件的节点。这些节点，都是可以运行待调度 Pod 的宿主机。 
 
@@ -2456,6 +2459,9 @@ GitOps方法变得很流行。在这种情况下，元数据的来源是一个�
 总结
 在为Kubernetes开发部署模型时，要仔细考虑可以利用哪些人工服务或现有的Kubernetes安装程序（免费和授权）。将自动化作为建立所有系统的指导原则。围绕所有的架构和拓扑关注点（特别是特殊需求），想清楚基础设施的依赖性，以及如何将它们整合到部署过程中。仔细考虑如何管理组成集群的机器，了解将形成集群控制平面的容器化组件。开发一致的模式来安装集群附加组件，这些附加组件将提供 应用平台的基本功能。在将生产工作负载放在集群上之前，对平台进行版本管理，并使升级路径到位
 
+- 多集群工具
+连接多集群 https://github.com/submariner-io/submariner
+管理多集群 https://karmada.io/    
 
 
 19、服务网格
