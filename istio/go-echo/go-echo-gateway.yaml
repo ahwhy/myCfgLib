@@ -1,0 +1,33 @@
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  name: goecho-gateway
+  namespace: default
+spec:
+  selector:
+    istio: ingressgateway     # 具体的网关实现
+  servers:
+  - port:
+      number: 31400           # 暴露的端口
+      name: tcp-goEcho
+      protocol: TCP
+    hosts:
+    - "*"          # 端口对应的主机
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: goecho-vs
+spec:
+  hosts:
+  - "*"
+  gateways:
+  - goecho-gateway
+  http:
+  - match:
+    - port: 31400
+    route:
+    - destination:
+        host: tcp-echo-service
+        port:
+          number: 2701

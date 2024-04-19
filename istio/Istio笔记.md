@@ -799,6 +799,87 @@ $ istioctl -n istio-system proxy-config route deploy/istio-ingressgateway -o jso
 ]
 ```
 
+- TCP流量
+  - [GO (TCP) Echo](https://github.com/cjimti/go-echo)
+```yaml
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  name: goecho-gateway
+  namespace: default
+spec:
+  selector:
+    istio: ingressgateway     # 具体的网关实现
+  servers:
+  - port:
+      number: 31400           # 暴露的端口
+      name: tcp-goEcho
+      protocol: TCP
+    hosts:
+    - "*"          # 端口对应的主机
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: goecho-vs
+spec:
+  hosts:
+  - "*"
+  gateways:
+  - goecho-gateway
+  http:
+  - match:
+    - port: 31400
+    route:
+    - destination:
+        host: tcp-echo-service
+        port:
+          number: 2701
+```
+
+### 2. Telemetry
+
+- 生产级Istio安装禁用了访问日志记录
+  - 可以通过设置 accessLogFile属性来改变这一默认行为。将其打印到标准输出流：
+    - `istioctl install --set mechConfig.accessLogFile=/dev/stdout`
+
+- 在默认情况下，访问日志记录是关闭的
+  - 这是有意义的，因为生产集群有数百个或数千个工作负载，每个工作负载都处理大量流量。
+  - 此外，由于每个请求都要从一个服务跳到另一个服务，因此产生的访问日志记录量会使所有日志记录系统不堪重负。
+  - 目前的方法是只对特别关注的工作负载使用Telemetry API（遥测）启用访问日志记录（在Istio 1.12中作为Alpha级别新增的功能）。
+```yaml
+apiVersion: telemetry.istio.io/v1alpha1
+kind: Telemetry
+metadata:
+  name: dupe-2
+  namespace: istio-system
+spec:
+  selector:
+    matchLabels:
+      app: reviews # Multiple telemetries have the same selector, should generate errors for both
+  metrics:
+    - providers:
+        - name: prometheus
+      overrides:
+        - match:
+            metric: ALL_METRICS
+          disabled: false
+```
+
+- 遥测定义为与istio-system命名空间中的选择器匹配的Pod启用访问日志记录
+  - 如果已将Istio安装配置为将访问日志打印到标准输出流，则不需要进行访问日志记录，因为所有的工作负载都已将日志打印到控制台
+
+- Istio配置，如遥测（telemetry）、sidecar、对等认证（peer authentication）等，可以被应用于不同的作用域并具有不同的优先级
+  - 网格级配置——被应用于整个网格的工作负载。网格级配置必须被应用在Istio安装命名空间中，并且没有工作负载选择器。
+  - 命名空间级配置——被应用于命名空间中所有的工作负载。命名空间范围的配置被应用于我们想要配置的工作负载的命名空间，而且也没有工作负载选择器。这个被应用于工作负载的命名空间级配置将覆盖所有网格级配置。
+  - 特定于工作负载的配置——只被应用于与配置应用的命名空间中工作负载选择器匹配的工作负载（如前面的代码所示）。特定于工作负载的配置会覆盖网格级和命名空间级的配置。注意：Istio定义了如下默认提供程序：prometheus、stack-driver和envoy。你可以在网格配置中使用ExtensionProvider API定义自定义提供程序。
+
+- Istio配置，如遥测（telemetry）、sidecar、对等认证（peer authentication）等，可以被应用于不同的作用域并具有不同的优先级
+  - 网格级配置——被应用于整个网格的工作负载。网格级配置必须被应用在Istio安装命名空间中，并且没有工作负载选择器。
+  - 命名空间级配置——被应用于命名空间中所有的工作负载。命名空间范围的配置被应用于我们想要配置的工作负载的命名空间，而且也没有工作负载选择器。这个被应用于工作负载的命名空间级配置将覆盖所有网格级配置。
+  - 特定于工作负载的配置——只被应用于与配置应用的命名空间中工作负载选择器匹配的工作负载（如前面的代码所示）。特定于工作负载的配置会覆盖网格级和命名空间级的配置。注意：Istio定义了如下默认提供程序：prometheus、stack-driver和envoy。你可以在网格配置中使用ExtensionProvider API定义自定义提供程序。
+
+
 
 
 SMI 服务网格结构接口
