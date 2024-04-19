@@ -298,7 +298,7 @@ httpbin是一个用于测试的开源应用，常用于Web调试。部署[该应
 执行以下命令，访问httpbin的/status/200。
 
 ```shell
-$  kubectl apply -f httpbin
+$ kubectl apply -f httpbin
 gateway.networking.istio.io/httpbin created
 virtualservice.networking.istio.io/httpbin-vs created
 serviceaccount/httpbin created
@@ -708,6 +708,96 @@ Envoy通过侦听器监听套接字并接收客户端请求，而Envoy的所有�
     - [API网关 Amb-assador](https://www.getambassador.io)
     - [Gloo](https://docs.solo.io/gloo/)
     - [OSM](https://github.com/openservicemesh/osm)
+
+
+## 四、Istio
+
+- 特性
+  - 入口网关对进入服务网格的流量提供细粒度控制。
+  - 使用Gateway资源，我们可以为特定的主机配置允许进入网格的流量类型。
+  - 就像网格中的任何服务一样，网关使用VirtualService资源路由流量。
+  - 每台主机单独配置支持以下TLS模式：
+    - 使用SIMPLE TLS模式加密和防止中间人攻击。
+    - 使用MUTUAL TLS模式双向验证服务器和客户端。
+    - 使用带有PASSTHROUGH TLS模式的SNI头允许反向代理加密流量。
+  - 对于目前不支持的L7协议，Istio支持纯TCP流量。但纯TCP流量不具备高级特性，例如重试、复杂的路由等。
+
+### 1. Gateway
+
+- Gateway pod里的进程，pilot-agent进程会对Envoy代理进行初始化
+```shell
+$ kubectl -n istio-system exec -it istio-ingressgateway-6dcb6668bb-88fxw bash
+kubectl exec [POD] [COMMAND] is DEPRECATED and will be removed in a future version. Use kubectl exec [POD] -- [COMMAND] instead.
+istio-proxy@istio-ingressgateway-6dcb6668bb-88fxw:/$ ps -ef
+UID          PID    PPID  C STIME TTY          TIME CM
+istio-p+       1       0  0 Mar26 ?        00:12:18 /usr/local/bin/pilot-agent proxy router --domain istio-system.svc.cluster.local --proxyLogLevel=warning --proxyComponentLogLevel=misc:error --log_output
+istio-p+      16       1  0 Mar26 ?        01:08:35 /usr/local/bin/envoy -c etc/istio/proxy/envoy-rev.json --drain-time-s 45 --drain-strategy immediate --local-address-ip-version v4 --file-flush-interval-
+istio-p+      40       0  0 11:55 pts/0    00:00:00 bash
+istio-p+      48      40  0 11:55 pts/0    00:00:00 ps -ef
+```
+
+- Gateway yaml
+```yaml
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  name: test-gateway
+  namespace: default
+spec:
+  selector:
+    istio: ingressgateway     # 具体的网关实现
+  servers:
+  - port:
+      number: 80              # 暴露的端口
+      name: http
+      protocol: HTTP
+    hosts:
+    - "*.bookinfo.com"        # 端口对应的主机
+    tls:
+      httpsRedirect: true     # sends 302 redirect for http requests 重定向 HTTP 到 HTTPS
+  - port:
+      number: 443
+      name: https
+      protocol: HTTPS
+    hosts:
+    - "*.bookinfo.com"
+    tls:
+      mode: SIMPLE
+      serverCertificate: /etc/certs/servercert.pem
+      privateKey: /etc/certs/privatekey.pem
+```
+
+- 查看生成的网格规则
+```shell
+$ istioctl -n istio-system proxy-config listener deploy/istio-ingressgateway
+ADDRESSES PORT  MATCH DESTINATION
+0.0.0.0   8080  ALL   Route: http.8080
+0.0.0.0   8443  ALL   Route: http.8443
+0.0.0.0   15021 ALL   Inline Route: /healthz/ready*
+0.0.0.0   15090 ALL   Inline Route: /stats/prometheus*
+
+$ istioctl -n istio-system proxy-config route deploy/istio-ingressgateway -o json --name http.8080
+[
+    {
+        "name": "http.8080",  # istio-ingressgateway 默认监听8080
+        "virtualHosts": [
+            {
+                "name": "*:80",
+                "domains": [
+                    "*"
+                ],
+                "routes": [
+                    ...
+                ],
+                "includeRequestAttemptCount": true
+            }
+        ],
+        "validateClusters": false,
+        "maxDirectResponseBodySizeBytes": 1048576,
+        "ignorePortInHostMatching": true
+    }
+]
+```
 
 
 
