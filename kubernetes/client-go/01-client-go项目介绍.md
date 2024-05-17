@@ -50,6 +50,8 @@
 
 ### 1. client-go 操作 deployment
 
+- [k8s-watch-list](./images/k8s-watch-list.png)
+
 - 初始化 `DeploymentInterface` 类型实例
 ```golang
 	// 获取 home 路径
