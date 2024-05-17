@@ -709,6 +709,59 @@ Envoy通过侦听器监听套接字并接收客户端请求，而Envoy的所有�
     - [Gloo](https://docs.solo.io/gloo/)
     - [OSM](https://github.com/openservicemesh/osm)
 
+### 5. Envoy的api
+
+- 二进制工具
+  - [envoyctl](https://github.com/djannot/envoyctl)
+
+- http接口
+```shell
+# config_dump
+# istio-proxy container中执行
+$ curl localhost:15000/config_dump?include_eds > envoy-config.json  
+$ pilot-agent request GET config_dump?include_eds > envoy-config.json
+
+$  curl localhost:15000/clusters
+  # /: Admin home page
+  # /certs: print certs on machine
+  # /clusters: upstream cluster status
+  # /config_dump: dump current Envoy configs (experimental)
+  # /contention: dump current Envoy mutex contention stats (if enabled)
+  # /cpuprofiler: enable/disable the CPU profiler
+  # /drain_listeners: drain listeners
+  # /dubbo_offline: drain inbound listeners and send offline message to all downstream
+  # /healthcheck/fail: cause the server to fail health checks
+  # /healthcheck/ok: cause the server to pass health checks
+  # /heapprofiler: enable/disable the heap profiler
+  # /help: print out list of admin commands
+  # /hot_restart_version: print the hot restart compatibility version
+  # /httpfilter/graceful_offline/enable: http graceful offline
+  # /init_dump: dump current Envoy init manager information (experimental)
+  # /listeners: print listener info
+  # /logging: query/change logging levels
+  # /memory: print current allocation/heap usage
+  # /quitquitquit: exit the server
+  # /ready: print server state, return 200 if LIVE, otherwise return 503
+  # /reopen_logs: reopen access logs
+  # /reset_counters: reset all counters to zero
+  # /runtime: print runtime values
+  # /runtime_modify: modify runtime values
+  # /server_info: print server version/status information
+  # /stats: print server stats
+  # /stats/prometheus: print server stats in prometheus format
+  # /stats/recentlookups: Show recent stat-name lookups
+  # /stats/recentlookups/clear: clear list of stat-name lookups and counter
+  # /stats/recentlookups/disable: disable recording of reset stat-name lookup names
+  # /stats/recentlookups/enable: enable recording of reset stat-name lookup names
+
+# envoy debug 日志模式
+# --level string      Comma-separated minimum per-logger level of messages to output, in the form of [<logger>:]<level>,[<logger>:]<level>,... 
+# logger: admin, aws, assert, backtrace, client, config, connection, conn_handler, dubbo, file, filter, forward_proxy, grpc, hc, health_checker, http, http2, hystrix, init, io, jwt, kafka, lua, main, misc, mongo, quic, pool, rbac, redis, router, runtime, stats, secret, tap, testing, thrift, tracing, upstream, udp, wasm 
+# level: trace, debug, info, warning, error, critical, off
+# 可以查当前logger的级别以及共有多少logger
+$ curl -X POST 127.0.0.1:15000/logging
+$ curl -XPOST -s http://localhost:15000/logging?level=debug
+```
 
 ## 四、Istio
 
@@ -879,8 +932,19 @@ spec:
   - 命名空间级配置——被应用于命名空间中所有的工作负载。命名空间范围的配置被应用于我们想要配置的工作负载的命名空间，而且也没有工作负载选择器。这个被应用于工作负载的命名空间级配置将覆盖所有网格级配置。
   - 特定于工作负载的配置——只被应用于与配置应用的命名空间中工作负载选择器匹配的工作负载（如前面的代码所示）。特定于工作负载的配置会覆盖网格级和命名空间级的配置。注意：Istio定义了如下默认提供程序：prometheus、stack-driver和envoy。你可以在网格配置中使用ExtensionProvider API定义自定义提供程序。
 
+3. VirtualService
 
+在一个入口点托管多个不同的服务被称为虚拟主机托管。我们需要一种方法来决定将特定请求路由到哪个虚拟主机。
+  - 对于HTTP/1.1，可以使用Host头；
+  - 对于HTTP/2，可以使用：authority头；
+  - 对于TCP连接，可以依赖TLS的服务器名称指示（SNI）。
+```shell
+# 查看SLS交付的证书状态
+$ isitoctil pc secret -n istio-system deploy/istio-ingressgateway
 
+# curl 相关参数
+$ curl -H "Host: gateway.istio.io" https://gateway.istio.io:443/api/v1/gateway --resolve gateway.istio.io:443:47.250.12.22 --cacert ca.cert.pem --cert gateway.cert.pem --key gateway.key.pem -I -
+```
 
 SMI 服务网格结构接口
 Istio提供了SMI中所包含的所有功能。
@@ -890,3 +954,4 @@ sidecar模式 Linkerd、Istio
 
 代理节点模式 一个节点部署一个 envoy
 遵循这种架构的服务网格包括 Consul Connect（https://www.consul.io/docs/connect）和 Maesh（https://containo.us/maesh）。
+
