@@ -36,3 +36,19 @@ CUDA的软件堆栈由三层构成:
 而在容器中使用GPU设备时，架构发生了变化: 
 - 主机仅安装NVIDIA GPU Driver(CUDA Driver)。
 - 容器中安装CUDA Toolkit，可以使用NVIDIA提供的CUDA Base镜像(https://hub.docker.com/r/nvidia/cuda)，这些镜像已经安装好了CUDA Toolkit，基于这些Base镜像构建需要的镜像即可。
+```shell
+# 查看 CUDA runtime api 的版本
+nvcc --version
+# 查看 GPU
+nvidia-smi
+
+# nvidia 驱动相关配置
+sudo nvidia-smi -pm 1 || true                            # 代表启用Persistence模式。
+sudo nvidia-smi -acp 0 || true                           # 切换权限要求为UNRESTRICTED。
+sudo nvidia-smi --auto-boost-default=0 || true           # 不开启自动提升模式，0代表不启用。
+sudo nvidia-smi --auto-boost-permission=0 || true        # 允许非管理员控制自动提升模式，0代表允许，1代表不允许。
+sudo nvidia-modprobe -u -c=0 -m || true                  # 加载NVIDIA统一内存内核模块，而不是NVIDIA内核模块，且使用给定的编号创建NVIDIA设备文件。
+
+# 下载并执行诊断脚本
+sudo curl https://aliacs-k8s-cn-beijing.oss-cn-beijing.aliyuncs.com/diagnose/diagnose-gpu.sh | bash -s -- --pod test-pod
+```
