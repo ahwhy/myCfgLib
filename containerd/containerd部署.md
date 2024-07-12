@@ -139,6 +139,9 @@ $ journalctl -xe -u containerd --no-pager
 # 通过 --creds 参数，可以直接拉取私有镜像，其中username和password需要替换真实用户名和密码
 $ crictl  pull --creds  $username:$password registry.cn-hangzhou.aliyuncs.com/test-cri/busybox:latest
 
+# 查看镜像层配置
+$ ctr -n k8s.io content get sha256:xxx | python -m json.tool | less
+
 # 如果开启 config_path = "/etc/containerd/cert.d" 的配置方法
 # http方式
 $ mkdir -p /etc/containerd/cert.d/192.168.66.42:5000
