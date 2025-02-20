@@ -1,12 +1,17 @@
+# https://kubernetes.io/zh-cn/docs/concepts/services-networking/endpoint-slices/
+# Kubernetes v1.21 [stable]
+# EndpointSlice API 是 Kubernetes 用于扩缩 Service 以处理大量后端的机制，还允许集群高效更新其健康后端的列表。
 apiVersion: discovery.k8s.io/v1beta1
 kind: EndpointSlice
 metadata:
   name: demoapp-01
+  namespace: default
   labels:
     kubernetes.io/service-name: demoapp
 addressType: IPv4
 ports:
   - name: http
+    appProtocol: http
     protocol: TCP
     port: 80
 endpoints:
@@ -18,3 +23,29 @@ endpoints:
     - "10.244.102.6"
     conditions:
       ready: true
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: demoapp-endpoint
+  namespace: default
+subsets:
+- addresses:
+  - ip: 10.244.101.3
+  ports:
+  - name: http
+    port: 80
+    protocol: TCP
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: demoapp
+  namespace: default
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8080
+      protocol: TCP
+      targetPort: 80
