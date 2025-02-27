@@ -35,10 +35,14 @@ ENV PATH /root/miniconda3/bin:/root/miniconda3/condabin:$PATH
 ################具体执行的命令
 RUN rm -rf /etc/localtime && ln -snf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
 RUN ln -sf /root/log/log.txt /dev/stdout &&  ln -sf /root/log/log.txt /dev/stderr 
+RUN ln -sf /dev/stdout /root/log/log.txt && ln -sf /dev/stderr /root/log/log.txt 
+RUN dotnet publish "_appname.csproj" --source "http://121.41.197.240:6088/nuget" \ 
+    --source "http://172.16.241.45:8081/repository/nuget-group/index.json" -c Release -o /app/publish 
 RUN yum install -y epel-release && yum install -y unzip vim wget tree lrzsz gcc gcc-c++ automake pcre pcre-devel zlib zlib-devel openssl openssl-devel iproute net-tools iotop# ADD 自动解压压缩包
 RUN yum clean all && rm -rf ~/.cache/pip/
 ADD target/demo.war /usr/local/tomcat/webapps/demo.war
 
+# https://aka.ms/containerfastmode
 # 分阶段构建镜像，从第一阶段构建的镜像中拷贝产物
 COPY --from=base /data/workspace/demo /opt/demo
 ADD start.sh /opt/start.sh
