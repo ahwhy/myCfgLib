@@ -142,6 +142,17 @@ $ crictl  pull --creds  $username:$password registry.cn-hangzhou.aliyuncs.com/te
 # 查看镜像层配置
 $ ctr -n k8s.io content get sha256:xxx | python -m json.tool | less
 
+# containerd 如何push本地镜像到镜像仓库
+# ls
+ctr --namespace k8s.io images ls
+
+#tag
+ctr --namespace k8s.io images tag docker.io/kennethreitz/httpbin:latest XXXXXXXX.com/test/docker.io:httpbin
+
+#push
+ctr --namespace k8s.io images push XXXXXXXX.com/test/docker.io:httpbin --user=XXXXXX
+# 需要输入密码
+
 # 如果开启 config_path = "/etc/containerd/cert.d" 的配置方法
 # http方式
 $ mkdir -p /etc/containerd/cert.d/192.168.66.42:5000
@@ -162,4 +173,21 @@ server = "https://harbor.test-cri.com"
   skip_verify = true
   # ca = "/opt/ssl/ca.crt"  # 或者上传ca证书
 EOF
+
+# 进入 containerd 容器网络 namespace 中抓包
+# 1、节点上找到pod id
+crictl pods | grep {pod name}
+
+# 2、通过pod id，找到容器 id
+crictl ps | grep {pod id}
+
+# 3、找到容器中的进程 id
+crictl inspect {容器 id} | grep pid
+
+# 4、进入进程的网络 namespace
+nsenter -t {进程pid} -n
+
+# 5、执行 ifconfig ，确定只有pod网卡，后通过 tcpdump 抓包
+nohup tcpdump -i any port 6379 -C 30 -W 50 -w /tmp/test.pcap &
+# 该命令在后台运行，会生成30个文件，每个文件50M，即占用1500MB空间，抓的是全部网卡6379端口的包，请根据实际情况调整一下抓包参数
 ```
