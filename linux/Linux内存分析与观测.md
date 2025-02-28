@@ -11,17 +11,17 @@ $ free -m
 Mem:          14732        1512        4036           4        9183       12888
 Swap:             0           0           0
 ```
-可以看到，输出包括两⾏：Mem 和 Swap。
+可以看到，输出包括两⾏: Mem 和 Swap。
 
-其中Mem表示系统中实际的物理内存；对于Memory来说，我们发现 total = used + free + buff/cache。
+其中Mem表示系统中实际的物理内存;对于Memory来说，我们发现 total = used + free + buff/cache。
 
-Swap表示交换分区(类似windows中的虚拟内存)，是硬盘中⼀个独⽴的分区，⽤于在系统内存不够时，临时存储被释放的内存空间中的内容；对于Swap来说，三者的关系很简单，就是total = used + free。(在上⾯的例⼦中，由于这台ECS禁⽤swap空间，所以swap的值都是0。) 
+Swap表示交换分区(类似windows中的虚拟内存)，是硬盘中⼀个独⽴的分区，⽤于在系统内存不够时，临时存储被释放的内存空间中的内容;对于Swap来说，三者的关系很简单，就是total = used + free。(在上⾯的例⼦中，由于这台ECS禁⽤swap空间，所以swap的值都是0。) 
 
 而前三列 "total"、"used"、"free" 分别表示 总量，使⽤量和有多少空闲空间。
 其中 buff 和 cache 分别表示存放了将要写到磁盘中的数据和从磁盘的读取的数据的内存。也就是说内存除了存储进程运⾏所需的运⾏时数据之外，还为了提⾼性能，缓存了⼀部分I/O数据。由于系统的cache和buffer可以被回收，所以可⽤的(available)内存⽐空闲的(free)要⼤。在部署了某些⾼I/O应⽤的主机中，available会⽐free看起来⼤很多，这是由于⼤量的内存空间⽤于缓存对磁盘的I/O数据。
 
 - free命令的所有输出值都是从 `/proc/meminfo` 中读出的
-  - [Linux：/proc/meminfo参数详细解释](https://blog.csdn.net/whbing1471/article/details/105468139/)
+  - [Linux: /proc/meminfo参数详细解释](https://blog.csdn.net/whbing1471/article/details/105468139/)
 ```shell
 $ cat /proc/meminfo
 MemTotal:       15085684 kB
@@ -93,7 +93,7 @@ $ vmstat 2
 
 ### 2. 进程内存
 
-通过free命令，我们可以看到系统总体的内存使⽤状况。但很多时需要查看特定进程(process)所消耗的内存，这时我们最常⽤的命令是 `ps`，这个命令的输出中有两列与内存相关，分别是VSZ和RSS。此外还有另外两个类似的指标——PSS和USS，这⾥将这四个⼀并讨论：
+通过free命令，我们可以看到系统总体的内存使⽤状况。但很多时需要查看特定进程(process)所消耗的内存，这时我们最常⽤的命令是 `ps`，这个命令的输出中有两列与内存相关，分别是VSZ和RSS。此外还有另外两个类似的指标——PSS和USS，这⾥将这四个⼀并讨论: 
 
 |指标缩写|全称|含义|
 |:------:|:------:|:------:|
@@ -104,9 +104,9 @@ $ vmstat 2
 
 ![进程内存的关系](./images/进程内存的关系.jpg)
 
-以上这些指标可以通过`/proc/[pid]/smaps`文件中找到，其中pid是进程的ID。这四者的⼤⼩关系是：VSS >= RSS >= PSS >= USS
+以上这些指标可以通过`/proc/[pid]/smaps`文件中找到，其中pid是进程的ID。这四者的⼤⼩关系是: VSS >= RSS >= PSS >= USS
 
-分析进程内存的整体使⽤情况，可以从 `/proc/[pid]/status` 文件中读取信息，显示的内容包括进程的VSS和RSS，下面是相关字段的含义：
+分析进程内存的整体使⽤情况，可以从 `/proc/[pid]/status` 文件中读取信息，显示的内容包括进程的VSS和RSS，下面是相关字段的含义: 
 ```shell
 # 系统中 kubelet进程为例
 $ cat /proc/377598/status
@@ -331,17 +331,17 @@ Cgroups 中的相关概念
 
 Cgroups 包含的 subsystem:
 
-    blkio，用于限制和监控进程组对块设备I/O的使用，包括磁盘读写和I/O调度；
-    cpu，用于限制和监控进程组对CPU的使用，可以设置CPU的时间片、使用率等限制；
-    cpuacct，统计CPU的使用情况，产生 cgroup 任务的 cpu 资源报告；
-    cpuset，用于将进程组绑定到特定的CPU和内存节点上，以实现对CPU和内存资源的分配；
-    devices，用于限制和监控进程组对设备的访问，可以控制进程组对特定设备的访问权限；
-    freezer，用于暂停和恢复进程组的运行状态，可以用于冻结和恢复进程组的运行；
-    hugetlb，限制HugeTLB的使用；
-    memory，用于限制和监控进程组对内存的使用，可以设置进程组的内存限制、内存重分配等；
-    net_cls，标记cgroups中进程的网络数据包，配合tc（traffic controller）限制网络带宽；
-    net_prio，设置进程的网络流量优先级；
-    ns，命名空间子系统；
+    blkio，用于限制和监控进程组对块设备I/O的使用，包括磁盘读写和I/O调度;
+    cpu，用于限制和监控进程组对CPU的使用，可以设置CPU的时间片、使用率等限制;
+    cpuacct，统计CPU的使用情况，产生 cgroup 任务的 cpu 资源报告;
+    cpuset，用于将进程组绑定到特定的CPU和内存节点上，以实现对CPU和内存资源的分配;
+    devices，用于限制和监控进程组对设备的访问，可以控制进程组对特定设备的访问权限;
+    freezer，用于暂停和恢复进程组的运行状态，可以用于冻结和恢复进程组的运行;
+    hugetlb，限制HugeTLB的使用;
+    memory，用于限制和监控进程组对内存的使用，可以设置进程组的内存限制、内存重分配等;
+    net_cls，标记cgroups中进程的网络数据包，配合tc（traffic controller）限制网络带宽;
+    net_prio，设置进程的网络流量优先级;
+    ns，命名空间子系统;
     perf_event，增加了对每 group 的监测跟踪的能力，可以检测属于某个特定的group的所有线程以及运行在特定CPU上的线程。
 
 ```shell
@@ -442,7 +442,7 @@ pgpgout 2646707                           # 从内存中读取的页数
 pgfault 2671812
 pgmajfault 0
 inactive_anon 107532288                   # 不活跃的 LRU 列表中的中的匿名和 swap 缓存，包括 tmpfs(shmem)，单位为字节
-active_anon 540672                        # 在活跃的最近最少使用(LRU)列表中的匿名和 swap 缓存，包括 tmpfs(shmem)，单位为字节；匿名内存，指没有关联到文件的内存，例如进程的堆、栈、数据段等
+active_anon 540672                        # 在活跃的最近最少使用(LRU)列表中的匿名和 swap 缓存，包括 tmpfs(shmem)，单位为字节;匿名内存，指没有关联到文件的内存，例如进程的堆、栈、数据段等
 inactive_file 20480                       # 不活跃的 LRU 列表中的 file-backed 内存，单位为字节
 active_file 18919424                      # 在活跃的 LRU 列表中的 file-backed 内存，单位为字节。程序读写文件会产生文件缓存(file cache)，其中最近多次使用的缓存称为active file cache，通常不容易被系统回收。
 unevictable 0                             # 无法再生的内存，单位为字节
@@ -477,10 +477,10 @@ total_unevictable 0
 ```
 
 在Linux内核中，对于进程的内存使⽤与Cgroup的内存使⽤统计有⼀些相同和不同的地⽅
-  - 进程的RSS为进程使用的所有物理内存，不包含Swap，包含共享内存；
-  - Cgroup RSS 包含 Swap，不包含共享内存；在没有swap的情况下，Cgroup的RSS更像是进程的USS；
-  - 两者都不包含⽂件系统的Cache；
-  - 在Cgroup中，Cache指的是包括文件系统缓存和共享内存在内的缓存大小；故Cgroup Cache包含⽂件系统的Cache和共享内存。
+  - 进程的RSS为进程使用的所有物理内存，不包含Swap，包含共享内存;
+  - Cgroup RSS 包含 Swap，不包含共享内存;在没有swap的情况下，Cgroup的RSS更像是进程的USS;
+  - 两者都不包含⽂件系统的Cache;
+  - 在Cgroup中，Cache指的是包括文件系统缓存和共享内存在内的缓存大小;故Cgroup Cache包含⽂件系统的Cache和共享内存。
   
 关于这两者，Cgroup的内存统计是针对整个容器中的所有进程而言的，而进程的内存统计针对的是单个或者特定的进程。在遵循one docker one process的容器技术中，主进程基本反应了容器的内存使⽤状况，但这毕竟不完整。在很多场景下，⼀个容器中运⾏多个进程甚至大量线程也是很常见的情况，此时进程的内存统计就是一种很好的补充观测手段了。
 
@@ -572,7 +572,7 @@ nginx-ingress-controller-75c587dfd5-vwmpz   4m           121Mi
 
 有时候查看容器本身的内存使用量是一方面，而容器内进程实际资源占用的情况，也需要我们在node宿主机上，看对应进程的资源消耗情况。
 
-container_memory_usage_bytes指标可以直接从 cgroup 中的 memory.usage_in_bytes文件获取，但container_memory_working_set_bytes指标并没有具体的文件，它的计算逻辑在 cadvisor 的代码中，具体如下：
+container_memory_usage_bytes指标可以直接从 cgroup 中的 memory.usage_in_bytes文件获取，但container_memory_working_set_bytes指标并没有具体的文件，它的计算逻辑在 cadvisor 的代码中，具体如下: 
 ```golang
   // cadvisor的指标说明
   // https://github.com/google/cadvisor/blob/master/docs/storage/prometheus.md)
@@ -754,7 +754,7 @@ $ uname -r
 3.10.0-514.26.2.el7.x86_64  # 需要升级到 kernel-3.10.0-1160.45.1.el7.x86_64.rpm 版本(用于安装GPU驱动)
 
 # 2、下载指定内核版本
-# 下载地址：http://ftp.scientificlinux.org/linux/scientific/7.0/x86_64/updates/security/
+# 下载地址: http://ftp.scientificlinux.org/linux/scientific/7.0/x86_64/updates/security/
 $ wget http://ftp.scientificlinux.org/linux/scientific/7.0/x86_64/updates/security/kernel-3.10.0-1160.45.1.el7.x86_64.rpm
 
 # 3、安装内核版本
@@ -783,7 +783,7 @@ total_active_file 61095936                  # 61095936/1024/1024/1024 = 0.056GB
   - 然后再执行下面的命令
     - 清除pagecache `echo 1 > /proc/sys/vm/drop_caches`
     - 回收slab分配器 `echo 2 > /proc/sys/vm/drop_caches`
-  - 执行 `sync` 会把内存数据落盘；回收slab分配器会释放页缓存，回收期间会对系统性能产生一些影响，但影响不大
+  - 执行 `sync` 会把内存数据落盘;回收slab分配器会释放页缓存，回收期间会对系统性能产生一些影响，但影响不大
 
 - 最终方案
   - 集群新增使用高内核版本系统的节点
@@ -999,7 +999,7 @@ nonvoluntary_ctxt_switches:     5
 
 - 数据分析
 ```
-从之前收集的信息看：
+从之前收集的信息看: 
 
 1、Java容器内存
 container_memory_usage_bytes = container_memory_rss + container_memory_cache + kernel memory(kernel可以忽略)
@@ -1117,6 +1117,22 @@ total kB         11135288 5517748 5499792%
 - 其他排查文件
   - [持续剖析功能](https://help.aliyun.com/zh/arms/application-monitoring/user-guide/enable-continuous-profiling)
   - [慢调用链诊断利器-ARMS 代码热点](https://mp.weixin.qq.com/s/_fzVzCX4bts7RByanU_Feg)
+
+#### 关于 Java 应用出现 oom 的排查思路
+- 关于oom的情况非常多，问题的确很复杂。而且与使用的框架或者jdk版本可能也有关系(jdk11对比jdk8修复了一些内容，也可能又影响)，没有办法一下子直接定位到根因，可以参考以下思路
+  - 保存相关应用日志，找`outofmemory`等关键词
+  - 分析系统日志`/var/log/messages`或者`dmesg`观察`outofmemory`的情况、进程运行的记录;
+  - 重点关注: 谁触发了oom-killer;最后杀死了谁;当时进程的相关信息。
+  - 参考
+    - [出现OOM Killer的原因及解决方案](https://help.aliyun.com/zh/alinux/support/causes-of-and-solutions-to-the-issue-of-oom-killer-being-triggered)
+    - [解读OOM killer机制输出的日志](https://blog.csdn.net/weixin_39247141/article/details/126304526)
+
+- 定位区域: 
+  - 堆内出现问题: 可以打内存快照用ATP分析;或者用MAT工具分析(有一定学习成本，但很有用);
+  - 堆外出现问题: 元空间有问题可以查看相关监控;`Direct Memory`有问题，可以用NMT分析;`JNI Memory`有问题，通过排除法最后看这部分;
+    - `Direct Memory`: 关键词一般和Netty, 分布式，RPC等有关
+    - `JNI Memory`: 这个由于是JVM内存调用了native方法，看不到具体的异常类型，可以用排除法，先看其他几种可能
+
 
 ## 三. 参考文档
 
