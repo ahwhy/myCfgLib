@@ -339,7 +339,7 @@ Cgroups 包含的 subsystem:
     freezer，用于暂停和恢复进程组的运行状态，可以用于冻结和恢复进程组的运行;
     hugetlb，限制HugeTLB的使用;
     memory，用于限制和监控进程组对内存的使用，可以设置进程组的内存限制、内存重分配等;
-    net_cls，标记cgroups中进程的网络数据包，配合tc（traffic controller）限制网络带宽;
+    net_cls，标记cgroups中进程的网络数据包，配合tc(traffic controller)限制网络带宽;
     net_prio，设置进程的网络流量优先级;
     ns，命名空间子系统;
     perf_event，增加了对每 group 的监测跟踪的能力，可以检测属于某个特定的group的所有线程以及运行在特定CPU上的线程。
@@ -1039,7 +1039,110 @@ VmRSS:   5120108 kB/1024 = 5000mB /1024 = 4.88gB
   - Java容器内java进程，VmRSS 为 4.88gB，说明该java进程的内存使用量基本占用了，Java容器全部的已使用内存
   - 而此时jvm只有1.3GB，需要根据代码分析，其余内存是如何消耗的，是否有泄漏现象
 
-### 3. java容器进程占用问题
+### 3. memory.usage_in_bytes 过大问题
+- 问题描述
+  - memory.usage_in_bytes 显示内存有 1.95GB 
+  - container_memory_working_set_bytes 只有 226.5MB
+  - 可以看到差距太大
+```shell
+[root@hostlocal cri-containerd-86204e4ded8dxxx.scope]# cat memory.usage_in_bytes 
+2100830208 # 2090730307/1024/1024 = 1.95GB
+
+# container_memory_working_set_bytes = container_memory_rss + container_memory_cache - total_inactive_file = 235843696 + 2837428 - 1215511 = 226.5MB
+[root@hostlocal cri-containerd-86204e4ded8dxxx.scope]# cat memory.stat 
+cache 2837428
+rss 235843696
+rss_huge 123732068
+shmem 0
+mapped_file 0
+dirty 0
+writeback 405504
+swap 0
+pgpgin 13469907
+pgpgout 13451379
+pgfault 13502709
+pgmajfault 0
+inactive_anon 2096260072
+active_anon 0
+inactive_file 1215511
+active_file 1892352
+unevictable 0
+hierarchical_memory_limit 17179869184
+hierarchical_memsw_limit 17179869184
+total_cache 2837428
+total_rss 235843696
+total_rss_huge 123732068
+total_shmem 0
+total_mapped_file 0
+total_dirty 0
+total_writeback 405504
+total_swap 0
+total_pgpgin 13469907
+total_pgpgout 13451379
+total_pgfault 13502709
+total_pgmajfault 0
+total_inactive_anon 2096260072
+total_active_anon 0
+total_inactive_file 1215511
+total_active_file 1892352
+total_unevictable 0
+```
+
+- 问题影响
+  - 使得 cadvsior 采到的 pod 内存特别高，然后导致 HPA 异常扩容
+
+- 解决方案
+  - 参考文档[Alibaba Cloud Linux系统中与透明大页THP相关的性能调优方法](https://help.aliyun.com/zh/ecs/transparent-huge-page-thp-related-performance-optimization-in-alibaba-cloud-linux-2)
+  - 通过`echo 0 > /sys/kernel/mm/transparent_hugepage/hugetext_enabled`关闭透明大页
+  - 存量内存通过`echo 1 > /sys/kernel/debug/split_huge_pages`释放
+
+- 可能原因：
+  - 通过测试复现了，这个情况也和 socket 相关，内存在吃了大量socket链接以后上涨，然后就不会再释放了
+  - 此时通过执行`echo 2 > /proc/sys/vm/drop_caches`，也可以清理掉这部分内存
+  - 代码中使用`go 1.20 madvise DONOTNEED(MADV_DONTNEED)`
+  - 根据现象看把 2MB大页 进行部分MADV_DONTNEED后，就会出现这个问题
+
+- 测试代码，4.19以上内核都能复现
+```shell
+#include <sys/mman.h>
+#include <unistd.h>
+#include <stdio.h>
+
+#define HUGE_SIZE (1<<21)
+#define PAGE_SIZE (1<<12)
+
+int main() {
+    size_t length = 1024*1024*1024; // 2MB 大页
+    int i = 0;
+    int ret = 0;
+    char *p = NULL;
+
+    length -= length%HUGE_SIZE;
+
+    void *addr = mmap(NULL, length+HUGE_SIZE, PROT_READ | PROT_WRITE, MAP_NORESERVE|MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (addr == MAP_FAILED) {
+        perror("mmap");
+        return 1;
+    }
+    addr += HUGE_SIZE - addr%HUGE_SIZE;
+    if (madvise(addr, length, MADV_HUGEPAGE) != 0) {
+        perror("madvise");
+        munmap(addr, length);
+        return 1;
+    }
+
+    memset(addr, 1, length);
+    for(p = addr; p < addr + length; p+= HUGE_SIZE) {
+        madvise(p,HUGE_SIZE - PAGE_SIZE,MADV_DONTNEED);
+    }
+    sleep(100000);
+    return 0;
+}
+```
+PS: 其实也是正常现象，usage中额外的内存，会在内存紧张时被回收掉，具体见[kernel 文档](https://lore.kernel.org/linux-mm/1425486792-93161-22-git-send-email-kirill.shutemov@linux.intel.com/)
+
+
+### 4. java容器进程占用问题
 
 #### 问题描述
 - 场景一 
@@ -1102,7 +1205,7 @@ total kB         11135288 5517748 5499792%
 
 #### 问题结论
 - 场景一
-  - Java进程除了 Jvm内存（包括堆内存 Heap、堆外内存 Non-Heap），还有非Jvm内存，包括本地运行库、JNI本地代码
+  - Java进程除了 Jvm内存(包括堆内存 Heap、堆外内存 Non-Heap)，还有非Jvm内存，包括本地运行库、JNI本地代码
   - 参考文档 [JVM监控内存详情说明](https://help.aliyun.com/zh/arms/application-monitoring/developer-reference/jvm-monitoring-memory-details)
 
 - 场景二
