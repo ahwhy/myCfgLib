@@ -135,23 +135,33 @@ $ crictl -h
 
 # 查看 containerd 启动日志
 $ journalctl -xe -u containerd --no-pager
+```
 
-# 通过 --creds 参数，可以直接拉取私有镜像，其中username和password需要替换真实用户名和密码
-$ crictl  pull --creds  $username:$password registry.cn-hangzhou.aliyuncs.com/test-cri/busybox:latest
+## 使用 crictl 和 ctr 工具
+
+```shell
+# 查看 ctr 工具命令
+$ ctr -n k8s.io -- help
+$ ctr -n k8s.io containers list
+$ ctr -n k8s.io c info xxxxxx
+$ ctr -n k8s.io tasks ls
 
 # 查看镜像层配置
 $ ctr -n k8s.io content get sha256:xxx | python -m json.tool | less
 
 # containerd 如何push本地镜像到镜像仓库
 # ls
-ctr --namespace k8s.io images ls
+$ ctr --namespace k8s.io images ls
 
 #tag
-ctr --namespace k8s.io images tag docker.io/kennethreitz/httpbin:latest XXXXXXXX.com/test/docker.io:httpbin
+$ ctr --namespace k8s.io images tag docker.io/kennethreitz/httpbin:latest XXXXXXXX.com/test/docker.io:httpbin
 
 #push
-ctr --namespace k8s.io images push XXXXXXXX.com/test/docker.io:httpbin --user=XXXXXX
+$ ctr --namespace k8s.io images push XXXXXXXX.com/test/docker.io:httpbin --user=XXXXXX
 # 需要输入密码
+
+# 通过 --creds 参数，可以直接拉取私有镜像，其中username和password需要替换真实用户名和密码
+$ crictl  pull --creds  $username:$password registry.cn-hangzhou.aliyuncs.com/test-cri/busybox:latest
 
 # 如果开启 config_path = "/etc/containerd/cert.d" 的配置方法
 # http方式

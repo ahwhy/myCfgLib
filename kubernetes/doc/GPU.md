@@ -52,3 +52,6 @@ sudo nvidia-modprobe -u -c=0 -m || true                  # 加载NVIDIA统一内
 # 下载并执行诊断脚本
 sudo curl https://aliacs-k8s-cn-beijing.oss-cn-beijing.aliyuncs.com/diagnose/diagnose-gpu.sh | bash -s -- --pod test-pod
 ```
+
+### 2、常见问题
+- [内核更新时无法正常加载NVIDIA GPU（Tesla）驱动](https://help.aliyun.com/zh/egs/support/the-nvidia-gpu-tesla-driver-cannot-be-loaded-when-the-kernel-is-updated)

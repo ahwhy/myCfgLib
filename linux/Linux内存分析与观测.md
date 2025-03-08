@@ -1141,7 +1141,6 @@ int main() {
 ```
 PS: 其实也是正常现象，usage中额外的内存，会在内存紧张时被回收掉，具体见[kernel 文档](https://lore.kernel.org/linux-mm/1425486792-93161-22-git-send-email-kirill.shutemov@linux.intel.com/)
 
-
 ### 4. java容器进程占用问题
 
 #### 问题描述
@@ -1255,3 +1254,4 @@ total kB         11135288 5517748 5499792%
 - [K8S 容器内 Java 进程内存分析](https://www.xlabs.club/blog/java-memory/)
 - [【JVM案例篇】堆外内存(JNI Memory)泄漏(Linux经典64M内存块问题)](https://article.juejin.cn/post/7255634554987020343)
 - [找到Linux虚机Load高的"元凶"](https://developer.aliyun.com/article/484253)
+- [查看cache的工具 hcache](https://github.com/silenceshell/hcache)

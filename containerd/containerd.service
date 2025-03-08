@@ -24,5 +24,3 @@ OOMScoreAdjust=-999
 
 [Install]
 WantedBy=multi-user.target
-
-ps -A -ostat,ppid,pid,cmd | egrep -e '^[Zz]|PPID'
