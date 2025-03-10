@@ -105,4 +105,7 @@ TasksMax=infinity
 [Install]
 WantedBy=multi-user.target
 EOF
+
+$ 查看容器镜像的完整构建过程
+$ docker history --no-trunc registry.cn-hongkong.aliyuncs.com/acs/aliyun-ingress-controller:v1.9.3-aliyun.1
 ```

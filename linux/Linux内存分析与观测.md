@@ -1255,3 +1255,4 @@ total kB         11135288 5517748 5499792%
 - [【JVM案例篇】堆外内存(JNI Memory)泄漏(Linux经典64M内存块问题)](https://article.juejin.cn/post/7255634554987020343)
 - [找到Linux虚机Load高的"元凶"](https://developer.aliyun.com/article/484253)
 - [查看cache的工具 hcache](https://github.com/silenceshell/hcache)
+- [一次 Java 进程 OOM 的排查分析（glibc 篇）](https://heapdump.cn/article/1709425)

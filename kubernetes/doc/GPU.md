@@ -51,6 +51,10 @@ sudo nvidia-modprobe -u -c=0 -m || true                  # 加载NVIDIA统一内
 
 # 下载并执行诊断脚本
 sudo curl https://aliacs-k8s-cn-beijing.oss-cn-beijing.aliyuncs.com/diagnose/diagnose-gpu.sh | bash -s -- --pod test-pod
+
+# GPU 诊断脚本(已随 GPU 驱动安装)
+# 在任意目录运行 nvidia-bug-report.sh 
+nvidia-bug-report.log.gz
 ```
 
 ### 2、常见问题
