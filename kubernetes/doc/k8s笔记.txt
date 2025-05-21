@@ -2437,7 +2437,7 @@ https://<apiserver_ip>/apis/custom-metrics.metrics.k8s.io/v1beta1/namespaces/def
 对于一个多实 例应用来说，通过 Service 来采集 Pod 的 Custom Metrics 其实才是合理的做法 
 而 Custom Metrics APIServer 在收到对 http_requests 指标的访问请求之后，它会从 Prometheus 里查询 http_requests_total 的值，然后把它折算成一个以时间为单位的请求 率，最后把这个结果作为 http_requests 指标对应的值返回回去。 
 
-
+- [监控采集组件 kubeskoop](https://kubeskoop.io/docs/guide/running-in-sidecar)
 
 17、日志收集
 Kubernetes 里面对容器日志的处理方式，都叫作 cluster-level-logging，即:这个日志处理系统，与容器、Pod 以及 Node 的生命周期都是完全无关的。这种设计当然是为了保证，无论是容器挂了、Pod 被删除，甚至节点宕机的时候，应用的日志依然可以被正常获取到。 

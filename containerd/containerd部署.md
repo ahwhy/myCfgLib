@@ -183,8 +183,51 @@ server = "https://harbor.test-cri.com"
   skip_verify = true
   # ca = "/opt/ssl/ca.crt"  # 或者上传ca证书
 EOF
+```
 
-# 进入 containerd 容器网络 namespace 中抓包
+## 运维及排障技巧
+- 如何冻结 cgroup
+```shell
+# 1、找到目标容器id
+$ crictl ps
+
+# 2、获得容器的 cgroup 路径
+$ crictl inspect {容器id} | grep cgroupsPath
+
+# 3、进入容器 cgroup
+$ cd /sys/fs/cgroup/freezer/{容器cgroups路径} 
+
+# 4、打印容器的冻结状态，此时应该是 "THAWED" 未冻结
+$ cat frezzer.state
+
+# 5、冻结容器
+$ echo FREEZE > freezer.state
+
+# 6、打印容器的冻结状态，此时应该是 "FROZEN" 已冻结
+$ cat frezzer.state
+
+# 7、测试完成后，解冻容器
+$ echo THAWED > freezer.state
+```
+
+- containerd 主要目录层级
+  - `/var/lib/containerd/io.containerd.content.v1.content` 主要存储镜像的内容（blob），它关注的是镜像层的数据，保证存储的高效性和内容唯一性。
+  - `/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs` 管理文件系统快照，这与容器执行时的读写操作相关，提供容器文件系统的完整视图，以支持容器进程的正确执行。
+    - containerd 下载镜像解压的 snapshot 目录，以及容器读写层 snapshot ，与同级目录的数据库索引对应
+    - 如何找到容器的可写目录
+```shell
+# 1、找到目标容器id
+$ crictl ps
+
+# 2、确认容器内主进程 ID
+$ crictl inspect {容器id} | grep pid
+
+# 3、确认容器的可写目录
+$ cat /proc/{pid}]/mountinfo | grep upperdir
+```
+
+- 进入 containerd 容器网络 namespace 中抓包
+```shell
 # 1、节点上找到pod id
 crictl pods | grep {pod name}
 
