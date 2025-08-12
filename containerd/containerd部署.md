@@ -186,6 +186,18 @@ EOF
 ```
 
 ## 运维及排障技巧
+- 镜像
+```shell
+# 导出镜像
+$ ctr -n=k8s.io images export {文件名.tar} {镜像名称}
+
+# 拷贝到目标节点导入镜像
+$ ctr -n=k8s.io images import {文件名.tar}
+
+# https://github.com/containerd/containerd/blob/main/docs/hosts.md#using-host-namespace-configs-with-ctr
+$ ctr images pull --hosts-dir "/etc/containerd/certs.d" myregistry.io:5000/image_name:tag
+```
+
 - 如何冻结 cgroup
 ```shell
 # 1、找到目标容器id
@@ -239,8 +251,14 @@ crictl inspect {容器 id} | grep pid
 
 # 4、进入进程的网络 namespace
 nsenter -t {进程pid} -n
+nsenter -t $容器PID -m -u -i -n -p # 相当于用宿主机用户进容器，比如可以用 root 用户进非 root 容器
 
 # 5、执行 ifconfig ，确定只有pod网卡，后通过 tcpdump 抓包
 nohup tcpdump -i any port 6379 -C 30 -W 50 -w /tmp/test.pcap &
 # 该命令在后台运行，会生成30个文件，每个文件50M，即占用1500MB空间，抓的是全部网卡6379端口的包，请根据实际情况调整一下抓包参数
 ```
+
+## 相关文档
+- [registry.md](https://github.com/containerd/cri/blob/master/docs/registry.md?spm=a2c9r.12641779.0.0.54fc5e3bhEpRqz&file=registry.md)
+- [Containerd组件 —— containerd-shim-runc-v2作用](https://www.cnblogs.com/zhangmingcheng/p/17524721.html)
+- [一文搞懂容器运行时 Containerd](https://www.qikqiak.com/post/containerd-usage/)
