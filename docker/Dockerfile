@@ -42,6 +42,17 @@ RUN yum install -y epel-release && yum install -y unzip vim wget tree lrzsz gcc 
 RUN yum clean all && rm -rf ~/.cache/pip/
 ADD target/demo.war /usr/local/tomcat/webapps/demo.war
 
+# 类似 dockerfile 新的语法 build cache https://man7.org/linux/man-pages/man5/resolv.conf.5.html
+RUN --mount=type=bind,source=go.mod,target=go.mod \
+    --mount=type=bind,source=go.sum,target=go.sum \
+    go mod download -x
+RUN --mount=type=bind,target=. \
+    --mount=type=cache,target=/go/pkg/mod/ \
+    --mount=type=cache,target=/root/.cache/go-build \
+    GO111MODULE=on CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+    go build -ldflags "-s -w" \
+    -o /bin/main .
+
 # https://aka.ms/containerfastmode
 # 分阶段构建镜像，从第一阶段构建的镜像中拷贝产物
 COPY --from=base /data/workspace/demo /opt/demo
