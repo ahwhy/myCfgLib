@@ -470,7 +470,7 @@ total_unevictable 0
 /etc/nginx $ cat /sys/fs/cgroup/memory/memory.usage_in_bytes
 127254528
 
-# container_memory_working_set_bytes = container_memory_usage_bytes - total_inactive_file(未激活的匿名缓存页)
+# container_memory_working_set_bytes = container_memory_usage_bytes - total_inactive_file(不活跃文件页)
 #                                    = 127254528 - 20480
 #                                    = 127234048/1024/1024
 #                                    = 121Mi
@@ -565,9 +565,9 @@ nginx-ingress-controller-75c587dfd5-vwmpz   4m           121Mi
 关于`kubectl top`命令，本文也就不做更详细的介绍了，有兴趣的大家可以移步[从kubectl top看K8S监控原理](http://www.xuyasong.com/?p=1781#41_kubectl_top)进行翻阅。
 
 上面提到监控指标的计算公式为
-  - `container_memory_working_set_bytes = container_memory_usage_bytes - total_inactive_file(未激活的匿名缓存页)` container_memory_working_set_bytes 是容器真实使用的内存量，也是资源限制limit时的重启判断依据，超过limit会导致oom
-  - `container_memory_usage_bytes = container_memory_rss + container_memory_cache + kernel memory(kernel可以忽略)` 需要注意的是，这里公式得出的是一个近似值，可能还受到其他因素的影响，例如内存压缩、内核数据结构的复杂性等。
-  - `rss = total_inactive_anon + total_active_anon`
+  - `container_memory_working_set_bytes = container_memory_usage_bytes - total_inactive_file(不活跃文件页)` container_memory_working_set_bytes 是容器真实使用的内存量，也是资源限制limit时的重启判断依据，超过limit会导致oom
+  - `container_memory_usage_bytes = container_memory_rss + container_memory_cache + kernel memory(kernel可以忽略，在容器中 kernel_memory ~= 0)` 需要注意的是，这里公式得出的是一个近似值，可能还受到其他因素的影响，例如内存压缩、内核数据结构的复杂性等。
+  - `rss(匿名内存) = total_inactive_anon + total_active_anon`
   - `cache = total_inactive_file + total_active_file`
 
 有时候查看容器本身的内存使用量是一方面，而容器内进程实际资源占用的情况，也需要我们在node宿主机上，看对应进程的资源消耗情况。
@@ -1003,12 +1003,12 @@ nonvoluntary_ctxt_switches:     5
 
 1、Java容器内存
 container_memory_usage_bytes = container_memory_rss + container_memory_cache + kernel memory(kernel可以忽略)
-container_memory_working_set_bytes = container_memory_usage_bytes - total_inactive_file(未激活的匿名缓存页)
+container_memory_working_set_bytes = container_memory_usage_bytes - total_inactive_file(不活跃文件页)
                                    = container_memory_rss + container_memory_cache + kernel memory(kernel可以忽略) - total_inactive_file
                                    = 5227409408 + 1146900480 - 1128783872
                                    = 5245526061/1024/1024/1024
                                    = 4.885 GB
-其中 container_memory_cache - total_inactive_file(未激活的匿名缓存页)= 1146900480 - 1128783872
+其中 container_memory_cache - total_inactive_file(不活跃文件页)= 1146900480 - 1128783872
 total_inactive_file 本身就包含在cache里面，所以这里的4.88GB中，包含的cache可以忽略不计了
 
 2、Java信息
