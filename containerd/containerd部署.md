@@ -189,7 +189,13 @@ EOF
 - 镜像
 ```shell
 # 导出镜像
+# 同 docker save {镜像名称} > image.tar
 $ ctr -n=k8s.io images export {文件名.tar} {镜像名称}
+
+# 查看导出镜像的 manifest.json 
+$ mkdir /tmp/images/
+$ tar -xvf image.tar -C /tmp/images/
+$ cat /tmp/images/manifest.json | jq
 
 # 拷贝到目标节点导入镜像
 $ ctr -n=k8s.io images import {文件名.tar}
