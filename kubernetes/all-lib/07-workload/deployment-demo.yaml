@@ -58,6 +58,18 @@ spec:
           - name: kernel.msgmax
           value: "65536"
           allowPrivilegeEscalation: true
+      - name: tcp-tuning
+        image: aisphere-be-registry-vpc.us-west-1.cr.aliyuncs.com/aisphere-be/realtime_server:2025-12-25-10-59-32-prod
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          ip route change default via $(ip route | grep default | awk '{print $3}') \
+            dev $(ip route | grep default | awk '{print $5}') \
+            initcwnd 150 initrwnd 750 onlink && \
+          echo "✅ TCP窗口已配置" && ip route show default
+        securityContext:
+          capabilities:
+            add: [NET_ADMIN]
       containers:
       - name: demoapp
         image: registry.cn-hangzhou.aliyuncs.com/opensf/demoapp:v1.0
