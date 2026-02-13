@@ -1244,7 +1244,6 @@ total kB         11135288 5517748 5499792%
 - [Metrics-Server指标获取链路分析](https://developer.aliyun.com/article/1076518)
 - [k8s之容器内存与JVM内存](https://blog.csdn.net/qq_34562093/article/details/126754502)
 - [容器内存监控，是看rss还是wss？](https://www.jianshu.com/p/36a1df62cda7)
-- [Java进程内存分析](https://www.nxest.com/bits-pieces/java/jvm/)
 - [FullGC实战](https://mp.weixin.qq.com/s?__biz=MzU5ODUwNzY1Nw==&mid=2247484533&idx=1&sn=6f6adbccadb3742934dc49901dac76af&chksm=fe426d93c935e4851021c49e5a9eb5a2a9d3c564623e7667e1ef3a8f35cb98717041d0bbccff&scene=0&xtrack=1#rd)
 - [JVM调优系列----NewRatio与SurvivorRatio](https://it.cha138.com/php/show-47569.html)
 - [pmap，linux工具pmap原理？](https://www.cnblogs.com/Chary/p/16719738.html)
@@ -1255,4 +1254,5 @@ total kB         11135288 5517748 5499792%
 - [【JVM案例篇】堆外内存(JNI Memory)泄漏(Linux经典64M内存块问题)](https://article.juejin.cn/post/7255634554987020343)
 - [找到Linux虚机Load高的"元凶"](https://developer.aliyun.com/article/484253)
 - [查看cache的工具 hcache](https://github.com/silenceshell/hcache)
+- [Java进程内存分析](https://www.xlabs.club/blog/java-memory/)
 - [一次 Java 进程 OOM 的排查分析（glibc 篇）](https://heapdump.cn/article/1709425)
