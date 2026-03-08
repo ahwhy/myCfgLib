@@ -201,7 +201,7 @@ $ cat /tmp/images/manifest.json | jq
 $ ctr -n=k8s.io images import {文件名.tar}
 
 # https://github.com/containerd/containerd/blob/main/docs/hosts.md#using-host-namespace-configs-with-ctr
-$ ctr images pull --hosts-dir "/etc/containerd/certs.d" myregistry.io:5000/image_name:tag
+$ ctr images pull --hosts-dir "/etc/containerd/certs.d" myregistry.io:5000/image_name:tag --debug
 ```
 
 - 如何冻结 cgroup
