@@ -377,7 +377,7 @@ sudo ./cuda_12.1.1_530.30.02_linux.run
 
 # 添加 CUDA 到 PATH
 echo 'export PATH=/usr/local/cuda/bin:$PATH' | sudo tee /etc/profile.d/cuda.sh
-echo 'export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH' | sudo tee /etc/profile.d/cuda.sh
+echo 'export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH' | sudo tee -a /etc/profile.d/cuda.sh
 
 # 使配置生效
 source /etc/profile.d/cuda.sh
@@ -418,7 +418,7 @@ sudo ln -s /usr/bin/python3.11 /usr/bin/python3
 # 验证
 python3 --version
 
-# python3 切虚拟环境
+# 使用 venv 模块创建隔离的 Python 环境
 python3.11 -m venv .venv
 source .venv/bin/activate
 # 退出
@@ -504,25 +504,36 @@ pip install vllm
 # 模型下载
 modelscope download --model Qwen/Qwen3-8B  --local_dir /root/autodl-tmp/Qwen/Qwen3-8B 
 
-# 通过 vllm 启动模型
-VLLM_USE_MODELSCOPE=true vllm serve /root/autodl-tmp/Qwen/Qwen3-8B --served-model-name Qwen3-8B --max_model_len 8192 --enable-reasoning --reasoning-parser deepseek_r1
+# Qwen3-8B 兼容 OpenAI API 协议，所以我们可以直接使用 vLLM 创建 OpenAI API 服务器。vLLM 部署实现 OpenAI API 协议的服务器非常方便。默认会在 http://localhost:8000 启动服务器。服务器当前一次托管一个模型，并实现列表模型、completions 和 chat completions 端口。
+# completions：是基本的文本生成任务，模型会在给定的提示后生成一段文本。这种类型的任务通常用于生成文章、故事、邮件等。
+# chat completions：是面向对话的任务，模型需要理解和生成对话。这种类型的任务通常用于构建聊天机器人或者对话系统。
+# 在创建服务器时，可以指定模型名称、模型路径、聊天模板等参数。
+# --help=all 获取所有参数
+# --host 和 --port 参数指定地址。
+# --model 参数指定模型名称。
+# --chat-template 参数指定聊天模板。
+# --served-model-name 指定服务模型的名称。
+# --max_model_len 指定模型的最大长度。
+# --enable-reasoning 开启思考模式
+# --reasoning-parser 指定如何解析模型生成的推理内容。设置 --enable-reasoning 参数时，--reasoning-parser 是必需的。推理模型会在输出中包含一个额外的 reasoning_content 字段，该字段包含导致最终结论的推理步骤。通过指定合适的解析器，可以正确提取和格式化这些推理内容。例如 deepseek_r1 解析器适用于 DeepSeek R1 系列模型，能够解析 ... 格式的内容
+VLLM_USE_MODELSCOPE=true vllm serve /root/autodl-tmp/Qwen/Qwen3-8B --host 127.0.0.1 --port 8001 --served-model-name Qwen3-8B --max_model_len 40960 --enable-reasoning --reasoning-parser deepseek_r1
 
 # Qwen3-8B 模型运行
 python -m vllm.entrypoints.openai.api_server \
 --model /root/autodl-tmp/Qwen/Qwen3-8B \
---served-model-name qwen3-8b \
+--served-model-name Qwen3-8B \
 --trust-remote-code \
 --dtype float16
 
 # Qwen3-8B 模型调用
-curl http://localhost:8000/v1/chat/completions \
+curl http://localhost:8001/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "qwen3-8b",
+    "model": "Qwen3-8B",
     "messages": [
-      {"role": "user", "content": "你好"}
+      {"role": "user", "content": "你好, 你是谁, 介绍下LLM."}
     ],
-    "max_tokens": 100
+    "max_tokens": 4096
   }'
 ```
 
