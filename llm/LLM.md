@@ -115,6 +115,9 @@ TRACE
 上下文 (Context)
 示例 (Examples)
 
+#### 什么是Claw类
+Claw 类产品是指以 OpenClaw 为代表的 AI Agent（智能体）产品，是一类低门槛 AI 自动化代理工具，通过自然语言指令理解用户需求，自动拆解任务、调用工具并执行，替代人工完成流程化、重复性工作，支持办公自动化、跨工具协同、定制化需求等。
+
 
 ### 2、RAG - 通过 RAG 增强大模型
 检索增强生成包括三个步骤，建立索引、检索、生成。
@@ -537,10 +540,60 @@ curl http://localhost:8001/v1/chat/completions \
   }'
 ```
 
+- 通过容器直接运行模型
+   - [ACS AI容器镜像 inference-nv-pytorch](https://help.aliyun.com/zh/cs/user-guide/acs-ai-container-image-version-release-record)
+```shell
+# containerd 测试
+# 拉取镜像
+➜ ctr -n k8s.io images pull egslingjun-registry.cn-wulanchabu.cr.aliyuncs.com/egslingjun/inference-nv-pytorch:26.01-vllm0.14.0-pytorch2.9-cu128-20260121-serverless --debug
+➜ ctr -n k8s.io images list | grep inference-nv-pytorch
+➜ crictl images | grep inference-nv-pytorch
+
+# 测试镜像
+➜ ctr -n k8s.io c del my-llm-container
+➜ ctr -n k8s.io run --rm --mount type=bind,source=/root,destination=/tmp,options=bind:rw:rshared -t egslingjun-registry.cn-wulanchabu.cr.aliyuncs.com/egslingjun/inference-nv-pytorch:26.01-vllm0.14.0-pytorch2.9-cu128-20260121-serverless my-llm-container /bin/bash
+➜ ctr -n k8s.io run --mount type=bind,source=/root,destination=/tmp,options=bind:rw:rshared -t egslingjun-registry.cn-wulanchabu.cr.aliyuncs.com/egslingjun/inference-nv-pytorch:26.01-vllm0.14.0-pytorch2.9-cu128-20260121-serverless my-llm-container4 /bin/bash -c 'tail -f /etc/hosts'
+➜ ctr -n k8s.io task ps my-llm-container
+➜ ctr -n k8s.io task exec -t --exec-id 16480 my-llm-container /bin/bash
+
+# 运行镜像
+# --runtime io.containerd.runc.v2: 显式指定使用 runc v2 运行时，这是 NVIDIA Hook 生效的基础。
+# --env NVIDIA_VISIBLE_DEVICES=all: 最重要。这会触发 NVIDIA Container Toolkit 的 OCI Hook，自动将宿主机的 GPU 设备文件 (/dev/nvidia*) 和驱动库 (/usr/lib/x86_64-linux-gnu/libcuda.so* 等) 挂载到容器内。
+# --env NVIDIA_DRIVER_CAPABILITIES=compute,utility: 告诉 toolkit 需要挂载计算库和工具库（包含 nvidia-smi 所需的库）。
+➜ sudo ctr -n k8s.io run \
+  --gpus 0 \
+  --runtime io.containerd.runc.v2 \
+  --env NCCL_SOCKET_IFNAME=eth0 \
+  --env GLOO_SOCKET_IFNAME=eth0 \
+  --env NVIDIA_VISIBLE_DEVICES=all \
+  --env NVIDIA_DRIVER_CAPABILITIES=compute,utility \
+  --mount type=bind,source=/root,destination=/mnt,options=bind:rw:rshared \
+  -t egslingjun-registry.cn-wulanchabu.cr.aliyuncs.com/egslingjun/inference-nv-pytorch:26.01-vllm0.14.0-pytorch2.9-cu128-20260121-serverless \
+  my-llm-container-gpu \
+  /bin/bash
+
+# 还是老老实实用 docker 测试
+➜ docker pull egslingjun-registry.cn-wulanchabu.cr.aliyuncs.com/egslingjun/inference-nv-pytorch:26.01-vllm0.14.0-pytorch2.9-cu128-20260121-serverless 
+➜ docker run -d -t \
+  --gpus all \
+  --env NVIDIA_VISIBLE_DEVICES=all \
+  --env NVIDIA_DRIVER_CAPABILITIES=compute,utility \
+  --env NCCL_SOCKET_IFNAME=eth0 \
+  --env GLOO_SOCKET_IFNAME=eth0 \
+  --network=host --ipc=host \
+  --privileged --init \
+  --ulimit memlock=-1 \
+  --ulimit stack=67108864 \
+  -v /root/:/mnt/ \
+  egslingjun-registry.cn-wulanchabu.cr.aliyuncs.com/egslingjun/inference-nv-pytorch:26.01-vllm0.14.0-pytorch2.9-cu128-20260121-serverless
+➜ VLLM_USE_MODELSCOPE=true vllm serve /mnt/autodl-tmp/Qwen/Qwen3-8B --host 127.0.0.1 --port 8001 --served-model-name Qwen3-8B --max_model_len 40960 --reasoning-parser deepseek_r1
+```
+
 
 ## 三、大模型相关文档
 
 - [阿里云大模型工程师ACA认证课程](https://edu.aliyun.com/course/3126500/)
+- [ACS AI容器镜像 inference-nv-pytorch](https://help.aliyun.com/zh/cs/user-guide/acs-ai-container-image-version-release-record)
 
 - [千问的github主页](https://github.com/QwenLM/Qwen/blob/main/README_CN.md)
 
@@ -551,8 +604,6 @@ curl http://localhost:8001/v1/chat/completions \
 
 
 - [vLLM](https://docs.vllm.com.cn/en/latest/)
-
-- [inference-nv-pytorch](https://help.aliyun.com/zh/cs/user-guide/inference-nv-pytorch-25-11)
 
 - 模型
 https://modelscope.cn/models/openai-community/openai-gpt
