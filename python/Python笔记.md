@@ -4,6 +4,10 @@
 
 ### 1、Linux环境准备
 ```shell
+# 添加 python 用户
+$ useradd python
+$ echo python | passwd --stdin python 
+
 # 利用alternatives切换不同环境
 # https://segmentfault.com/a/1190000040473419?sort=newest
 $ alternatives --config --list
@@ -29,6 +33,8 @@ $ python -V
 # 退出
 $ deactivate
 ```
+
+- [pyenv 环境工具](https://github.com/pyenv/pyenv)
 
 ### 2、相关文档
 - [Python官网](https://www.python.org/)
@@ -93,6 +99,15 @@ $ deactivate
     - 非0 即为真，如 True 比较运算符返回值    
     - 在数值上下文环境中，True 被当作 1，False 被当作 0
     - 其他类型值转换 bool值时，除了 ''、""、''''''、""""""、0、()、[]、{}、None、0.0、0L、0.0+0.0j、False 为 False 外，其他都为 True
+
+- 特殊字符
+```
+    # 转义字符值表示1个字符
+    \n 换行符
+    \r return 换行mac
+    \r\n windows
+    \t tab 向右偏8个单位或者4个单位
+```
 
 #### b、序列  sequence
 - 字符串 str
@@ -560,6 +575,8 @@ else:
 
 # 或
 print(b,a) if a>b else print(a,b)  #三元表达式：真值 if 条件 else 假值
+
+print('empty') if value == '' else print(value) # 真对应的表达式 if 条件 else 假对应的表达式
 ```
 
 - 依次输入若干个整数，打印出最大值。如果输入为空，则退出程序。
@@ -1091,9 +1108,9 @@ def 函数名(参数列表):
     - [Python 函数装饰器](https://www.runoob.com/w3cnote/python-func-decorators.html)
 
 - 数字处理函数
-    - `round()` 四舍六入取偶；4舍6入5看齐,奇进偶不进
-    - `floor()` 向下取整；
-    - `ceil()` 向上取整；
+    - `math.round()` 四舍六入取偶；4舍6入5看齐,奇进偶不进; 取离他最近的偶数，四舍六入五取偶
+    - `math.floor()` 向下取整；
+    - `math.ceil()` 向上取整；
     - `int()` 取整数部分；
     - `min()`
     - `max()`
